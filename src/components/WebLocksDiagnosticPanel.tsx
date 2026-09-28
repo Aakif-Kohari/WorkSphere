@@ -1,7 +1,13 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Lock, RefreshCw, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
+import {
+  Lock,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+} from "lucide-react";
 import { OFFLINE_WRITE_LOCK } from "@/lib/webLock";
 import { getQueuedFavorites, getQueuedCheckIns } from "@/lib/offlineStore";
 
@@ -16,8 +22,14 @@ interface OutboxState {
 }
 
 export function WebLocksDiagnosticPanel() {
-  const [lockState, setLockState] = useState<LockState>({ held: false, pending: 0 });
-  const [outbox, setOutbox] = useState<OutboxState>({ favorites: 0, checkIns: 0 });
+  const [lockState, setLockState] = useState<LockState>({
+    held: false,
+    pending: 0,
+  });
+  const [outbox, setOutbox] = useState<OutboxState>({
+    favorites: 0,
+    checkIns: 0,
+  });
   const [isSupported, setIsSupported] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -31,12 +43,14 @@ export function WebLocksDiagnosticPanel() {
 
       if (supported) {
         const snapshot = await navigator.locks.query();
-        const held = snapshot.held?.some(
-          (l: LockInfo) => l.name === OFFLINE_WRITE_LOCK,
-        ) ?? false;
-        const pending = snapshot.pending?.filter(
-          (l: LockInfo) => l.name === OFFLINE_WRITE_LOCK,
-        ).length ?? 0;
+        const held =
+          snapshot.held?.some(
+            (l: { name?: string }) => l.name === OFFLINE_WRITE_LOCK,
+          ) ?? false;
+        const pending =
+          snapshot.pending?.filter(
+            (l: { name?: string }) => l.name === OFFLINE_WRITE_LOCK,
+          ).length ?? 0;
         setLockState({ held, pending });
       }
 
@@ -82,7 +96,9 @@ export function WebLocksDiagnosticPanel() {
           aria-label="Refresh lock state"
           className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
+          <RefreshCw
+            className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`}
+          />
         </button>
       </div>
 
@@ -158,11 +174,4 @@ export function WebLocksDiagnosticPanel() {
       )}
     </div>
   );
-}
-
-// TypeScript type for Web Lock info (not in lib.dom.d.ts yet)
-interface LockInfo {
-  name: string;
-  mode: "exclusive" | "shared";
-  clientId: string;
 }

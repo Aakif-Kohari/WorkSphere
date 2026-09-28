@@ -48,8 +48,8 @@ export async function GET(request: NextRequest) {
 
   // 2. Archive expired partitions
   try {
-    results.partitionsArchived =
-      await archiveExpiredPushNotificationPartitions();
+    const archiveResult = await archiveExpiredPushNotificationPartitions();
+    results.partitionsArchived = archiveResult.archived.map((a) => a.name);
     console.log(
       `[PartitionCron] Archived ${results.partitionsArchived.length} expired partition(s)`,
     );

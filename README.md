@@ -58,16 +58,6 @@
 
 A massive thank you to all **83 brilliant contributors and bots** building WorkSphere! 🌟
 
-<p align="center">
-  <a href="https://github.com/SatyamPandey-07/WorkSphere/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=SatyamPandey-07/WorkSphere" alt="WorkSphere Contributors" />
-  </a>
-</p>
-
-<details open>
-<summary><b>🌟 Click to view all 83 contributors and bots</b></summary>
-<br />
-
 <table>
   <tr>
     <td align="center" width="14.28%">
@@ -593,8 +583,6 @@ A massive thank you to all **83 brilliant contributors and bots** building WorkS
     <td align="center" width="14.28%"></td>
   </tr>
 </table>
-
-</details>
 
 ---
 

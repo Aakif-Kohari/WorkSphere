@@ -12,11 +12,11 @@ const VALID_REASONS = [
   "other",
 ] as const;
 
-type FlagReason = typeof VALID_REASONS[number];
+type FlagReason = (typeof VALID_REASONS)[number];
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { venueId: string } },
+  { params }: { params: Promise<{ venueId: string }> },
 ) {
   const { userId } = await auth();
   if (!userId) {
@@ -32,7 +32,7 @@ export async function POST(
     );
   }
 
-  const { venueId } = params;
+  const { venueId } = await params;
   const body = await req.json();
   const reason: FlagReason = body.reason;
 
@@ -43,7 +43,10 @@ export async function POST(
     );
   }
 
-  const venue = await prisma.venue.findUnique({ where: { id: venueId }, select: { id: true } });
+  const venue = await prisma.venue.findUnique({
+    where: { id: venueId },
+    select: { id: true },
+  });
   if (!venue) {
     return NextResponse.json({ error: "Venue not found" }, { status: 404 });
   }
@@ -68,5 +71,7 @@ export async function POST(
     },
   });
 
-  return NextResponse.json({ message: "Report submitted. Thank you for your feedback!" });
+  return NextResponse.json({
+    message: "Report submitted. Thank you for your feedback!",
+  });
 }

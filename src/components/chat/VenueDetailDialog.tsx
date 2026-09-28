@@ -114,6 +114,7 @@ export function VenueDetailDialog({
   const [flagSubmitting, setFlagSubmitting] = useState(false);
 
   const submitFlag = async (reason: string) => {
+    if (!venue) return;
     setFlagSubmitting(true);
     setShowFlagMenu(false);
     try {
@@ -1881,7 +1882,10 @@ export function VenueDetailDialog({
                     {showFlagMenu && (
                       <div className="absolute bottom-full mb-2 right-0 z-50 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl w-52 py-1 text-sm">
                         {[
-                          { id: "permanently_closed", label: "Permanently Closed" },
+                          {
+                            id: "permanently_closed",
+                            label: "Permanently Closed",
+                          },
                           { id: "wrong_hours", label: "Wrong Hours" },
                           { id: "no_wifi", label: "No Longer Has WiFi" },
                           { id: "wrong_address", label: "Wrong Address" },

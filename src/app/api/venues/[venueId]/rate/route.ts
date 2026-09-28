@@ -116,8 +116,14 @@ export async function POST(
       hasErgonomic,
       outletDensity,
       wifiSpeed,
-      downloadMbps: downloadSpeed ? parseFloat(downloadSpeed) : null,
-      uploadMbps: uploadSpeed ? parseFloat(uploadSpeed) : null,
+      downloadMbps:
+        downloadSpeed !== undefined && downloadSpeed !== null
+          ? Number(downloadSpeed)
+          : null,
+      uploadMbps:
+        uploadSpeed !== undefined && uploadSpeed !== null
+          ? Number(uploadSpeed)
+          : null,
       comment,
       speedtestPhoto,
       hasPhoneBooths,
@@ -146,8 +152,14 @@ export async function POST(
       hasErgonomic: hasErgonomic || false,
       outletDensity: outletDensity || "none",
       wifiSpeed: wifiSpeed || null,
-      downloadMbps: downloadSpeed ? parseFloat(downloadSpeed) : null,
-      uploadMbps: uploadSpeed ? parseFloat(uploadSpeed) : null,
+      downloadMbps:
+        downloadSpeed !== undefined && downloadSpeed !== null
+          ? Number(downloadSpeed)
+          : null,
+      uploadMbps:
+        uploadSpeed !== undefined && uploadSpeed !== null
+          ? Number(uploadSpeed)
+          : null,
       comment,
       speedtestPhoto,
       hasPhoneBooths: hasPhoneBooths || false,
