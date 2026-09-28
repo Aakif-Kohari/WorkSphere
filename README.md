@@ -65,15 +65,15 @@ A massive thank you to all **83 brilliant contributors and bots** building WorkS
 <table>
   <tr>
     <td align="center" width="14.28%">
-      <a href="https://github.com/jasonjose007">
-        <img src="https://avatars.githubusercontent.com/u/221943475?v=4" width="55px;" height="55px;" alt="jasonjose007" style="border-radius: 50%; object-fit: cover;"/><br />
-        <sub><b>jasonjose007</b></sub>
+      <a href="https://github.com/SatyamPandey-07">
+        <img src="https://avatars.githubusercontent.com/u/186389297?v=4" width="55px;" height="55px;" alt="SatyamPandey-07" style="border-radius: 50%; object-fit: cover;"/><br />
+        <sub><b>SatyamPandey-07</b></sub><br /><sub><code>👑 Creator</code></sub>
       </a>
     </td>
     <td align="center" width="14.28%">
-      <a href="https://github.com/SatyamPandey-07">
-        <img src="https://avatars.githubusercontent.com/u/186389297?v=4" width="55px;" height="55px;" alt="SatyamPandey-07" style="border-radius: 50%; object-fit: cover;"/><br />
-        <sub><b>SatyamPandey-07</b></sub>
+      <a href="https://github.com/jasonjose007">
+        <img src="https://avatars.githubusercontent.com/u/221943475?v=4" width="55px;" height="55px;" alt="jasonjose007" style="border-radius: 50%; object-fit: cover;"/><br />
+        <sub><b>jasonjose007</b></sub>
       </a>
     </td>
     <td align="center" width="14.28%">
