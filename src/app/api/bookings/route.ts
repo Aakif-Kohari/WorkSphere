@@ -3,6 +3,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { randomBytes } from "crypto";
 import { z } from "zod";
+import { ensureUserExists } from "@/lib/auth";
 
 function generateConfirmationId() {
   return `WS-${randomBytes(3).toString("hex").toUpperCase()}`;
@@ -56,6 +57,8 @@ export async function POST(request: Request) {
         { status: 401 },
       );
     }
+
+    await ensureUserExists(user.id);
 
     const body = await request.json();
 

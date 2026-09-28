@@ -85,6 +85,10 @@ const Map = dynamic(() => import("@/components/Map"), {
   ),
 });
 
+// Wi-Fi/cell positioning on laptops is often 50–500 m; IP geolocation is
+// usually several km off, so only discard browser fixes that are worse than that.
+const MAX_USABLE_ACCURACY_M = 3000;
+
 function AppPage() {
   const [location, setLocation] = useState<{
     latitude: number;
@@ -168,31 +172,37 @@ function AppPage() {
   // persists venues — the IndexedDB data is shared per-origin.
   useEffect(() => {
     if (markers.length > 0 && isOnline) {
-      if (
-        typeof window !== "undefined" &&
-        typeof (window as any).withLeaderLock === "function"
-      ) {
-        (window as any).withLeaderLock(
-          "worksphere-venue-cache-leader",
-          async () => {
-            await Promise.all(
-              markers.map(async (marker) => {
-                try {
-                  await saveVenueOffline({
-                    id: marker.id,
-                    name: marker.name,
-                    latitude: marker.position.lat,
-                    longitude: marker.position.lng,
-                    category: marker.category,
-                    address: marker.address,
-                  });
-                } catch (err) {
-                  console.warn("Failed to cache venue locally:", err);
-                }
-              }),
-            );
-          },
+      const cacheVenues = async () => {
+        await Promise.all(
+          markers.map(async (marker) => {
+            try {
+              await saveVenueOffline({
+                id: marker.id,
+                name: marker.name,
+                latitude: marker.position.lat,
+                longitude: marker.position.lng,
+                category: marker.category,
+                address: marker.address,
+              });
+            } catch (err) {
+              console.warn("Failed to cache venue locally:", err);
+            }
+          }),
         );
+      };
+
+      // IndexedDB is shared per origin, so let only one tab write at a time
+      // when the Web Locks API is available; otherwise just write.
+      if (typeof navigator !== "undefined" && navigator.locks?.request) {
+        navigator.locks
+          .request(
+            "worksphere-venue-cache-leader",
+            { ifAvailable: true },
+            (lock) => (lock ? cacheVenues() : undefined),
+          )
+          .catch(() => void cacheVenues());
+      } else {
+        void cacheVenues();
       }
     }
   }, [markers, isOnline]);
@@ -257,7 +267,7 @@ function AppPage() {
             async (position) => {
               if (
                 position.coords.accuracy !== undefined &&
-                position.coords.accuracy > 50
+                position.coords.accuracy > MAX_USABLE_ACCURACY_M
               ) {
                 console.warn(
                   `GPS accuracy too low on mount (${position.coords.accuracy}m). Falling back to IP location.`,
@@ -475,7 +485,7 @@ function AppPage() {
                 (position) => {
                   if (
                     position.coords.accuracy !== undefined &&
-                    position.coords.accuracy > 50
+                    position.coords.accuracy > MAX_USABLE_ACCURACY_M
                   ) {
                     console.warn(
                       `GPS accuracy too low during directions request (${position.coords.accuracy}m). Falling back.`,
@@ -1070,7 +1080,8 @@ function AppPage() {
       {battery.isPanic && !battery.charging && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[9998] flex items-center gap-2 px-4 py-2.5 rounded-full bg-red-600 text-white text-xs font-semibold shadow-xl animate-in slide-in-from-top duration-300">
           <span aria-hidden="true">🔋</span>
-          Battery critical ({Math.round((battery.level ?? 0) * 100)}%) — showing only venues with outlets nearby
+          Battery critical ({Math.round((battery.level ?? 0) * 100)}%) — showing
+          only venues with outlets nearby
         </div>
       )}
 

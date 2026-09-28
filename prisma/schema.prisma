@@ -253,6 +253,7 @@ model Booking {
   venue              Venue          @relation(fields: [venueId], references: [id], onDelete: Cascade)
   date               String
   time               String
+  timeZone           String? // IANA zone the date/time were chosen in (e.g. "Asia/Kolkata")
   customerEmail      String
   customerPhone      String?
   status             BookingStatus  @default(CONFIRMED)
@@ -602,6 +603,8 @@ enum WebhookEventType {
   MAP_GEOFENCE_BREACHED
   VENUE_CREATED
   REVIEW_SUBMITTED
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
 }
 
 model WebhookEndpoint {
@@ -611,6 +614,7 @@ model WebhookEndpoint {
   url        String
   secret     String // For Svix HMAC signing
   eventTypes WebhookEventType[] // Array of subscribed events
+  headers    Json? // Extra request headers sent with every delivery (e.g. receiver auth)
   isActive   Boolean            @default(true)
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt

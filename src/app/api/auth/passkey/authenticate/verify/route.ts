@@ -6,8 +6,18 @@ import { getRpId, getExpectedOrigin } from "@/lib/passkey";
 import { parseClientDataJSON } from "@/lib/webauthn";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
 import type { AuthenticatorTransportFuture } from "@simplewebauthn/server";
+import { rateLimit } from "@/lib/rateLimit";
 
 export async function POST(req: Request) {
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "anonymous";
+  if (!(await rateLimit(`passkey-verify:${ip}`, 10))) {
+    return NextResponse.json(
+      { error: "Too many attempts. Please wait a minute." },
+      { status: 429 },
+    );
+  }
+
   try {
     const body = await req.json();
     const { authenticationResponse } = body as {
@@ -34,25 +44,29 @@ export async function POST(req: Request) {
       );
     }
 
-    // Find the active challenge matching this challenge session
-    const challengeRecord = await prisma.passkeyChallenge.findFirst({
-      where: {
-        expiresAt: { gt: new Date() },
-        OR: [{ userId: passkey.userId }, { userId: null }],
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    // Match the exact challenge this browser signed — never "the latest one",
+    // which would let concurrent sign-ins consume each other's challenges.
+    const clientData = authenticationResponse.response?.clientDataJSON
+      ? parseClientDataJSON(authenticationResponse.response.clientDataJSON)
+      : null;
 
-    if (!challengeRecord) {
+    const challengeRecord = clientData?.challenge
+      ? await prisma.passkeyChallenge.findUnique({
+          where: { challenge: clientData.challenge },
+        })
+      : null;
+
+    if (
+      !challengeRecord ||
+      challengeRecord.expiresAt <= new Date() ||
+      (challengeRecord.userId !== null &&
+        challengeRecord.userId !== passkey.userId)
+    ) {
       return NextResponse.json(
         { error: "Passkey challenge expired or missing. Please try again." },
         { status: 400 },
       );
     }
-
-    const clientData = authenticationResponse.response?.clientDataJSON
-      ? parseClientDataJSON(authenticationResponse.response.clientDataJSON)
-      : null;
 
     let verification: Awaited<ReturnType<typeof verifyAuthenticationResponse>>;
     try {
@@ -74,8 +88,9 @@ export async function POST(req: Request) {
       // outer catch return 500.
       const msg =
         verifyErr instanceof Error ? verifyErr.message : String(verifyErr);
-      const isChallengeError =
-        /challenge|expired|unexpected.*challenge/i.test(msg);
+      const isChallengeError = /challenge|expired|unexpected.*challenge/i.test(
+        msg,
+      );
       return NextResponse.json(
         {
           error: isChallengeError

@@ -4,6 +4,7 @@ import {
   archiveExpiredPushNotificationPartitions,
   checkPartitionHealth,
 } from "@/lib/partitionMaintenance";
+import { isAuthorizedCronRequest } from "@/lib/cronAuth";
 
 /**
  * GET /api/cron/partition-maintenance
@@ -17,13 +18,8 @@ import {
  * a monthly job (e.g. "0 2 1 * *" = 2 AM on the 1st of each month).
  */
 export async function GET(request: NextRequest) {
-  // Validate cron secret to prevent unauthorized invocations
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader || authHeader !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!isAuthorizedCronRequest(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const startedAt = Date.now();
