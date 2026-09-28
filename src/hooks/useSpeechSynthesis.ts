@@ -184,8 +184,8 @@ export function useSpeechSynthesis(
         // Cancel any active or queued utterances when the component unmounts
         // (e.g. user navigates away) so speech doesn't continue in the background.
         window.speechSynthesis.cancel();
-        setIsReading(false);
-        setSentenceIndex(0);
+        setIsSpeaking(false);
+        setSpeakingSentenceIndex(null);
       };
     } else {
       setIsSupported(false);

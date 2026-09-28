@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import { prisma } from "@/lib/prisma";
 
 export interface SemanticMemory {
   id: string;
@@ -6,7 +6,11 @@ export interface SemanticMemory {
   similarity: number;
 }
 
-export async function findRelevantMemories(userId: string, queryEmbedding: number[], limit = 3): Promise<SemanticMemory[]> {
+export async function findRelevantMemories(
+  userId: string,
+  queryEmbedding: number[],
+  limit = 3,
+): Promise<SemanticMemory[]> {
   try {
     const memories = await prisma.$queryRaw<SemanticMemory[]>`
       SELECT 
@@ -18,10 +22,10 @@ export async function findRelevantMemories(userId: string, queryEmbedding: numbe
       ORDER BY embedding <=> ${queryEmbedding}::vector
       LIMIT ${limit};
     `;
-    
+
     return memories;
   } catch (error) {
-    console.error('Semantic search failed:', error);
+    console.error("Semantic search failed:", error);
     return [];
   }
 }

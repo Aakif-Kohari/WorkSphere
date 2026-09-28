@@ -31,7 +31,7 @@ import {
   BadgeCheck,
   Music,
 } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { NoiseTimeChart } from "@/components/noise/NoiseTimeChart";
@@ -106,7 +106,7 @@ export function VenueCard({
   const [enrichData, setEnrichData] = useState<VenueEnrichData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { availability } = useSeatAvailability();
-  const liveOccupancy = availability.get(venue.id);
+  const liveOccupancy = availability[venue.id];
   const [photoIndex, setPhotoIndex] = useState(0);
   const [photoError, setPhotoError] = useState(false);
   const [showFolderModal, setShowFolderModal] = useState(false);
@@ -465,7 +465,9 @@ export function VenueCard({
           onClick={nextPhoto}
         >
           <Image
-            src={photoError ? "/images/venue-placeholder.svg" : photos[photoIndex]}
+            src={
+              photoError ? "/images/venue-placeholder.svg" : photos[photoIndex]
+            }
             alt={"Photo of " + venue.name}
             fill
             className="object-cover"
@@ -555,7 +557,8 @@ export function VenueCard({
             {liveOccupancy && liveOccupancy.count > 0 && (
               <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                {liveOccupancy.count} {liveOccupancy.count === 1 ? "person" : "people"} here now
+                {liveOccupancy.count}{" "}
+                {liveOccupancy.count === 1 ? "person" : "people"} here now
               </span>
             )}
           </div>
