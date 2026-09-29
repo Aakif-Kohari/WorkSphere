@@ -37,13 +37,17 @@ jobs:
               const owner = context.repo.owner;
               const repo = context.repo.repo;
               const title = pr.title || '';
-              const body = pr.body || '';
+              const rawBody = pr.body || '';
+              // Strip HTML comments, code blocks, and inline code to prevent false positives from templates
+              const body = rawBody
+                .replace(/<!--[\s\S]*?-->/g, '')
+                .replace(/```[\s\S]*?```/g, '')
+                .replace(/`[^`]*`/g, '');
               const headRef = pr.head ? pr.head.ref : '';
 
               console.log(`Evaluating PR #${prNumber}: "${title}" for linked issues...`);
 
-              let hasLinkedIssue = false;
-              let linkedIssues = [];
+              let candidateIssueNumbers = new Set();
 
               // 1. Check official GitHub closingIssuesReferences via GraphQL
               try {
@@ -62,11 +66,9 @@ jobs:
                 `;
                 const gqlRes = await github.graphql(query, { owner, repo, number: prNumber });
                 const closingNodes = gqlRes?.repository?.pullRequest?.closingIssuesReferences?.nodes || [];
-                if (closingNodes.length > 0) {
-                  hasLinkedIssue = true;
-                  for (const node of closingNodes) {
-                    const tag = `#${node.number}`;
-                    if (!linkedIssues.includes(tag)) linkedIssues.push(tag);
+                for (const node of closingNodes) {
+                  if (node.number && node.number !== prNumber) {
+                    candidateIssueNumbers.add(node.number);
                   }
                 }
               } catch (gqlErr) {
@@ -74,49 +76,79 @@ jobs:
               }
 
               // 2. Check title / body / branch name with issue keywords
-              const issuePattern = /(?:closes?|closed|fixes?|fixed|resolves?|resolved|issue)\s*#?(\d+)/gi;
+              const issuePattern = /(?:closes?|closed|fixes?|fixed|resolves?|resolved)\s*#?(\d+)/gi;
               let m;
               while ((m = issuePattern.exec(title)) !== null) {
-                hasLinkedIssue = true;
-                const tag = `#${m[1]}`;
-                if (!linkedIssues.includes(tag)) linkedIssues.push(tag);
+                const num = parseInt(m[1], 10);
+                if (num !== prNumber) candidateIssueNumbers.add(num);
               }
               while ((m = issuePattern.exec(body)) !== null) {
-                hasLinkedIssue = true;
-                const tag = `#${m[1]}`;
-                if (!linkedIssues.includes(tag)) linkedIssues.push(tag);
+                const num = parseInt(m[1], 10);
+                if (num !== prNumber) candidateIssueNumbers.add(num);
               }
 
-              // Check generic #<number> in title
-              const hashPattern = /#(\d+)/g;
-              while ((m = hashPattern.exec(title)) !== null) {
-                hasLinkedIssue = true;
-                const tag = `#${m[1]}`;
-                if (!linkedIssues.includes(tag)) linkedIssues.push(tag);
-              }
-
-              // Check branch ref (e.g. fix/issue-123 or issue-123)
-              const branchMatch = headRef.match(/(?:issue[-/]?|#)(\d+)/i);
+              // Check branch ref (e.g. fix/issue-456 or issue-456)
+              const branchMatch = headRef.match(/(?:fix|close|resolve|issue)[-/](\d+)/i);
               if (branchMatch) {
-                hasLinkedIssue = true;
-                const tag = `#${branchMatch[1]}`;
-                if (!linkedIssues.includes(tag)) linkedIssues.push(tag);
+                const num = parseInt(branchMatch[1], 10);
+                if (num !== prNumber) candidateIssueNumbers.add(num);
               }
+
+              // 3. Validate candidate numbers against GitHub API (must be an existing Issue, NOT a PR)
+              let linkedIssues = [];
+              for (const num of candidateIssueNumbers) {
+                if (num === 123) {
+                  console.log(`Candidate #${num} ignored as standard template placeholder.`);
+                  continue;
+                }
+                try {
+                  const issueRes = await github.rest.issues.get({
+                    owner,
+                    repo,
+                    issue_number: num
+                  });
+                  if (issueRes.data && !issueRes.data.pull_request) {
+                    linkedIssues.push(`#${num}`);
+                  } else {
+                    console.log(`Reference #${num} is a Pull Request, not an Issue. Ignored.`);
+                  }
+                } catch (err) {
+                  console.warn(`Could not verify #${num} as a valid issue:`, err.message);
+                }
+              }
+
+              const hasLinkedIssue = linkedIssues.length > 0;
 
               // ==========================================
-              // UNLINKED PR: Leave for manual review
+              // UNLINKED PR: Leave for manual review & notify contributor
               // ==========================================
               if (!hasLinkedIssue) {
-                console.log(`PR #${prNumber} is NOT linked to any issue.`);
+                console.log(`PR #${prNumber} is NOT linked to any valid issue.`);
                 console.log('Skipping auto-merge. PR is left open for manual maintainer review.');
                 
-                const noticeMsg = `👋 Thank you for opening this PR!\n\nThis PR does not appear to be linked to an issue (e.g. \`Closes #123\` or \`Fixes #123\`). It will be kept open for manual maintainer review. If this PR addresses an existing issue, please link it in your PR description or title!`;
+                const noticeMsg = `⚠️ **Issue Link Required for Auto-Merge**\n\n` +
+                  `Hi @${pr.user.login}, this pull request does not appear to be linked to an open issue.\n\n` +
+                  `Please update your PR description to link the issue number this fixes:\n` +
+                  `> \`Fixes #<issue_number>\` or \`Closes #<issue_number>\`\n\n` +
+                  `*Auto-approval and auto-merge will remain paused until a valid issue is linked.*`;
+
                 await github.rest.issues.createComment({
                   owner,
                   repo,
                   issue_number: prNumber,
                   body: noticeMsg
                 }).catch(e => console.warn('Comment notice note:', e.message));
+
+                try {
+                  await github.rest.issues.addLabels({
+                    owner,
+                    repo,
+                    issue_number: prNumber,
+                    labels: ['needs-issue']
+                  });
+                } catch (e) {
+                  console.warn('Label note:', e.message);
+                }
                 return;
               }
 
