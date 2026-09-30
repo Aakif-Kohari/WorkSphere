@@ -46,6 +46,12 @@ export default function CollectionsPage() {
   e.dataTransfer.setData("text/plain", index.toString());
   };
 
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedIndex === index) return;
+    setDragOverIndex(index);
+  };
+
   const handleDragEnd = () => {
     setDraggedIndex(null);
     setDragOverIndex(null);
@@ -53,11 +59,6 @@ export default function CollectionsPage() {
     setTimeout(() => {
       isDraggingRef.current = false;
     }, 0);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedIndex(null);
-    setDragOverIndex(null);
   };
 
   const handleDrop = (e: React.DragEvent, targetIndex: number) => {

@@ -921,29 +921,6 @@ function AppPage() {
                                   }
                                 }
                               }}
-                              // We need the original destination. For now, we take the last point of the path.
-                              const destination =
-                                lastRoute.path[lastRoute.path.length - 1];
-                              const routeData = await getRoute(
-                                {
-                                  lat: location.latitude,
-                                  lng: location.longitude,
-                                },
-                                destination,
-                                profile,
-                              );
-                              if (routeData) {
-                                setRoutes([
-                                  {
-                                    ...lastRoute,
-                                    path: routeData.path,
-                                    distance: routeData.distance,
-                                    duration: routeData.duration,
-                                  },
-                                ]);
-                              }
-                            }
-                          }}
                           className={`flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all ${
                             routeProfile === profile
                               ? "accent-bg text-white shadow-lg shadow-[var(--primary-accent)]/20"

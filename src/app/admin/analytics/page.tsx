@@ -11,7 +11,7 @@ export const metadata = {
 export default async function AdminAnalyticsPage() {
   const admin = await getAdminUser();
 
-  if (!admin || !admin.isAdmin) {
+  if (!admin) {
     redirect("/");
   }
 

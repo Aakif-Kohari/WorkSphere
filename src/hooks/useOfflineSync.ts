@@ -10,7 +10,7 @@ export function useOfflineSync() {
     if (typeof window === "undefined") return;
 
     let isMounted = true;
-    let syncTimeout;
+    let syncTimeout: ReturnType<typeof setTimeout> | undefined;
 
     const checkPendingChanges = async () => {
       try {

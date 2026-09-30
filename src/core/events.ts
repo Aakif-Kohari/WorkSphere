@@ -82,11 +82,11 @@ export class EventBus {
     event: T,
     handler: EventHandler<T>,
   ): void {
-    let handlers = this.listeners[event];
+    let handlers = this.listeners[event] as Set<EventHandler<T>> | undefined;
   
     if (!handlers) {
       handlers = new Set<EventHandler<T>>();
-      this.listeners[event] = handlers;
+      (this.listeners[event] as any) = handlers;
     }
   
     handlers.add(handler);

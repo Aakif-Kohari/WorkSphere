@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -126,6 +126,7 @@ export default function AdminSystemDashboard() {
   const [data, setData] = useState<SystemMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const requestId = useRef(0);
 
   async function loadMetrics(selectedRange: RangeKey) {
   const currentRequest = ++requestId.current;

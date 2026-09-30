@@ -1,15 +1,20 @@
 import { prisma } from "@/lib/prisma";
 import { Groq } from "groq-sdk";
 
-const groqApiKey = process.env.GROQ_API_KEY;
+let _groq: Groq | null = null;
 
-if (!groqApiKey) {
-  throw new Error("GROQ_API_KEY is not configured");
+function getGroqClient(): Groq {
+  if (!_groq) {
+    const groqApiKey = process.env.GROQ_API_KEY;
+    if (!groqApiKey) {
+      throw new Error("GROQ_API_KEY is not configured");
+    }
+    _groq = new Groq({
+      apiKey: groqApiKey,
+    });
+  }
+  return _groq;
 }
-
-const groq = new Groq({
-  apiKey: groqApiKey,
-});
 
 export async function extractAndStoreMemories(conversationId: string) {
   const conversation = await prisma.conversation.findUnique({
@@ -46,7 +51,7 @@ I prefer quiet places.
 ${transcript}
 </transcript>`;
 
-  const completion = await groq.chat.completions.create({
+  const completion = await getGroqClient().chat.completions.create({
     messages: [
       { role: "system", content: systemInstruction },
       { role: "user", content: userContent },
@@ -202,7 +207,7 @@ ${ratingsText || "None"}
 
 Summary:`;
 
-    const completion = await groq.chat.completions.create({
+    const completion = await getGroqClient().chat.completions.create({
       messages: [
         { role: "system", content: systemInstruction },
         { role: "user", content: userContent },
