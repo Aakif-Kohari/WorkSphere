@@ -219,6 +219,86 @@ describe("API: /api/bookings", () => {
       expect(uniqueIds.size).toBe(3);
     });
 
+    it.each([
+      ["impossible calendar date (Feb 31)", { date: "2026-02-31", time: "14:00" }],
+      ["impossible calendar date (Apr 31)", { date: "2026-04-31", time: "14:00" }],
+      ["non-leap-year Feb 29", { date: "2027-02-29", time: "14:00" }],
+      ["hour out of range (99:99)", { date: "2026-10-01", time: "99:99" }],
+      ["hour out of range (25:00)", { date: "2026-10-01", time: "25:00" }],
+      ["24:00 (not a valid HH:mm)", { date: "2026-10-01", time: "24:00" }],
+      ["minutes out of range (12:60)", { date: "2026-10-01", time: "12:60" }],
+    ])(
+      "returns 400 and stores nothing for %s",
+      async (_label, input) => {
+        (currentUser as jest.Mock).mockResolvedValue(mockUser);
+
+        const request = new NextRequest("http://localhost:3000/api/bookings", {
+          method: "POST",
+          body: JSON.stringify({ venueId: "v_1", ...input }),
+        });
+
+        const response = await POST(request);
+        const data = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(data.error).toBe("Invalid booking data");
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(prisma.booking.create).not.toHaveBeenCalled();
+      },
+    );
+
+    it("rejects the whole request if any date in a multi-date booking is invalid", async () => {
+      (currentUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const request = new NextRequest("http://localhost:3000/api/bookings", {
+        method: "POST",
+        body: JSON.stringify({
+          venueId: "v_1",
+          dates: ["2026-10-01", "2026-02-31"],
+          time: "09:00",
+        }),
+      });
+
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      expect(prisma.booking.create).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 (not 500) for a malformed JSON body", async () => {
+      (currentUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const request = new NextRequest("http://localhost:3000/api/bookings", {
+        method: "POST",
+        body: "{not valid json",
+      });
+
+      const response = await POST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error).toBe("Invalid booking data");
+    });
+
+    it("accepts boundary values 00:00 and 23:59", async () => {
+      (currentUser as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.$transaction as jest.Mock).mockImplementation(
+        async (promises: Promise<any>[]) => Promise.all(promises),
+      );
+      (prisma.booking.create as jest.Mock).mockImplementation(
+        async ({ data }: any) => ({ id: "b", ...data, venue: {} }),
+      );
+
+      for (const time of ["00:00", "23:59"]) {
+        const request = new NextRequest("http://localhost:3000/api/bookings", {
+          method: "POST",
+          body: JSON.stringify({ venueId: "v_1", date: "2028-02-29", time }),
+        });
+        const response = await POST(request);
+        expect(response.status).toBe(200);
+      }
+    });
+
     it("returns 500 if transaction fails", async () => {
       (currentUser as jest.Mock).mockResolvedValue(mockUser);
       (prisma.$transaction as jest.Mock).mockRejectedValue(
