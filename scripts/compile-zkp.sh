@@ -10,9 +10,16 @@ PTAU="$BUILD_DIR/pot12_final.ptau"
 
 mkdir -p "$BUILD_DIR" "$OUT_DIR"
 
+# The circuit includes circomlib's Poseidon template, so circomlib must be installed.
+if [[ ! -f "$ROOT/node_modules/circomlib/circuits/poseidon.circom" ]]; then
+  echo "error: circomlib is not installed. Run: npm install --save-dev circomlib" >&2
+  exit 1
+fi
+
 echo ">> compiling circuit"
 npx circom2 "$CIRCUIT_DIR/premium_membership.circom" \
   --r1cs --wasm --sym \
+  -l "$ROOT/node_modules" \
   -o "$BUILD_DIR"
 
 if [[ ! -f "$PTAU" ]]; then

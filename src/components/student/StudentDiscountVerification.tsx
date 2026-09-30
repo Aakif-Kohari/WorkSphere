@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CheckCircle2, Loader2, ShieldCheck, X } from "lucide-react";
+import { computeMembershipCommit } from "@/lib/zkp/commitment";
 
 interface StudentDiscountVerificationProps {
   /** Called after the proof is accepted and the user is verified server-side. */
@@ -202,7 +203,7 @@ export function StudentDiscountVerification({
 
     try {
       const t = BigInt(studentId.replace(/\D/g, "") || "0");
-      const expectedCommit = (t * t + BigInt(5) * t + BigInt(17)).toString();
+      const expectedCommit = computeMembershipCommit(t);
 
       // If worker was terminated (after previous error), respawn it
       if (!workerRef.current) {
