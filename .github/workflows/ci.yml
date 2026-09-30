@@ -1,18 +1,17 @@
 name: Continuous Integration
 
 on:
-  pull_request_target:
+  pull_request:
     branches: [main, master, dev, development]
     types: [opened, synchronize, reopened]
   push:
     branches: [main, master]
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
 
 jobs:
+
   auto-merge-linked-pr:
     name: Check Issue Link & Auto-Merge
     runs-on: ubuntu-latest
@@ -217,13 +216,8 @@ jobs:
             } catch (err) {
               console.error('Auto-merge step error (gracefully caught):', err.message);
             }
-
   build-and-test:
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      contents: read
-    continue-on-error: true
     env:
       DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xvc2luZy12dWx0dXJlLTEwLmNsZXJrLmFjY291bnRzLmRldiQ
@@ -249,23 +243,21 @@ jobs:
       UPSTASH_REDIS_REST_URL: https://dummy.upstash.io
       UPSTASH_REDIS_REST_TOKEN: dummy
       NEXT_PUBLIC_OSRM_URL: https://router.project-osrm.org
+
     steps:
-      - name: Checkout code
+      - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: npm
 
       - name: Cache Next.js build output
         uses: actions/cache@v4
         with:
-          path: |
-            .next/cache
+          path: .next/cache
           key: ${{ runner.os }}-nextjs-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-nextjs-${{ hashFiles('package-lock.json') }}-
@@ -279,17 +271,12 @@ jobs:
 
       - name: Run lint
         run: npm run lint
-        continue-on-error: true
 
       - name: Run type check
         run: npx tsc --noEmit
-        continue-on-error: true
 
       - name: Run tests
         run: npm test
-        continue-on-error: true
 
       - name: Build Next.js application
         run: npm run build
-        continue-on-error: true
-
