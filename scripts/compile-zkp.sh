@@ -60,5 +60,27 @@ cp "$BUILD_DIR/premium_membership_js/premium_membership.wasm" \
 cp "$BUILD_DIR/premium_membership_final.zkey" \
   "$OUT_DIR/premium_membership.zkey"
 
+# Record which circuit these artifacts were built from. A Jest test
+# (src/__tests__/lib/zkpArtifactFreshness.test.ts) compares this manifest with
+# circuits/premium_membership.circom so a circuit edit without a rebuild fails CI
+# instead of silently breaking every proof.
+echo ">> writing artifact manifest"
+CIRCOM_SRC="$CIRCUIT_DIR/premium_membership.circom" \
+CIRCOMLIB_PKG="$ROOT/node_modules/circomlib/package.json" \
+MANIFEST_OUT="$OUT_DIR/artifacts.manifest.json" \
+node -e '
+const fs = require("fs");
+const crypto = require("crypto");
+// Normalize line endings so CRLF and LF checkouts hash identically.
+const src = fs.readFileSync(process.env.CIRCOM_SRC, "utf8").replace(/\r\n/g, "\n");
+const manifest = {
+  circuit: "premium_membership.circom",
+  circuitSha256: crypto.createHash("sha256").update(src).digest("hex"),
+  commitmentScheme: "poseidon-bn254",
+  circomlibVersion: JSON.parse(fs.readFileSync(process.env.CIRCOMLIB_PKG, "utf8")).version,
+};
+fs.writeFileSync(process.env.MANIFEST_OUT, JSON.stringify(manifest, null, 2) + "\n");
+'
+
 # Keep a copy of the WASM witness helper next to the circuit build for local proofs.
-echo ">> done — artifacts in public/zkp/"
+echo ">> done — artifacts in public/zkp/ (commit them together with artifacts.manifest.json)"
