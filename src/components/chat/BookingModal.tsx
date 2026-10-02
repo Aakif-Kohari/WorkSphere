@@ -47,8 +47,8 @@ interface BookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   mode?: "booking" | "history";
-  initialHistory?: BookingSummary[];
-  initialStep?: Step;
+  initialHistory?: Booking[];
+  initialStep?: "details" | "payment" | "processing" | "success" | "history";
 }
 
 const MAX_OCCURRENCES = 12;
@@ -103,13 +103,16 @@ export function BookingModal({
 }: BookingModalProps) {
   const { user } = useUser();
   const retryAfter = useRateLimit("book");
-  const [step, setStep] = useState<Step>(() => {
-    const requested =
-      initialStep ?? (mode === "history" ? "history" : "details");
-    return requested === "payment" ? "details" : requested;
-  });
-
-  const today = localDateString(new Date());
+  const [step, setStep] = useState<
+    "details" | "payment" | "processing" | "success" | "history"
+  >(initialStep ?? (mode === "history" ? "history" : "details"));
+  const getTodayString = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
   const [bookingDate, setBookingDate] = useState("");
   const [bookingTime, setBookingTime] = useState("");
   const [isRecurring, setIsRecurring] = useState(false);
@@ -158,11 +161,15 @@ export function BookingModal({
   useEffect(() => {
     let animationFrameId: number | undefined;
     if (step === "success") {
-      const reducedMotion =
+      const respectsReducedMotion =
         typeof window !== "undefined" &&
         typeof window.matchMedia === "function" &&
         window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      if (reducedMotion) return;
+
+      if (respectsReducedMotion) return;
+
+      const duration = 2 * 1000;
+      const end = Date.now() + duration;
 
       const end = Date.now() + 2000;
       const frame = () => {
