@@ -59,6 +59,7 @@ import {
   HourlyForecast,
 } from "@/components/noise/NoiseTimelineChart";
 import { CopyToClipboardButton } from "@/components/ui/CopyToClipboardButton";
+import { ExportRatingsCSVButton } from "@/components/analytics/ExportRatingsCSVButton";
 import {
   subscribeReviewSyncEvents,
   getQueuedReviews,
@@ -1325,6 +1326,7 @@ export function VenueDetailDialog({
                   <RatingDistribution
                     reviews={reviews}
                     activeMetric={activeDistribution}
+                    venueName={venue.name}
                     onClose={() => setActiveDistribution(null)}
                   />
                 </div>
@@ -2033,6 +2035,18 @@ export function VenueDetailDialog({
                       Use Remote (Discard Local)
                     </button>
                   </div>
+                </div>
+              )}
+              {reviews.length > 0 && (
+                <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-zinc-400">
+                    {reviews.length} {reviews.length === 1 ? "Review" : "Reviews"}
+                  </span>
+                  <ExportRatingsCSVButton
+                    ratings={reviews}
+                    venueName={venue.name}
+                    variant="compact"
+                  />
                 </div>
               )}
               {reviewsLoading ? (
