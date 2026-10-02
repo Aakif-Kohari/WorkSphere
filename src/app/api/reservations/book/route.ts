@@ -16,28 +16,10 @@ import {
   parseBookingDateTime,
 } from "@/lib/bookingTime";
 import { emitWebhookEvent } from "@/lib/webhooks/deliver";
+import { conflictDateWindow, hasBookingConflict } from "@/lib/bookingOverlap";
 
 const PAST_GRACE_MS = 15 * 60 * 1000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function toMinutes(value: string) {
-  const [hours, minutes] = value.split(":").map(Number);
-  return hours * 60 + minutes;
-}
-
-function overlaps(
-  bookingTime: string,
-  bookingDuration: number,
-  requestedTime: string,
-  requestedDuration: number,
-) {
-  const bookingStart = toMinutes(bookingTime);
-  const bookingEnd = bookingStart + bookingDuration;
-  const requestedStart = toMinutes(requestedTime);
-  const requestedEnd = requestedStart + requestedDuration;
-
-  return bookingStart < requestedEnd && requestedStart < bookingEnd;
-}
 
 function newConfirmationId(): string {
   return `WS-${randomBytes(4).toString("hex").toUpperCase()}`;
@@ -170,16 +152,14 @@ export async function POST(request: NextRequest) {
           const existing = await tx.booking.findMany({
             where: {
               seatId: { in: uniqueSeatIds },
-              date,
+              // A conflicting booking can be stored under a neighbouring date
+              // (it runs past midnight, or was made in another timezone).
+              date: { in: conflictDateWindow(date) },
               status: { in: ["CONFIRMED", "PENDING"] },
             },
-            select: { time: true, duration: true },
+            select: { date: true, time: true, duration: true, timeZone: true },
           });
-          if (
-            existing.some((b) =>
-              overlaps(b.time, b.duration ?? 60, time, duration),
-            )
-          ) {
+          if (hasBookingConflict({ date, time, timeZone, duration }, existing)) {
             throw new Error("CONFLICT");
           }
 

@@ -53,7 +53,17 @@ const futureDate = new Date(Date.now() + 7 * 86_400_000)
   .toISOString()
   .slice(0, 10);
 
-function makeTx(existing: { time: string; duration: number }[] = []) {
+type ExistingRow = {
+  time: string;
+  duration: number;
+  date?: string;
+  timeZone?: string | null;
+};
+
+const dayAfter = (d: string) =>
+  new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+
+function makeTx(existing: ExistingRow[] = []) {
   let n = 0;
   return {
     $queryRaw: jest.fn().mockResolvedValue([]),
@@ -129,6 +139,98 @@ describe("POST /api/reservations/book", () => {
     expect(res.status).toBe(409);
     expect((await res.json()).error).toContain("reserved");
     expect(tx.booking.create).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 when an earlier booking runs past midnight into the requested date", async () => {
+    // 23:00 + 2h on futureDate occupies the seat until 01:00 on the next day.
+    const tx = makeTx([
+      { date: futureDate, time: "23:00", duration: 120, timeZone: "UTC" },
+    ]);
+    (prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) =>
+      cb(tx),
+    );
+
+    const res = await POST(
+      request({ seatId: "seat_1", date: dayAfter(futureDate), time: "00:30" }),
+    );
+    expect(res.status).toBe(409);
+    expect(tx.booking.create).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 when the same instant is requested from a different timezone", async () => {
+    // 09:00 Asia/Colombo (UTC+5:30) is 03:30 UTC.
+    const tx = makeTx([
+      {
+        date: futureDate,
+        time: "09:00",
+        duration: 60,
+        timeZone: "Asia/Colombo",
+      },
+    ]);
+    (prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) =>
+      cb(tx),
+    );
+
+    const res = await POST(
+      request({ seatId: "seat_1", time: "03:30", timeZone: "UTC" }),
+    );
+    expect(res.status).toBe(409);
+    expect(tx.booking.create).not.toHaveBeenCalled();
+  });
+
+  it("allows a booking whose wall clock matches but whose real time does not", async () => {
+    // 10:00 in Colombo is 04:30 UTC; 10:00 in New York is 14:00/15:00 UTC.
+    const tx = makeTx([
+      {
+        date: futureDate,
+        time: "10:00",
+        duration: 60,
+        timeZone: "Asia/Colombo",
+      },
+    ]);
+    (prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) =>
+      cb(tx),
+    );
+
+    const res = await POST(
+      request({
+        seatId: "seat_1",
+        time: "10:00",
+        timeZone: "America/New_York",
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(tx.booking.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 409 for a legacy row stored as a 12-hour time", async () => {
+    const tx = makeTx([
+      { date: futureDate, time: "10:00 AM", duration: 60, timeZone: null },
+    ]);
+    (prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) =>
+      cb(tx),
+    );
+
+    const res = await POST(request({ seatId: "seat_1", time: "10:00" }));
+    expect(res.status).toBe(409);
+  });
+
+  it("queries neighbouring dates so cross-midnight and cross-timezone rows are found", async () => {
+    const tx = makeTx();
+    (prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) =>
+      cb(tx),
+    );
+
+    await POST(request({ seatId: "seat_1" }));
+
+    const where = tx.booking.findMany.mock.calls[0][0].where;
+    expect(where.date.in).toContain(futureDate);
+    expect(where.date.in).toContain(dayAfter(futureDate));
+    expect(where.date.in.length).toBeGreaterThan(1);
+    expect(tx.booking.findMany.mock.calls[0][0].select).toMatchObject({
+      date: true,
+      timeZone: true,
+    });
   });
 
   it("gives each seat of a multi-seat reservation its own confirmation id", async () => {
