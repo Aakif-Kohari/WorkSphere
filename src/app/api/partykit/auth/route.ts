@@ -26,10 +26,11 @@ export async function OPTIONS(req: NextRequest) {
 }
 
 function verifySharedSecret(req: NextRequest): boolean {
-  const secret = process.env.PARTYKIT_SHARED_SECRET;
+  // Support both PARTYKIT_AUTH_SECRET and PARTYKIT_SHARED_SECRET to prevent naming mismatches
+  const secret = process.env.PARTYKIT_AUTH_SECRET || process.env.PARTYKIT_SHARED_SECRET;
   if (!secret) {
     console.warn(
-      "PARTYKIT_SHARED_SECRET is not set — rejecting PartyKit auth request",
+      "PARTYKIT_AUTH_SECRET / PARTYKIT_SHARED_SECRET is not set — rejecting PartyKit auth request",
     );
     return false;
   }
@@ -44,7 +45,6 @@ function verifySharedSecret(req: NextRequest): boolean {
 
   return timingSafeEqual(Buffer.from(token), Buffer.from(secret));
 }
-
 // Internal endpoint for PartyKit to verify user roles.
 // Secured with PARTYKIT_SHARED_SECRET to prevent abuse.
 export async function GET(req: NextRequest) {
