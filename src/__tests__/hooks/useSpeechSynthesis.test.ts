@@ -22,6 +22,17 @@ describe("splitTextIntoSentences", () => {
     const sentences = splitTextIntoSentences(text);
     expect(sentences).toEqual(["Found 3 cafes.", "1. Cafe Central is quiet."]);
   });
+
+  it("filters undefined or empty entries cleanly without throwing TypeError", () => {
+    const text = "First sentence! Second sentence? Third sentence.";
+    const sentences = splitTextIntoSentences(text);
+    expect(sentences.every((s) => typeof s === "string")).toBe(true);
+    expect(sentences).toEqual([
+      "First sentence!",
+      "Second sentence?",
+      "Third sentence.",
+    ]);
+  });
 });
 
 describe("useSpeechSynthesis hook", () => {

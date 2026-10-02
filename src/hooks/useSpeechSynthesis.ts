@@ -43,7 +43,10 @@ export function splitTextIntoSentences(text: string): string[] {
 
   // Split on sentence boundaries (. ! ?) avoiding numbered list prefixes like "1."
   const sentences = cleanText.split(/(?<=[!?])\s+|(?<=(?<!\b\d+)\.)\s+/g);
-  return sentences.map((s) => s.trim()).filter((s) => s.length > 0);
+  return sentences
+    .filter(Boolean)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 export interface UseSpeechSynthesisOptions {
