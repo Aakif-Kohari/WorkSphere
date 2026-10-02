@@ -15,6 +15,7 @@ import { RecentlyViewedTracker } from "@/components/venues/RecentlyViewedTracker
 import { CollaborativeNotes } from "@/components/bookings/CollaborativeNotes"; // <-- 1. Imported your new component here!
 import { Breadcrumb } from "@/components/ui/Breadcrumb";
 import { VenueSummary } from "@/components/venue/VenueSummary";
+import { CopyToClipboardButton } from "@/components/ui/CopyToClipboardButton";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -150,18 +151,21 @@ export default async function VenuePage({ params }: PageProps) {
 
           <div className="p-6 sm:p-8 space-y-8">
             {venue.address && (
-              <div className="flex items-start gap-3">
-                <div className="p-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 shrink-0">
-                  <MapPin className="w-5 h-5" />
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="p-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 shrink-0">
+                    <MapPin className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-1">
+                      Location
+                    </h3>
+                    <p className="text-sm sm:text-base font-medium">
+                      {venue.address}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-1">
-                    Location
-                  </h3>
-                  <p className="text-sm sm:text-base font-medium">
-                    {venue.address}
-                  </p>
-                </div>
+                <CopyToClipboardButton textToCopy={venue.address} />
               </div>
             )}
             <div className="grid grid-cols-2 gap-4">

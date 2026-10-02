@@ -58,6 +58,7 @@ import {
   NoiseTimelineChart,
   HourlyForecast,
 } from "@/components/noise/NoiseTimelineChart";
+import { CopyToClipboardButton } from "@/components/ui/CopyToClipboardButton";
 
 interface VenueDetailDialogProps {
   venue: Venue | null;
@@ -1048,11 +1049,18 @@ export function VenueDetailDialog({
                 </span>
               )}
             </h2>
-            <div className="flex items-center gap-1.5 text-zinc-300 text-sm font-medium">
-              <MapPin className="w-4 h-4 text-blue-400" />
-              <span className="truncate">
+            <div className="flex items-center gap-1.5 text-zinc-300 text-sm font-medium flex-wrap">
+              <MapPin className="w-4 h-4 text-blue-400 shrink-0" />
+              <span className="truncate max-w-[280px] sm:max-w-md">
                 {venue.address || "Location details loading..."}
               </span>
+              {venue.address && (
+                <CopyToClipboardButton
+                  textToCopy={venue.address}
+                  label="Copy"
+                  className="!py-0.5 !px-2 text-xs shrink-0 pointer-events-auto ml-1"
+                />
+              )}
             </div>
           </div>
         </div>
