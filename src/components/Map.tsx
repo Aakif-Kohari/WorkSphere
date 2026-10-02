@@ -1023,10 +1023,15 @@ const Map = ({
         /* Focus-visible ring for keyboard-navigated markers */
         .venue-marker:focus-visible,
         .destination-marker:focus-visible,
-        .custom-user-marker:focus-visible {
-          outline: 2px solid #3b82f6;
-          outline-offset: 2px;
+        .custom-user-marker:focus-visible,
+        .interactive-map-pin:focus-visible,
+        .leaflet-marker-icon:focus-visible,
+        [role="button"][tabindex="0"]:focus-visible {
+          outline: 3px solid #3b82f6 !important;
+          outline-offset: 3px !important;
+          box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.45) !important;
           border-radius: 50%;
+          z-index: 1000 !important;
         }
 
         /* Floating toggle position above canvas layers */
@@ -1195,6 +1200,8 @@ const Map = ({
               icon={isDest ? destinationIcon : venueIcon}
               name={marker.name}
               category={marker.category}
+              rating={marker.score}
+              score={marker.score}
               isDestination={isDest}
               telemetryData={telemetry}
               zIndexOffset={selectedMarkerId === marker.id ? 1000 : 0}

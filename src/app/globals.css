@@ -498,3 +498,16 @@ textarea:focus::placeholder {
     animation: none;
   }
 }
+
+/* ─── Interactive Map Pin Keyboard Focus Rings (Issue #3342) ─── */
+.interactive-map-pin:focus-visible,
+.leaflet-marker-icon:focus-visible,
+.venue-marker:focus-visible,
+.destination-marker:focus-visible,
+.custom-user-marker:focus-visible {
+  outline: 3px solid #3b82f6 !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.45) !important;
+  border-radius: 50% !important;
+  z-index: 1000 !important;
+}
