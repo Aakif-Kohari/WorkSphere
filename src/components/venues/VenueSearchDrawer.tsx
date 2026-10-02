@@ -2,6 +2,8 @@
 
 import React, { useState } from "react";
 import { X, Search, SlidersHorizontal, RotateCcw, Check } from "lucide-react";
+import { usePlatformModifier } from "@/hooks/usePlatformModifier";
+import { KeyboardShortcutBadge } from "@/components/ui/KeyboardShortcutBadge";
 
 export interface VenueSearchDrawerProps {
   isOpen: boolean;
@@ -88,6 +90,7 @@ export function VenueSearchDrawer({
   const [internalNoise, setInternalNoise] = useState("all");
   const [internalPrice, setInternalPrice] = useState("all");
   const [internalCategory, setInternalCategory] = useState("all");
+  const { formatShortcut, getAriaKeyshortcuts } = usePlatformModifier();
 
   const search = externalSearchText ?? internalSearch;
   const amenities = externalAmenities ?? internalAmenities;
@@ -321,8 +324,14 @@ export function VenueSearchDrawer({
               value={search}
               onChange={(e) => handleSearchInput(e.target.value)}
               placeholder="Search by venue name, street, or tag..."
-              className="w-full pl-9 pr-4 py-2.5 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label={`Search venues (${formatShortcut("K")})`}
+              aria-keyshortcuts={getAriaKeyshortcuts("K")}
+              title={`Search venues (${formatShortcut("K")})`}
+              className="w-full pl-9 pr-16 py-2.5 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
             />
+            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none hidden sm:flex items-center">
+              <KeyboardShortcutBadge shortcut="K" size="xs" variant="subtle" />
+            </div>
           </div>
         </div>
 
