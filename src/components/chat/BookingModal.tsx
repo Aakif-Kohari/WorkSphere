@@ -47,7 +47,7 @@ interface BookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   mode?: "booking" | "history";
-  initialHistory?: Booking[];
+  initialHistory?: BookingSummary[];
   initialStep?: "details" | "payment" | "processing" | "success" | "history";
 }
 
@@ -106,13 +106,8 @@ export function BookingModal({
   const [step, setStep] = useState<
     "details" | "payment" | "processing" | "success" | "history"
   >(initialStep ?? (mode === "history" ? "history" : "details"));
-  const getTodayString = () => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
+  const today = localDateString(new Date());
+  const getTodayString = () => today;
   const [bookingDate, setBookingDate] = useState("");
   const [bookingTime, setBookingTime] = useState("");
   const [isRecurring, setIsRecurring] = useState(false);
@@ -170,8 +165,6 @@ export function BookingModal({
 
       const duration = 2 * 1000;
       const end = Date.now() + duration;
-
-      const end = Date.now() + 2000;
       const frame = () => {
         confetti({
           particleCount: 2,

@@ -92,7 +92,7 @@ describe("BookingModal", () => {
       />,
     );
 
-    expect(screen.getByText("Residency Secured")).toBeInTheDocument();
+    expect(screen.getByText("You're booked!")).toBeInTheDocument();
     expect(confetti).toHaveBeenCalled();
     expect(confetti).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -168,7 +168,7 @@ describe("BookingModal", () => {
       />,
     );
 
-    expect(screen.getByText("Residency Secured")).toBeInTheDocument();
+    expect(screen.getByText("You're booked!")).toBeInTheDocument();
     expect(confetti).not.toHaveBeenCalled();
 
     window.matchMedia = originalMatchMedia;
