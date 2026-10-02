@@ -40,6 +40,8 @@ model User {
   smsAlertsEnabled   Boolean            @default(false)
   notificationStart  String?
   notificationEnd    String?
+  quietHoursStart    String?
+  quietHoursEnd      String?
   timezone           String?            @default("UTC")
   folderUpvotes      FolderUpvote[]
   sentFolderInvites  FolderInvite[]     @relation("FolderInviteSender")

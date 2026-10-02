@@ -74,6 +74,16 @@ export const userSettingsSchema = z.object({
     .regex(/^\d{2}:\d{2}$/, "notificationEnd must be HH:mm")
     .or(z.literal(""))
     .optional(),
+  quietHoursStart: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/, "quietHoursStart must be HH:mm")
+    .or(z.literal(""))
+    .optional(),
+  quietHoursEnd: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/, "quietHoursEnd must be HH:mm")
+    .or(z.literal(""))
+    .optional(),
   timezone: z.string().max(64).optional(),
   imageUrl: z.string().url("Invalid image URL").or(z.literal("")).optional(),
   workStyleProfile: z.string().max(2000).optional(),
