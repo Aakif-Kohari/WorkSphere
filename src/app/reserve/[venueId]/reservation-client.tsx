@@ -21,6 +21,7 @@ import GuestsInput, { type GuestEntry } from "@/components/GuestsInput";
 import FloorPlanViewer3D from "@/components/floorplan/FloorPlanViewer3D";
 import { apiFetch } from "@/lib/apiClient";
 import { useRateLimit } from "@/hooks/useRateLimit";
+import { SeatOccupancyHeatmap } from "@/components/venue/SeatOccupancyHeatmap";
 
 type Seat = {
   id: string;
@@ -346,7 +347,18 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
           </div>
         )}
 
-        <div className="grid gap-6 xl:grid-cols-[1.5fr_.7fr]">
+        <div className="space-y-6">
+          <SeatOccupancyHeatmap
+            venueId={venue.id}
+            selectedDate={date}
+            selectedTime={time}
+            onSelectSlot={({ date: selectedDate, time: selectedTime }) => {
+              setDate(selectedDate)
+              setTime(selectedTime)
+            }}
+          />
+
+          <div className="grid gap-6 xl:grid-cols-[1.5fr_.7fr]">
           <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 md:p-7">
             <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
