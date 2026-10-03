@@ -7,6 +7,14 @@ import { GET } from "@/app/api/cron/partition-maintenance/route";
 import { NextRequest } from "next/server";
 import { autoCreateUpcomingPartitions } from "@/lib/partitionMaintenance";
 
+jest.mock("@/lib/db/partitionManager", () => ({
+  runTelemetryPartitionMaintenance: jest.fn().mockResolvedValue({
+    created: [],
+    archived: [],
+    vacuumed: [],
+  }),
+}));
+
 jest.mock("@/lib/db/partitionMaintenance", () => ({
   runPartmanPartitionMaintenance: jest.fn().mockResolvedValue({
     maintained: ["WifiTelemetry"],

@@ -4,6 +4,7 @@ import {
   archiveExpiredPushNotificationPartitions,
   checkPartitionHealth,
 } from "@/lib/partitionMaintenance";
+import { runTelemetryPartitionMaintenance } from "@/lib/db/partitionManager";
 import { runPartmanPartitionMaintenance } from "@/lib/db/partitionMaintenance";
 import { isAuthorizedCronRequest } from "@/lib/cronAuth";
 import { prisma } from "@/lib/prisma";
@@ -37,11 +38,18 @@ export async function GET(request: NextRequest) {
     partitionsArchived?: string[];
     retention?: RetentionRunReport;
     healthReport?: unknown;
+    telemetryPartitions?: {
+      created: string[];
+      archived: string[];
+      vacuumed: string[];
+    };
     telemetryMaintenance?: {
       maintained: string[];
       plannedPartitions: string[];
       activePartitions: string[];
       skippedTables: string[];
+    };
+
     };
     errors: string[];
   } = { errors: [] };
@@ -91,6 +99,7 @@ export async function GET(request: NextRequest) {
     results.errors.push(`checkPartitionHealth: ${msg}`);
   }
 
+  // 4. Run automated table partitioning maintenance worker
   try {
     results.telemetryMaintenance = await runPartmanPartitionMaintenance();
   } catch (err) {
@@ -98,6 +107,7 @@ export async function GET(request: NextRequest) {
     results.errors.push(`runPartmanPartitionMaintenance: ${msg}`);
     console.error("[PartitionCron] Telemetry maintenance failed:", err);
   }
+
 
   const durationMs = Date.now() - startedAt;
   const success = results.errors.length === 0;
