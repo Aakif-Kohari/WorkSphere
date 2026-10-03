@@ -19,7 +19,7 @@ type WorkerErrorType = "oom" | "internal" | "generic";
 function classifyError(error: unknown): WorkerErrorType {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
-    // Out-of-memory signals from WASM runtime or browser
+
     if (
       msg.includes("out of memory") ||
       msg.includes("memory access out of bounds") ||
@@ -29,22 +29,90 @@ function classifyError(error: unknown): WorkerErrorType {
     ) {
       return "oom";
     }
-    if (msg.includes("wasm") || msg.includes("enoent") || msg.includes("instantiate")) {
+
+    if (
+      msg.includes("wasm") ||
+      msg.includes("enoent") ||
+      msg.includes("instantiate")
+    ) {
       return "internal";
     }
   }
+
   return "generic";
 }
 
 function sanitizeError(error: unknown): string {
   const type = classifyError(error);
+
   if (type === "oom") {
     return "Your device does not have enough memory to generate the zero-knowledge proof. Please try again on a device with more RAM, or use the server-side verification option.";
   }
+
   if (type === "internal") {
     return "Proof generation failed due to an internal error.";
   }
+
   return "Proof generation failed.";
+}
+
+/**
+ * Generate a proof using explicit witness/prover lifecycle control.
+ *
+ * snarkjs.fullProve() creates the witness internally and uses the default
+ * multithreaded prover. For repeated browser-worker executions this can
+ * retain WASM/worker resources longer than desired.
+ *
+ * We therefore:
+ * 1. create a memory-backed witness explicitly;
+ * 2. request minimal initial WASM memory;
+ * 3. use the single-threaded prover;
+ * 4. release references after the proof completes;
+ * 5. terminate the BN128 worker when snarkjs created one.
+ */
+async function generateProof(
+  identityToken: string,
+  expectedCommit: string,
+): Promise<{
+  proof: unknown;
+  publicSignals: unknown;
+}> {
+  let wtns: { type: "mem" } | null = { type: "mem" };
+
+  try {
+    await snarkjs.wtns.calculate(
+      { identityToken, expectedCommit },
+      "/zkp/premium_membership.wasm",
+      wtns,
+      { memorySize: 0 },
+    );
+
+    return await snarkjs.groth16.prove(
+      "/zkp/premium_membership.zkey",
+      wtns,
+      undefined,
+      { singleThread: true },
+    );
+  } finally {
+    /*
+     * Drop the witness reference as soon as the proof operation finishes.
+     * This makes the WASM-backed witness eligible for garbage collection
+     * instead of keeping it alive across consecutive requests.
+     */
+    wtns = null;
+
+    const g = globalThis as typeof globalThis & {
+      curve_bn128?: { terminate: () => Promise<void> };
+    };
+
+    if (g.curve_bn128) {
+      try {
+        await g.curve_bn128.terminate();
+      } catch {
+        // Cleanup must never mask the original proof result/error.
+      }
+    }
+  }
 }
 
 self.addEventListener("message", async (e: MessageEvent<WorkerMessage>) => {
@@ -53,7 +121,9 @@ self.addEventListener("message", async (e: MessageEvent<WorkerMessage>) => {
     return;
   }
 
-  if (e.data.type !== "prove") return;
+  if (e.data.type !== "prove") {
+    return;
+  }
 
   const myGeneration = ++generation;
   const { identityToken, expectedCommit } = e.data;
@@ -62,7 +132,10 @@ self.addEventListener("message", async (e: MessageEvent<WorkerMessage>) => {
     typeof identityToken !== "string" ||
     !/^-?\d+$/.test(identityToken)
   ) {
-    self.postMessage({ type: "error", error: "Invalid identity token." });
+    self.postMessage({
+      type: "error",
+      error: "Invalid identity token.",
+    });
     return;
   }
 
@@ -70,41 +143,44 @@ self.addEventListener("message", async (e: MessageEvent<WorkerMessage>) => {
     typeof expectedCommit !== "string" ||
     !/^-?\d+$/.test(expectedCommit)
   ) {
-    self.postMessage({ type: "error", error: "Invalid commitment value." });
+    self.postMessage({
+      type: "error",
+      error: "Invalid commitment value.",
+    });
     return;
   }
 
   try {
-    self.postMessage({ type: "progress", stage: "generating" });
+    self.postMessage({
+      type: "progress",
+      stage: "generating",
+    });
 
-    const { proof, publicSignals } = await snarkjs.groth16.fullProve(
-      { identityToken, expectedCommit },
-      "/zkp/premium_membership.wasm",
-      "/zkp/premium_membership.zkey",
+    const { proof, publicSignals } = await generateProof(
+      identityToken,
+      expectedCommit,
     );
 
-    if (myGeneration !== generation) return;
+    if (myGeneration !== generation) {
+      return;
+    }
 
-    self.postMessage({ type: "success", proof, publicSignals });
+    self.postMessage({
+      type: "success",
+      proof,
+      publicSignals,
+    });
   } catch (error) {
-    if (myGeneration !== generation) return;
+    if (myGeneration !== generation) {
+      return;
+    }
+
     const errorType = classifyError(error);
+
     self.postMessage({
       type: "error",
       error: sanitizeError(error),
-      // Signal OOM separately so the component can offer server-side fallback
       isOom: errorType === "oom",
     });
-  } finally {
-    const g = globalThis as typeof globalThis & {
-      curve_bn128?: { terminate: () => Promise<void> };
-    };
-    if (g.curve_bn128) {
-      try {
-        await g.curve_bn128.terminate();
-      } catch {
-        // ignore cleanup errors
-      }
-    }
   }
 });
