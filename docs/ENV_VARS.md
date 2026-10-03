@@ -30,6 +30,8 @@ The table below lists every environment variable currently used by WorkSphere.
 | Variable | Required | Description |
 |-----------|----------|-------------|
 | `DATABASE_URL` | ✅ Yes | PostgreSQL connection string used by Prisma ORM. |
+| `CRON_SECRET` | ✅ Production | Bearer token required by scheduled cron endpoints, including partition maintenance. |
+| `PARTITION_MAINTENANCE_ADMIN_ID` | ✅ Production | ID of an existing admin user used as the actor for partition maintenance audit records. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | ✅ Yes | Public Clerk authentication key used by the frontend. |
 | `CLERK_SECRET_KEY` | ✅ Yes | Private Clerk secret used by server-side authentication. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | ✅ Yes | Route used for the sign-in page. |

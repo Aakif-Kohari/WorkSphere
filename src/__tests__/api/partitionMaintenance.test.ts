@@ -7,6 +7,26 @@ import { GET } from "@/app/api/cron/partition-maintenance/route";
 import { NextRequest } from "next/server";
 import { autoCreateUpcomingPartitions } from "@/lib/partitionMaintenance";
 
+jest.mock("@/lib/db/partitionMaintenance", () => ({
+  runPartmanPartitionMaintenance: jest.fn().mockResolvedValue({
+    maintained: ["WifiTelemetry"],
+    plannedPartitions: [],
+    activePartitions: [],
+    skippedTables: ["AcousticTelemetry"],
+  }),
+}));
+
+jest.mock("@/lib/prisma", () => ({
+  prisma: {
+    user: {
+      findFirst: jest.fn().mockResolvedValue({ id: "admin-test" }),
+    },
+    adminAuditLog: {
+      create: jest.fn().mockResolvedValue({}),
+    },
+  },
+}));
+
 // Mock the partition maintenance functions
 jest.mock("@/lib/partitionMaintenance", () => ({
   autoCreateUpcomingPartitions: jest
@@ -41,6 +61,7 @@ describe("GET /api/cron/partition-maintenance", () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    process.env.PARTITION_MAINTENANCE_ADMIN_ID = "admin-test";
     jest.clearAllMocks();
   });
 

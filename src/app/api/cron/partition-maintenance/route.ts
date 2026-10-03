@@ -4,7 +4,9 @@ import {
   archiveExpiredPushNotificationPartitions,
   checkPartitionHealth,
 } from "@/lib/partitionMaintenance";
+import { runPartmanPartitionMaintenance } from "@/lib/db/partitionMaintenance";
 import { isAuthorizedCronRequest } from "@/lib/cronAuth";
+import { prisma } from "@/lib/prisma";
 import { runPartitionRetention, type RetentionRunReport } from "@/lib/partitionRetention";
 
 // DETACH/VACUUM on large partitions can take a while.
@@ -35,6 +37,12 @@ export async function GET(request: NextRequest) {
     partitionsArchived?: string[];
     retention?: RetentionRunReport;
     healthReport?: unknown;
+    telemetryMaintenance?: {
+      maintained: string[];
+      plannedPartitions: string[];
+      activePartitions: string[];
+      skippedTables: string[];
+    };
     errors: string[];
   } = { errors: [] };
 
@@ -83,12 +91,49 @@ export async function GET(request: NextRequest) {
     results.errors.push(`checkPartitionHealth: ${msg}`);
   }
 
+  try {
+    results.telemetryMaintenance = await runPartmanPartitionMaintenance();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    results.errors.push(`runPartmanPartitionMaintenance: ${msg}`);
+    console.error("[PartitionCron] Telemetry maintenance failed:", err);
+  }
+
   const durationMs = Date.now() - startedAt;
   const success = results.errors.length === 0;
 
+  try {
+    const adminId = process.env.PARTITION_MAINTENANCE_ADMIN_ID;
+    if (!adminId) {
+      throw new Error("PARTITION_MAINTENANCE_ADMIN_ID is not configured");
+    }
+
+    const auditActor = await prisma.user.findFirst({
+      where: { id: adminId, isAdmin: true },
+      select: { id: true },
+    });
+    if (!auditActor) {
+      throw new Error("Configured partition maintenance audit actor is not an admin user");
+    }
+
+    await prisma.adminAuditLog.create({
+      data: {
+        adminId: auditActor.id,
+        action: "PARTITION_MAINTENANCE",
+        entityType: "DatabasePartition",
+        entityId: "WifiTelemetry,AcousticTelemetry",
+        details: JSON.stringify({ success, durationMs, ...results }),
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    results.errors.push(`partitionMaintenanceAudit: ${msg}`);
+    console.error("[PartitionCron] Failed to log maintenance metrics:", err);
+  }
+
   return NextResponse.json(
     {
-      success,
+      success: results.errors.length === 0,
       durationMs,
       ...results,
     },
