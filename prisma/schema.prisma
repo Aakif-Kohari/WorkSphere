@@ -144,6 +144,7 @@ model Venue {
   maxCapacity         Int                 @default(50)
   checkIns            CheckIn[]
   xrAnchors           XRAnchor[]
+  noiseTelemetryReleases NoiseTelemetryRelease[]
   isClaimed           Boolean             @default(false)
   ownerId             String?
   hostMessage         String?
@@ -193,6 +194,19 @@ model VenueRating {
   @@unique([userId, venueId])
   @@index([venueId])
   @@index([createdAt])
+}
+
+model NoiseTelemetryRelease {
+  venueId      String
+  venue        Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  epochKey     String
+  avgDecibels  Float
+  rdpCosts     Json
+  submissions  Int      @default(1)
+  updatedAt    DateTime @updatedAt
+
+  @@id([venueId, epochKey])
+  @@index([epochKey])
 }
 
 model Favorite {
