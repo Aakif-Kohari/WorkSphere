@@ -23,9 +23,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
     if (!descriptionToTranslate) {
       const venue = await prisma.venue.findUnique({
         where: { id },
-        select: { description: true },
+        select: { hostMessage: true, name: true },
       });
-      descriptionToTranslate = venue?.description || "";
+      descriptionToTranslate = venue?.hostMessage || venue?.name || "";
     }
 
     if (!descriptionToTranslate) {
