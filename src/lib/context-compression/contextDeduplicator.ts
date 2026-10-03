@@ -12,10 +12,9 @@ export interface VenueLike {
   name: string;
   lat?: number;
   lng?: number;
-  address?: string;
+  address?: string | null;
   category?: string;
   score?: number;
-  [key: string]: unknown;
 }
 
 export interface VenueDedupOptions {
@@ -120,7 +119,7 @@ export function deduplicateVenueResults<T extends VenueLike>(
   }
 
   const seenIds = new Set<string>(options?.seenVenueIds || []);
-  const seenNamesAndLocs: Array<{ cleanName: string; lat?: number; lng?: number; address?: string }> = [];
+  const seenNamesAndLocs: Array<{ cleanName: string; lat?: number; lng?: number; address?: string | null }> = [];
   const distanceThreshold = options?.distanceThresholdKm ?? 0.1; // 100 meters
   const duplicateIds: string[] = [];
   const deduplicated: T[] = [];
