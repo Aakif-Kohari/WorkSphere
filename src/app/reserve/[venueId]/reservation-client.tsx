@@ -22,6 +22,7 @@ import FloorPlanViewer3D from "@/components/floorplan/FloorPlanViewer3D";
 import { apiFetch } from "@/lib/apiClient";
 import { useRateLimit } from "@/hooks/useRateLimit";
 import { SeatOccupancyHeatmap } from "@/components/venue/SeatOccupancyHeatmap";
+import { useSeatHoldLock } from "@/hooks/useSeatHoldLock";
 
 type Seat = {
   id: string;
@@ -72,6 +73,30 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
   );
   const [endDate, setEndDate] = useState("");
   const [occurrences, setOccurrences] = useState<number>(12);
+
+  // Distributed real-time seat-hold locking (#3522)
+  const {
+    activeHolds,
+    myHeldSeatId,
+    remainingSeconds,
+    acquireHold,
+    releaseHold,
+    confirmCheckout,
+    isSeatHeldByOther,
+  } = useSeatHoldLock({
+    venueId: venue.id,
+    onHoldExpired: (seatId) => {
+      if (selectedSeat === seatId) {
+        setSelectedSeat(null);
+        setMessage("Your 5-minute checkout hold expired. The seat has been released.");
+      }
+    },
+    onHoldRejected: (_seatId, _reason, _heldBy, heldByName) => {
+      setMessage(
+        `This seat is temporarily on hold by ${heldByName || "another user"} during checkout.`,
+      );
+    },
+  });
 
   const loadAvailability = useCallback(async () => {
     setLoading(true);
@@ -259,6 +284,9 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
       setConfirmationId(payload.confirmationId);
     }
 
+    if (selectedSeat) {
+      await confirmCheckout(selectedSeat);
+    }
     setSelectedSeat(null);
     setBooking(false);
     setGuests([]);
@@ -384,14 +412,38 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
                 <FloorPlanViewer3D
                   seats={seats}
                   selectedSeat={selectedSeat}
-                  onSelectSeat={(id) => {
+                  activeHolds={activeHolds}
+                  onHeldSeatClick={(seat, hold) => {
+                    setMessage(
+                      `Seat ${seat.seatNumber} is currently on hold by ${hold.heldByName || "another user"} (${hold.remainingSeconds ?? 300}s remaining).`,
+                    );
+                  }}
+                  onSelectSeat={async (id) => {
                     if (id === null) {
+                      if (selectedSeat) {
+                        await releaseHold(selectedSeat);
+                      }
                       setSelectedSeat(null);
                       return;
                     }
                     const seat = seats.find((s) => s.id === id);
-                    if (seat && seat.available) {
+                    if (!seat || !seat.available) return;
+
+                    if (isSeatHeldByOther(id)) {
+                      setMessage(`Seat ${seat.seatNumber} is currently held by someone else.`);
+                      return;
+                    }
+
+                    if (selectedSeat && selectedSeat !== id) {
+                      await releaseHold(selectedSeat);
+                    }
+
+                    const acquired = await acquireHold(id);
+                    if (acquired) {
                       setSelectedSeat(id);
+                      setMessage("");
+                    } else {
+                      setMessage(`Could not hold seat ${seat.seatNumber}: currently held by someone else.`);
                     }
                   }}
                 />
@@ -410,6 +462,24 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
               className="h-fit rounded-3xl border border-white/10 bg-white/[0.04] p-5 md:p-6"
             >
               <h2 className="text-xl font-semibold">Reservation details</h2>
+
+              {/* 5-minute Seat Hold Active Countdown Indicator (#3522) */}
+              {selectedSeat && myHeldSeatId === selectedSeat && (
+                <div className="mt-4 flex items-center justify-between rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">
+                  <span className="flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                    </span>
+                    <span>
+                      Seat <strong>{seats.find((s) => s.id === selectedSeat)?.seatNumber}</strong> locked for checkout
+                    </span>
+                  </span>
+                  <span className="font-mono font-semibold text-amber-300">
+                    {Math.floor(remainingSeconds / 60)}:{(remainingSeconds % 60).toString().padStart(2, "0")} remaining
+                  </span>
+                </div>
+              )}
 
               <div className="mt-6 space-y-4">
                 <Field label="Date" icon={<CalendarDays className="h-4 w-4" />}>
@@ -434,9 +504,7 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
                 <Field label="Duration" icon={<Clock3 className="h-4 w-4" />}>
                   <select
                     value={duration}
-                    onChange={(event) =>
-                      setDuration(Number(event.target.value))
-                    }
+                    onChange={(event) => setDuration(Number(event.target.value))}
                     className="reserve-input"
                   >
                     <option value={30}>30 minutes</option>

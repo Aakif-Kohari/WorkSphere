@@ -15,16 +15,32 @@ export type SeatProps = {
   available: boolean;
 };
 
-interface FloorPlanViewer3DProps {
+export interface FloorPlanViewer3DProps {
   seats: SeatProps[];
   selectedSeat: string | null;
   onSelectSeat: (id: string | null) => void;
+  activeHolds?: Record<
+    string,
+    {
+      heldBy: string;
+      heldByName?: string;
+      expiresAt: number;
+      isSelf: boolean;
+      remainingSeconds?: number;
+    }
+  >;
+  onHeldSeatClick?: (
+    seat: SeatProps,
+    hold: { heldByName?: string; remainingSeconds?: number },
+  ) => void;
 }
 
 export default function FloorPlanViewer3D({
   seats,
   selectedSeat,
   onSelectSeat,
+  activeHolds = {},
+  onHeldSeatClick,
 }: FloorPlanViewer3DProps) {
   const [hoveredSeat, setHoveredSeat] = useState<string | null>(null);
 
@@ -36,7 +52,9 @@ export default function FloorPlanViewer3D({
     seat: SeatProps,
     isSelected: boolean,
     isHovered: boolean,
+    isHeldByOther: boolean,
   ) => {
+    if (isHeldByOther) return "#f59e0b"; // Amber held by someone else (#3522)
     if (isSelected) return "#6366f1"; // Indigo selected
     if (!seat.available) return "#ef4444"; // Red unavailable
     if (isHovered) return "#10b981"; // Emerald hovered
@@ -110,16 +128,18 @@ export default function FloorPlanViewer3D({
       onKeyDown={handleKeyDown}
       className="w-full h-[450px] relative rounded-2xl overflow-hidden bg-[#0b0b0f] border border-white/10 p-4 flex flex-col items-center justify-center select-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-950"
     >
-      <div className="absolute top-4 left-4 z-10 flex items-center gap-3 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 text-xs text-zinc-300 pointer-events-none">
+      <div className="absolute top-4 left-4 z-10 flex flex-wrap items-center gap-3 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 text-xs text-zinc-300 pointer-events-none">
         <span className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-[#3b82f6]" /> Desk
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#8b5cf6]" /> Meeting
-          Room
+          <span className="w-2.5 h-2.5 rounded-full bg-[#8b5cf6]" /> Meeting Room
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-[#ec4899]" /> Phone Booth
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b] animate-pulse" /> Held by someone else
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" /> Occupied
@@ -178,16 +198,43 @@ export default function FloorPlanViewer3D({
           {seats.map((seat) => {
             const isSelected = selectedSeat === seat.id;
             const isHovered = hoveredSeat === seat.id;
-            const color = getSeatColor(seat, isSelected, isHovered);
+            const hold = activeHolds[seat.id];
+            const isHeldByOther =
+              !!hold &&
+              !hold.isSelf &&
+              (hold.remainingSeconds === undefined || hold.remainingSeconds > 0);
+            const isHeldByMe = !!hold && hold.isSelf;
+            const color = getSeatColor(
+              seat,
+              isSelected || isHeldByMe,
+              isHovered,
+              isHeldByOther,
+            );
+
+            const isSelectable = seat.available && !isHeldByOther;
 
             return (
               <g
                 key={seat.id}
-                onClick={() => seat.available && onSelectSeat(seat.id)}
+                onClick={() => {
+                  if (isHeldByOther) {
+                    onHeldSeatClick?.(seat, hold);
+                  } else if (isSelectable) {
+                    onSelectSeat(seat.id);
+                  }
+                }}
                 onMouseEnter={() => setHoveredSeat(seat.id)}
                 onMouseLeave={() => setHoveredSeat(null)}
-                className={`${seat.available ? "cursor-pointer" : "cursor-not-allowed"}`}
+                className={`${isSelectable ? "cursor-pointer" : "cursor-not-allowed"}`}
               >
+                <title>
+                  {isHeldByOther
+                    ? `Seat ${seat.seatNumber} — Held by ${hold?.heldByName || "someone else"} (${hold?.remainingSeconds ?? 300}s remaining)`
+                    : isHeldByMe
+                      ? `Seat ${seat.seatNumber} — Held by you (${hold?.remainingSeconds ?? 300}s remaining)`
+                      : `Seat ${seat.seatNumber} (${seat.type}) - ${seat.available ? "Available" : "Occupied"}`}
+                </title>
+
                 {/* Seat Shadow */}
                 <rect
                   x={seat.x + 3}
@@ -199,6 +246,22 @@ export default function FloorPlanViewer3D({
                   fillOpacity="0.4"
                 />
 
+                {/* Animated Pulsing Outer Ring for seats held by someone else (#3522) */}
+                {isHeldByOther && (
+                  <rect
+                    x={seat.x - 3}
+                    y={seat.y - 3}
+                    width={seat.width + 6}
+                    height={seat.height + 6}
+                    rx="8"
+                    fill="none"
+                    stroke="#f59e0b"
+                    strokeWidth="2"
+                    strokeDasharray="4 2"
+                    className="animate-pulse"
+                  />
+                )}
+
                 {/* Seat Body */}
                 <rect
                   x={seat.x}
@@ -207,18 +270,35 @@ export default function FloorPlanViewer3D({
                   height={seat.height}
                   rx="6"
                   fill={color}
-                  fillOpacity={isSelected || isHovered ? 0.9 : 0.75}
-                  stroke={isSelected ? "#ffffff" : color}
-                  strokeWidth={isSelected ? 3 : 1.5}
+                  fillOpacity={isSelected || isHovered || isHeldByOther ? 0.9 : 0.75}
+                  stroke={isSelected || isHeldByMe ? "#ffffff" : isHeldByOther ? "#f59e0b" : color}
+                  strokeWidth={isSelected || isHeldByMe ? 3 : isHeldByOther ? 2 : 1.5}
                   className="transition-all duration-200"
                 />
+
+                {/* Padlock Icon Indicator for Held Seat (#3522) */}
+                {isHeldByOther && (
+                  <g
+                    transform={`translate(${seat.x + seat.width - 15}, ${seat.y + 3}) scale(0.6)`}
+                    className="pointer-events-none"
+                  >
+                    <path
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                      stroke="#ffffff"
+                      strokeWidth="2"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </g>
+                )}
 
                 {/* Seat Label */}
                 <text
                   x={seat.x + seat.width / 2}
                   y={seat.y + seat.height / 2 + 4}
                   textAnchor="middle"
-                  fill="#000000"
+                  fill={isHeldByOther ? "#ffffff" : "#000000"}
                   fontSize="11"
                   fontWeight="bold"
                   className="pointer-events-none"

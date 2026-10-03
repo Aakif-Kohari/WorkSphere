@@ -72,6 +72,21 @@ export interface PresenceUser {
   lastActive: number;
 }
 
+/** Distributed seat-hold lock representation (#3522) */
+export interface SeatHold {
+  seatId: string;
+  venueId: string;
+  userId: string;
+  userName?: string;
+  connId: string;
+  heldAt: number;
+  expiresAt: number;
+  version: number;
+}
+
+/** Default seat-hold lock TTL (5 minutes in milliseconds) (#3522) */
+export const DEFAULT_SEAT_HOLD_TTL_MS = 5 * 60 * 1000;
+
 export default class WorkspaceServer implements Party.Server {
   // Real-time seat availability layer (#703): one check-in per connection,
   // keyed by connection id so we can always find & clear a user's previous
@@ -84,6 +99,13 @@ export default class WorkspaceServer implements Party.Server {
   private readonly maxHistorySize = 500;
   private processedMessageIds = new Set<string>();
   private readonly maxProcessedIds = 1000;
+
+  // Real-time distributed seat-hold locks (#3522):
+  // 5-minute TTL locks to prevent double-booking during checkout.
+  // Keyed by `${venueId}:${seatId}`.
+  private seatHolds = new Map<string, SeatHold>();
+  private connHolds = new Map<string, Set<string>>(); // connId -> Set<holdKey>
+  private seatHoldCleanupInterval?: ReturnType<typeof setInterval>;
 
   // Music genre state per venue (#2077): tracks the current reported genre
   // for each venueId. Overwritten on each update — last reporter wins.
@@ -104,6 +126,11 @@ export default class WorkspaceServer implements Party.Server {
     this.presenceCleanupInterval = setInterval(() => {
       this.pruneInactivePresence();
     }, 5000);
+
+    // 2-second sweep for expired seat holds (Issue #3522)
+    this.seatHoldCleanupInterval = setInterval(() => {
+      this.pruneExpiredSeatHolds();
+    }, 2000);
 
     this.heartbeatInterval = setInterval(() => {
       const now = Date.now();
@@ -281,6 +308,11 @@ export default class WorkspaceServer implements Party.Server {
           users: Array.from(this.roomPresence.values()),
         }),
       );
+    }
+
+    // Send active seat holds snapshot so new viewers immediately see held seats (#3522)
+    if (this.seatHolds.size > 0) {
+      this.sendSeatHoldsSnapshot(conn);
     }
 
     // Also handle simple presence via standard WebSockets
@@ -487,6 +519,52 @@ export default class WorkspaceServer implements Party.Server {
         return;
       }
 
+      // Distributed seat-hold locking protocol (#3522)
+      if (
+        parsed.type === "seat_hold_request" &&
+        typeof parsed.seatId === "string" &&
+        typeof parsed.venueId === "string"
+      ) {
+        this.handleSeatHoldRequest(
+          sender,
+          parsed.seatId,
+          parsed.venueId,
+          String(parsed.userId || state.userId || sender.id),
+          parsed.userName ? String(parsed.userName) : (sender.state as any)?.name,
+          typeof parsed.ttlMs === "number" ? parsed.ttlMs : undefined,
+        );
+        return;
+      }
+
+      if (
+        parsed.type === "seat_release_request" &&
+        typeof parsed.seatId === "string" &&
+        typeof parsed.venueId === "string"
+      ) {
+        this.handleSeatReleaseRequest(
+          sender,
+          parsed.seatId,
+          parsed.venueId,
+          String(parsed.userId || state.userId || sender.id),
+        );
+        return;
+      }
+
+      if (
+        parsed.type === "seat_checkout_complete" &&
+        typeof parsed.seatId === "string" &&
+        typeof parsed.venueId === "string"
+      ) {
+        this.handleSeatCheckoutComplete(sender, parsed.seatId, parsed.venueId);
+        return;
+      }
+
+      if (parsed.type === "request_seat_holds") {
+        const venueId = typeof parsed.venueId === "string" ? parsed.venueId : undefined;
+        this.sendSeatHoldsSnapshot(sender, venueId);
+        return;
+      }
+
       // Seat availability check-in/checkout (#703). This is presence data,
       // not a document edit, so VIEWERS are allowed to use it too — it
       // deliberately skips the role gate below.
@@ -543,6 +621,7 @@ export default class WorkspaceServer implements Party.Server {
   onClose(conn: Party.Connection) {
     this.connectionStates.delete(conn.id);
     this.handleSeatCheckout(conn);
+    this.handleConnectionSeatHoldsCleanup(conn.id);
 
     if (this.roomPresence.has(conn.id)) {
       const presence = this.roomPresence.get(conn.id)!;
@@ -846,5 +925,256 @@ export default class WorkspaceServer implements Party.Server {
         musicGenreUpdatedAt: music?.updatedAt ?? null,
       };
     });
+  }
+
+  /**
+   * Sweeps expired seat holds and broadcasts unlock events (#3522).
+   */
+  pruneExpiredSeatHolds(now: number = Date.now()): number {
+    let expiredCount = 0;
+    for (const [holdKey, hold] of this.seatHolds.entries()) {
+      if (now >= hold.expiresAt) {
+        this.seatHolds.delete(holdKey);
+        const userHolds = this.connHolds.get(hold.connId);
+        if (userHolds) {
+          userHolds.delete(holdKey);
+          if (userHolds.size === 0) {
+            this.connHolds.delete(hold.connId);
+          }
+        }
+        this.sequenceId++;
+        this.room.broadcast(
+          JSON.stringify({
+            type: "seat_unlocked",
+            seatId: hold.seatId,
+            venueId: hold.venueId,
+            reason: "EXPIRED",
+            timestamp: now,
+            sequenceId: this.sequenceId,
+          }),
+        );
+        expiredCount++;
+      }
+    }
+    return expiredCount;
+  }
+
+  private handleSeatHoldRequest(
+    conn: Party.Connection,
+    seatId: string,
+    venueId: string,
+    userId: string,
+    userName?: string,
+    ttlMs: number = DEFAULT_SEAT_HOLD_TTL_MS,
+  ) {
+    this.pruneExpiredSeatHolds();
+
+    const holdKey = `${venueId}:${seatId}`;
+    const now = Date.now();
+    const existing = this.seatHolds.get(holdKey);
+
+    // If held by another user and not expired
+    if (existing && now < existing.expiresAt && existing.userId !== userId) {
+      conn.send(
+        JSON.stringify({
+          type: "seat_hold_rejected",
+          seatId,
+          venueId,
+          reason: "ALREADY_HELD",
+          heldBy: existing.userId,
+          heldByName: existing.userName,
+          expiresAt: existing.expiresAt,
+          remainingMs: Math.max(0, existing.expiresAt - now),
+        }),
+      );
+      return;
+    }
+
+    // Acquire or renew hold
+    const clampedTtl = Math.min(Math.max(ttlMs, 10_000), 600_000);
+    const expiresAt = now + clampedTtl;
+    const version = (existing?.version ?? 0) + 1;
+
+    const newHold: SeatHold = {
+      seatId,
+      venueId,
+      userId,
+      userName,
+      connId: conn.id,
+      heldAt: now,
+      expiresAt,
+      version,
+    };
+
+    this.seatHolds.set(holdKey, newHold);
+
+    let connSet = this.connHolds.get(conn.id);
+    if (!connSet) {
+      connSet = new Set();
+      this.connHolds.set(conn.id, connSet);
+    }
+    connSet.add(holdKey);
+
+    this.sequenceId++;
+    conn.send(
+      JSON.stringify({
+        type: "seat_hold_acquired",
+        seatId,
+        venueId,
+        expiresAt,
+        ttlMs: clampedTtl,
+        version,
+        sequenceId: this.sequenceId,
+      }),
+    );
+
+    this.room.broadcast(
+      JSON.stringify({
+        type: "seat_locked",
+        seatId,
+        venueId,
+        heldBy: userId,
+        heldByName: userName,
+        expiresAt,
+        version,
+        sequenceId: this.sequenceId,
+      }),
+    );
+  }
+
+  private handleSeatReleaseRequest(
+    conn: Party.Connection,
+    seatId: string,
+    venueId: string,
+    userId: string,
+  ) {
+    const holdKey = `${venueId}:${seatId}`;
+    const existing = this.seatHolds.get(holdKey);
+    if (!existing) return;
+
+    if (existing.userId === userId || existing.connId === conn.id) {
+      this.seatHolds.delete(holdKey);
+      const connSet = this.connHolds.get(conn.id);
+      if (connSet) {
+        connSet.delete(holdKey);
+        if (connSet.size === 0) {
+          this.connHolds.delete(conn.id);
+        }
+      }
+
+      this.sequenceId++;
+      this.room.broadcast(
+        JSON.stringify({
+          type: "seat_unlocked",
+          seatId,
+          venueId,
+          reason: "RELEASED",
+          timestamp: Date.now(),
+          sequenceId: this.sequenceId,
+        }),
+      );
+    }
+  }
+
+  private handleSeatCheckoutComplete(
+    _conn: Party.Connection,
+    seatId: string,
+    venueId: string,
+  ) {
+    const holdKey = `${venueId}:${seatId}`;
+    const existing = this.seatHolds.get(holdKey);
+    if (existing) {
+      this.seatHolds.delete(holdKey);
+      const connSet = this.connHolds.get(existing.connId);
+      if (connSet) {
+        connSet.delete(holdKey);
+        if (connSet.size === 0) {
+          this.connHolds.delete(existing.connId);
+        }
+      }
+    }
+
+    this.sequenceId++;
+    this.room.broadcast(
+      JSON.stringify({
+        type: "seat_unlocked",
+        seatId,
+        venueId,
+        reason: "CHECKOUT_COMPLETE",
+        timestamp: Date.now(),
+        sequenceId: this.sequenceId,
+      }),
+    );
+  }
+
+  private sendSeatHoldsSnapshot(conn: Party.Connection, venueId?: string) {
+    this.pruneExpiredSeatHolds();
+    const now = Date.now();
+    const holds: Array<{
+      seatId: string;
+      venueId: string;
+      heldBy: string;
+      heldByName?: string;
+      expiresAt: number;
+      remainingMs: number;
+    }> = [];
+
+    for (const hold of this.seatHolds.values()) {
+      if (now < hold.expiresAt && (!venueId || hold.venueId === venueId)) {
+        holds.push({
+          seatId: hold.seatId,
+          venueId: hold.venueId,
+          heldBy: hold.userId,
+          heldByName: hold.userName,
+          expiresAt: hold.expiresAt,
+          remainingMs: Math.max(0, hold.expiresAt - now),
+        });
+      }
+    }
+
+    conn.send(
+      JSON.stringify({
+        type: "seat_holds_snapshot",
+        venueId,
+        holds,
+      }),
+    );
+  }
+
+  private handleConnectionSeatHoldsCleanup(connId: string) {
+    const heldKeys = this.connHolds.get(connId);
+    if (!heldKeys || heldKeys.size === 0) return;
+
+    const now = Date.now();
+    for (const holdKey of heldKeys) {
+      const hold = this.seatHolds.get(holdKey);
+      if (hold) {
+        this.seatHolds.delete(holdKey);
+        this.sequenceId++;
+        this.room.broadcast(
+          JSON.stringify({
+            type: "seat_unlocked",
+            seatId: hold.seatId,
+            venueId: hold.venueId,
+            reason: "DISCONNECTED",
+            timestamp: now,
+            sequenceId: this.sequenceId,
+          }),
+        );
+      }
+    }
+    this.connHolds.delete(connId);
+  }
+
+  getActiveSeatHolds(venueId?: string): SeatHold[] {
+    this.pruneExpiredSeatHolds();
+    const now = Date.now();
+    const result: SeatHold[] = [];
+    for (const hold of this.seatHolds.values()) {
+      if (now < hold.expiresAt && (!venueId || hold.venueId === venueId)) {
+        result.push({ ...hold });
+      }
+    }
+    return result;
   }
 }
