@@ -135,6 +135,7 @@ export function useMeshCanvasWhiteboard(
 
     try {
       newProvider = new YProvider(PARTYKIT_HOST, roomId, doc, {
+
         params: token ? { token } : {},
       });
 
