@@ -189,22 +189,17 @@ export function solveTrilateration(
     .map((b) => ({
       x: b.x,
       y: b.y,
-      d: calculateRssiDistance(b.rssi, b.txPower ?? -59, b.pathLossExponent ?? 2.5),
+      d: calculateRssiDistance(
+        b.rssi,
+        b.txPower ?? -59,
+        b.pathLossExponent ?? 2.5,
+      ),
     }));
 
   if (valid.length < 3) return null;
 
   const n = valid.length;
   const bm = valid[n - 1]; // Reference beacon
-
-  // Construct linearized system A * p = b
-  // 2*(x_i - x_m)*x + 2*(y_i - y_m)*y = (x_i^2 + y_i^2 - d_i^2) - (x_m^2 + y_m^2 - d_m^2)
-  let a00 = 0,
-    a01 = 0,
-    a10 = 0,
-    a11 = 0;
-  let b0 = 0,
-    b1 = 0;
 
   // Use first two pairs relative to bm
   const b1_node = valid[0];
@@ -344,8 +339,8 @@ export class ExtendedKalmanFilter6D {
     // F[0, 2] = dt, F[1, 3] = dt, F[2, 2] = 0.95, F[3, 3] = 0.95, F[4, 5] = -dt
     const p00 = this.P[0] + 2 * dt * this.P[2] + dt * dt * this.P[14];
     const p11 = this.P[7] + 2 * dt * this.P[9] + dt * dt * this.P[21];
-    const p22 = this.P[14] * (velocityDamping ** 2);
-    const p33 = this.P[21] * (velocityDamping ** 2);
+    const p22 = this.P[14] * velocityDamping ** 2;
+    const p33 = this.P[21] * velocityDamping ** 2;
     const p44 = this.P[28] - 2 * dt * this.P[29] + dt * dt * this.P[35];
     const p55 = this.P[35];
 
@@ -376,8 +371,8 @@ export class ExtendedKalmanFilter6D {
     }
 
     // Slightly increase position variance after step
-    this.P[0] += 0.05 * (stepLength ** 2);
-    this.P[7] += 0.05 * (stepLength ** 2);
+    this.P[0] += 0.05 * stepLength ** 2;
+    this.P[7] += 0.05 * stepLength ** 2;
   }
 
   /**
@@ -667,7 +662,9 @@ export class IndoorPdrEngine {
     // 2. Complementary filter for heading if compass/magnetometer available
     if (sample.headingDeg !== undefined && Number.isFinite(sample.headingDeg)) {
       const magRad = degToRad(sample.headingDeg);
-      const gyroHeading = normalizeAngle(this.currentHeadingRad + gyroZ * dtSeconds);
+      const gyroHeading = normalizeAngle(
+        this.currentHeadingRad + gyroZ * dtSeconds,
+      );
 
       // Complementary fusion
       const alpha = this.config.gyroAlpha;
@@ -776,7 +773,8 @@ export class IndoorPdrEngine {
       gyroBias: Math.round(s.gyroBias * 100000) / 100000,
       stepCount: this.stepDetector.getStepCount(),
       totalDistance: Math.round(this.totalDistance * 100) / 100,
-      uncertaintyRadius: Math.round(this.ekf.getUncertaintyRadius() * 100) / 100,
+      uncertaintyRadius:
+        Math.round(this.ekf.getUncertaintyRadius() * 100) / 100,
     };
   }
 

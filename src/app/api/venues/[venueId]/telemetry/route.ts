@@ -123,7 +123,7 @@ export async function GET(
         avgOccupancy = Math.round(avgOccupancy);
       }
 
-      let numActiveVisitors = hourlyData[hour] ? hourlyData[hour].length : 0;
+      const numActiveVisitors = hourlyData[hour] ? hourlyData[hour].length : 0;
       if (numActiveVisitors > 0 && numActiveVisitors < 10) {
         // Apply the privacy filter to public venue occupancy queries when active visitors are below threshold N < 10
         avgOccupancy = applyPrivacyFilter(avgOccupancy, 100, 1.0, 10);

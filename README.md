@@ -31,7 +31,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](CONTRIBUTING.md)
-[![Contributors](https://img.shields.io/badge/Contributors-97%20Community%20Rockstars-orange?style=flat-square&logo=github)](https://github.com/SatyamPandey-07/WorkSphere/graphs/contributors)
+[![Contributors](https://img.shields.io/badge/Contributors-99%20Community%20Rockstars-orange?style=flat-square&logo=github)](https://github.com/SatyamPandey-07/WorkSphere/graphs/contributors)
 [![ECSoC 2026](https://img.shields.io/badge/ECSoC-2026-FFA500?style=flat-square)](https://github.com/SatyamPandey-07/WorkSphere)
 [![OSCI 2026](https://img.shields.io/badge/OSCI-2026-blue?style=flat-square)](https://github.com/SatyamPandey-07/WorkSphere)
 [![CI Status](https://img.shields.io/badge/CI-Passing-brightgreen?style=flat-square&logo=githubactions)](https://github.com/SatyamPandey-07/WorkSphere/actions)
@@ -47,7 +47,7 @@
   <a href="#-features"><b>✨ Features</b></a> •
   <a href="#-architecture"><b>🏗️ Architecture</b></a> •
   <a href="#-quickstart"><b>⚡ Quickstart</b></a> •
-  <a href="#-contributors-97-active-rockstars"><b>👥 Contributors (97)</b></a> •
+  <a href="#-contributors-99-active-rockstars"><b>👥 Contributors (99)</b></a> •
   <a href="https://github.com/SatyamPandey-07/WorkSphere/issues"><b>🐛 Report Issue</b></a>
 </p>
 
@@ -70,9 +70,9 @@
 
 ---
 
-### 🚀 Contributors (97 Active Rockstars)
+### 🚀 Contributors (99 Active Rockstars)
 
-A massive thank you to all **97 brilliant contributors and bots** building WorkSphere! 🌟
+A massive thank you to all **99 brilliant contributors and bots** building WorkSphere! 🌟
 
 <table>
   <tr>
@@ -183,15 +183,15 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
       </a>
     </td>
     <td align="center" width="14.28%">
-      <a href="https://github.com/diksha78dev">
-        <img src="https://avatars.githubusercontent.com/u/184750994?v=4" width="55px;" height="55px;" alt="diksha78dev" style="border-radius: 50%; object-fit: cover;"/><br />
-        <sub><b>diksha78dev</b></sub>
-      </a>
-    </td>
-    <td align="center" width="14.28%">
       <a href="https://github.com/Jashvanthan">
         <img src="https://avatars.githubusercontent.com/u/199629688?v=4" width="55px;" height="55px;" alt="Jashvanthan" style="border-radius: 50%; object-fit: cover;"/><br />
         <sub><b>Jashvanthan</b></sub>
+      </a>
+    </td>
+    <td align="center" width="14.28%">
+      <a href="https://github.com/diksha78dev">
+        <img src="https://avatars.githubusercontent.com/u/184750994?v=4" width="55px;" height="55px;" alt="diksha78dev" style="border-radius: 50%; object-fit: cover;"/><br />
+        <sub><b>diksha78dev</b></sub>
       </a>
     </td>
     <td align="center" width="14.28%">
@@ -253,6 +253,12 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
   </tr>
   <tr>
     <td align="center" width="14.28%">
+      <a href="https://github.com/hemnath-hub">
+        <img src="https://avatars.githubusercontent.com/u/228287026?v=4" width="55px;" height="55px;" alt="hemnath-hub" style="border-radius: 50%; object-fit: cover;"/><br />
+        <sub><b>hemnath-hub</b></sub>
+      </a>
+    </td>
+    <td align="center" width="14.28%">
       <a href="https://github.com/Tanishkkkkk">
         <img src="https://avatars.githubusercontent.com/u/226301910?v=4" width="55px;" height="55px;" alt="Tanishkkkkk" style="border-radius: 50%; object-fit: cover;"/><br />
         <sub><b>Tanishkkkkk</b></sub>
@@ -288,14 +294,14 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
         <sub><b>revatikadam0607</b></sub>
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/marisa-mmm">
         <img src="https://avatars.githubusercontent.com/u/203952873?v=4" width="55px;" height="55px;" alt="marisa-mmm" style="border-radius: 50%; object-fit: cover;"/><br />
         <sub><b>marisa-mmm</b></sub>
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/anushkanikam05">
         <img src="https://avatars.githubusercontent.com/u/251041306?v=4" width="55px;" height="55px;" alt="anushkanikam05" style="border-radius: 50%; object-fit: cover;"/><br />
@@ -321,11 +327,19 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
       </a>
     </td>
     <td align="center" width="14.28%">
+      <a href="https://github.com/Janvi-kapoor">
+        <img src="https://avatars.githubusercontent.com/u/216144189?v=4" width="55px;" height="55px;" alt="Janvi-kapoor" style="border-radius: 50%; object-fit: cover;"/><br />
+        <sub><b>Janvi-kapoor</b></sub>
+      </a>
+    </td>
+    <td align="center" width="14.28%">
       <a href="https://github.com/anshika-guleria">
         <img src="https://avatars.githubusercontent.com/u/111104918?v=4" width="55px;" height="55px;" alt="anshika-guleria" style="border-radius: 50%; object-fit: cover;"/><br />
         <sub><b>anshika-guleria</b></sub>
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/Aakansha-saroj-05">
         <img src="https://avatars.githubusercontent.com/u/180135448?v=4" width="55px;" height="55px;" alt="Aakansha-saroj-05" style="border-radius: 50%; object-fit: cover;"/><br />
@@ -336,14 +350,6 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
       <a href="https://github.com/csxark">
         <img src="https://avatars.githubusercontent.com/u/166234658?v=4" width="55px;" height="55px;" alt="csxark" style="border-radius: 50%; object-fit: cover;"/><br />
         <sub><b>csxark</b></sub>
-      </a>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="14.28%">
-      <a href="https://github.com/hemnath-hub">
-        <img src="https://avatars.githubusercontent.com/u/228287026?v=4" width="55px;" height="55px;" alt="hemnath-hub" style="border-radius: 50%; object-fit: cover;"/><br />
-        <sub><b>hemnath-hub</b></sub>
       </a>
     </td>
     <td align="center" width="14.28%">
@@ -376,18 +382,24 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
         <sub><b>Kadaliswarna</b></sub>
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/SoumalyaSaha">
         <img src="https://avatars.githubusercontent.com/u/191320906?v=4" width="55px;" height="55px;" alt="SoumalyaSaha" style="border-radius: 50%; object-fit: cover;"/><br />
         <sub><b>SoumalyaSaha</b></sub>
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/Senthil455">
         <img src="https://avatars.githubusercontent.com/u/181909908?v=4" width="55px;" height="55px;" alt="Senthil455" style="border-radius: 50%; object-fit: cover;"/><br />
         <sub><b>Senthil455</b></sub>
+      </a>
+    </td>
+    <td align="center" width="14.28%">
+      <a href="https://github.com/pranav28042007-boop">
+        <img src="https://avatars.githubusercontent.com/u/231544295?v=4" width="55px;" height="55px;" alt="pranav28042007-boop" style="border-radius: 50%; object-fit: cover;"/><br />
+        <sub><b>pranav28042007-boop</b></sub>
       </a>
     </td>
     <td align="center" width="14.28%">
@@ -409,6 +421,14 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
       </a>
     </td>
     <td align="center" width="14.28%">
+      <a href="https://github.com/hirthicksundar1980-debug">
+        <img src="https://avatars.githubusercontent.com/u/231521833?v=4" width="55px;" height="55px;" alt="hirthicksundar1980-debug" style="border-radius: 50%; object-fit: cover;"/><br />
+        <sub><b>hirthicksundar1980-debug</b></sub>
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="14.28%">
       <a href="https://github.com/rudreshborle">
         <img src="https://avatars.githubusercontent.com/u/99067426?v=4" width="55px;" height="55px;" alt="rudreshborle" style="border-radius: 50%; object-fit: cover;"/><br />
         <sub><b>rudreshborle</b></sub>
@@ -426,8 +446,6 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
         <sub><b>Yuva-Deekshitha-N</b></sub>
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/yashvi-3106">
         <img src="https://avatars.githubusercontent.com/u/187176611?v=4" width="55px;" height="55px;" alt="yashvi-3106" style="border-radius: 50%; object-fit: cover;"/><br />
@@ -452,16 +470,12 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
         <sub><b>SpiliosDimakopoulos</b></sub>
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/panditshubham766-dotcom">
         <img src="https://avatars.githubusercontent.com/u/233032889?v=4" width="55px;" height="55px;" alt="panditshubham766-dotcom" style="border-radius: 50%; object-fit: cover;"/><br />
         <sub><b>panditshubham766-dotcom</b></sub>
-      </a>
-    </td>
-    <td align="center" width="14.28%">
-      <a href="https://github.com/Janvi-kapoor">
-        <img src="https://avatars.githubusercontent.com/u/216144189?v=4" width="55px;" height="55px;" alt="Janvi-kapoor" style="border-radius: 50%; object-fit: cover;"/><br />
-        <sub><b>Janvi-kapoor</b></sub>
       </a>
     </td>
     <td align="center" width="14.28%">
@@ -470,8 +484,6 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
         <sub><b>HimanshuPathak2725</b></sub>
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/Daksh7785">
         <img src="https://avatars.githubusercontent.com/u/208130543?v=4" width="55px;" height="55px;" alt="Daksh7785" style="border-radius: 50%; object-fit: cover;"/><br />
@@ -502,6 +514,8 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
         <sub><b>Parshant-12</b></sub>
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/punithkumar-060308">
         <img src="https://avatars.githubusercontent.com/u/236218573?v=4" width="55px;" height="55px;" alt="punithkumar-060308" style="border-radius: 50%; object-fit: cover;"/><br />
@@ -514,8 +528,6 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
         <sub><b>Bheemeswari497</b></sub>
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/AndrewJefrin">
         <img src="https://avatars.githubusercontent.com/u/221453981?v=4" width="55px;" height="55px;" alt="AndrewJefrin" style="border-radius: 50%; object-fit: cover;"/><br />
@@ -546,6 +558,8 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
         <sub><b>jenniferramesh423-cmyk</b></sub>
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/VarunikaShreeS">
         <img src="https://avatars.githubusercontent.com/u/234432364?v=4" width="55px;" height="55px;" alt="VarunikaShreeS" style="border-radius: 50%; object-fit: cover;"/><br />
@@ -558,8 +572,6 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
         <sub><b>Aditya90456</b></sub>
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/Suprita736">
         <img src="https://avatars.githubusercontent.com/u/179369760?v=4" width="55px;" height="55px;" alt="Suprita736" style="border-radius: 50%; object-fit: cover;"/><br />
@@ -590,20 +602,14 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
         <sub><b>RajD2910</b></sub>
       </a>
     </td>
-    <td align="center" width="14.28%">
-      <a href="https://github.com/pranav28042007-boop">
-        <img src="https://avatars.githubusercontent.com/u/231544295?v=4" width="55px;" height="55px;" alt="pranav28042007-boop" style="border-radius: 50%; object-fit: cover;"/><br />
-        <sub><b>pranav28042007-boop</b></sub>
-      </a>
-    </td>
+  </tr>
+  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/piush365">
         <img src="https://avatars.githubusercontent.com/u/173165525?v=4" width="55px;" height="55px;" alt="piush365" style="border-radius: 50%; object-fit: cover;"/><br />
         <sub><b>piush365</b></sub>
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/prajapati-pankaj-31">
         <img src="https://avatars.githubusercontent.com/u/226159531?v=4" width="55px;" height="55px;" alt="prajapati-pankaj-31" style="border-radius: 50%; object-fit: cover;"/><br />
@@ -640,14 +646,20 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
         <sub><b>jiahshifana08</b></sub>
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/Gunjan10-droid">
         <img src="https://avatars.githubusercontent.com/u/142145209?v=4" width="55px;" height="55px;" alt="Gunjan10-droid" style="border-radius: 50%; object-fit: cover;"/><br />
         <sub><b>Gunjan10-droid</b></sub>
       </a>
     </td>
-  </tr>
-  <tr>
+    <td align="center" width="14.28%">
+      <a href="https://github.com/Gabyee17">
+        <img src="https://avatars.githubusercontent.com/u/209272594?v=4" width="55px;" height="55px;" alt="Gabyee17" style="border-radius: 50%; object-fit: cover;"/><br />
+        <sub><b>Gabyee17</b></sub>
+      </a>
+    </td>
     <td align="center" width="14.28%">
       <a href="https://github.com/Falguni-105">
         <img src="https://avatars.githubusercontent.com/u/194253298?v=4" width="55px;" height="55px;" alt="Falguni-105" style="border-radius: 50%; object-fit: cover;"/><br />
@@ -675,15 +687,22 @@ A massive thank you to all **97 brilliant contributors and bots** building WorkS
     <td align="center" width="14.28%">
       <a href="https://github.com/apps/dependabot">
         <img src="https://avatars.githubusercontent.com/in/29110?v=4" width="55px;" height="55px;" alt="dependabot[bot]" style="border-radius: 50%; object-fit: cover;"/><br />
-        <sub><b>dependabot[bot]</b></sub><br /><sub><code>🤖 bot</code></sub>
+        <sub><b>dependabot[bot]</b></sub><br /><sub><code>🤖 Bot</code></sub>
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center" width="14.28%">
       <a href="https://github.com/apps/github-actions">
         <img src="https://avatars.githubusercontent.com/in/15368?v=4" width="55px;" height="55px;" alt="github-actions[bot]" style="border-radius: 50%; object-fit: cover;"/><br />
-        <sub><b>github-actions[bot]</b></sub><br /><sub><code>🤖 bot</code></sub>
+        <sub><b>github-actions[bot]</b></sub><br /><sub><code>🤖 Bot</code></sub>
       </a>
     </td>
+    <td align="center" width="14.28%"></td>
+    <td align="center" width="14.28%"></td>
+    <td align="center" width="14.28%"></td>
+    <td align="center" width="14.28%"></td>
+    <td align="center" width="14.28%"></td>
     <td align="center" width="14.28%"></td>
   </tr>
 </table>

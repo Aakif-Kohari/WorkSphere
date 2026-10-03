@@ -92,13 +92,10 @@ export function SeatOccupancyHeatmap({
           { cache: "no-store" },
         );
 
-        const payload =
-          (await response.json()) as ForecastHeatmapResponse;
+        const payload = (await response.json()) as ForecastHeatmapResponse;
 
         if (!response.ok || !payload.success) {
-          throw new Error(
-            payload.error ?? "Unable to load occupancy heatmap",
-          );
+          throw new Error(payload.error ?? "Unable to load occupancy heatmap");
         }
 
         if (!cancelled) {
@@ -192,7 +189,7 @@ export function SeatOccupancyHeatmap({
 
           <span className="flex items-center gap-1">
             <span className="h-2.5 w-2.5 rounded-sm bg-yellow-400" />
-            40–75%
+            40-75%
           </span>
 
           <span className="flex items-center gap-1">
@@ -228,16 +225,12 @@ export function SeatOccupancyHeatmap({
                 </div>
 
                 {dates.map((date) => {
-                  const occupancy =
-                    cellMap.get(`${date}-${hour}`) ?? 0;
+                  const occupancy = cellMap.get(`${date}-${hour}`) ?? 0;
 
-                  const slotTime = `${hour
-                    .toString()
-                    .padStart(2, "0")}:00`;
+                  const slotTime = `${hour.toString().padStart(2, "0")}:00`;
 
                   const isSelected =
-                    selectedDate === date &&
-                    selectedTime === slotTime;
+                    selectedDate === date && selectedTime === slotTime;
 
                   return (
                     <button

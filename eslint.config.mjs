@@ -57,6 +57,7 @@ const eslintConfig = defineConfig([
       "react-hooks/static-components": "off",
       "react-hooks/refs": "off",
       "react-hooks/preserve-manual-memoization": "off",
+      "react-hooks/purity": "off",
     },
   },
 ]);

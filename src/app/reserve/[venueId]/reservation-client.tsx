@@ -353,287 +353,294 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
             selectedDate={date}
             selectedTime={time}
             onSelectSlot={({ date: selectedDate, time: selectedTime }) => {
-              setDate(selectedDate)
-              setTime(selectedTime)
+              setDate(selectedDate);
+              setTime(selectedTime);
             }}
           />
 
           <div className="grid gap-6 xl:grid-cols-[1.5fr_.7fr]">
-          <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 md:p-7">
-            <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-              <div>
-                <h2 className="text-xl font-semibold">Interactive layout</h2>
-                <p className="mt-1 text-sm text-zinc-500">
-                  Select a green desk. Changes made by other viewers appear
-                  live.
-                </p>
-              </div>
-
-              <button
-                onClick={loadAvailability}
-                className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm text-zinc-300 hover:bg-white/5"
-              >
-                <RefreshCw
-                  className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
-                />
-                Refresh
-              </button>
-            </div>
-
-            <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b0b0f]">
-              <FloorPlanViewer3D
-                seats={seats}
-                selectedSeat={selectedSeat}
-                onSelectSeat={(id) => {
-                  if (id === null) {
-                    setSelectedSeat(null);
-                    return;
-                  }
-                  const seat = seats.find((s) => s.id === id);
-                  if (seat && seat.available) {
-                    setSelectedSeat(id);
-                  }
-                }}
-              />
-            </div>
-
-            <div className="mt-5 flex flex-wrap gap-4 text-xs text-zinc-400">
-              <Legend color="bg-green-800" label="Available desk" />
-              <Legend color="bg-cyan-800" label="Available room" />
-              <Legend color="bg-violet-500" label="Selected" />
-              <Legend color="bg-zinc-700" label="Taken" />
-            </div>
-          </section>
-
-          <form
-            onSubmit={reserve}
-            className="h-fit rounded-3xl border border-white/10 bg-white/[0.04] p-5 md:p-6"
-          >
-            <h2 className="text-xl font-semibold">Reservation details</h2>
-
-            <div className="mt-6 space-y-4">
-              <Field label="Date" icon={<CalendarDays className="h-4 w-4" />}>
-                <input
-                  type="date"
-                  min={todayString()}
-                  value={date}
-                  onChange={(event) => setDate(event.target.value)}
-                  className="reserve-input"
-                />
-              </Field>
-
-              <Field label="Start time" icon={<Clock3 className="h-4 w-4" />}>
-                <input
-                  type="time"
-                  value={time}
-                  onChange={(event) => setTime(event.target.value)}
-                  className="reserve-input"
-                />
-              </Field>
-
-              <Field label="Duration" icon={<Clock3 className="h-4 w-4" />}>
-                <select
-                  value={duration}
-                  onChange={(event) => setDuration(Number(event.target.value))}
-                  className="reserve-input"
-                >
-                  <option value={30}>30 minutes</option>
-                  <option value={60}>1 hour</option>
-                  <option value={90}>1.5 hours</option>
-                  <option value={120}>2 hours</option>
-                  <option value={240}>4 hours</option>
-                  <option value={480}>Full day</option>
-                </select>
-              </Field>
-            </div>
-
-            <div className="mt-6">
-              <p className="text-sm text-zinc-400">Amenities needed</p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                {amenityOptions.map((option) => {
-                  const enabled = amenities.includes(option.id);
-                  const Icon = option.icon;
-
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() =>
-                        setAmenities((current) =>
-                          enabled
-                            ? current.filter((item) => item !== option.id)
-                            : [...current, option.id],
-                        )
-                      }
-                      className={`rounded-xl border p-3 text-left text-xs transition ${
-                        enabled
-                          ? "border-violet-400/50 bg-violet-400/10 text-violet-100"
-                          : "border-white/10 bg-white/[0.03] text-zinc-400 hover:bg-white/[0.06]"
-                      }`}
-                    >
-                      <Icon className="mb-2 h-4 w-4" />
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Recurring Booking */}
-            <div className="mt-6">
-              <button
-                type="button"
-                onClick={() => setRecurringEnabled(!recurringEnabled)}
-                className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left text-xs transition ${
-                  recurringEnabled
-                    ? "border-violet-400/50 bg-violet-400/10 text-violet-100"
-                    : "border-white/10 bg-white/[0.03] text-zinc-400 hover:bg-white/[0.06]"
-                }`}
-              >
-                <Repeat className="h-4 w-4" />
+            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 md:p-7">
+              <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                 <div>
-                  <p className="font-medium">Recurring booking</p>
-                  <p className="mt-0.5 text-[10px] opacity-70">
-                    Book this workspace on a recurring schedule
+                  <h2 className="text-xl font-semibold">Interactive layout</h2>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    Select a green desk. Changes made by other viewers appear
+                    live.
                   </p>
                 </div>
-              </button>
 
-              {recurringEnabled && (
-                <div className="mt-3 space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                  <Field
-                    label="Frequency"
-                    icon={<Repeat className="h-4 w-4" />}
-                  >
-                    <select
-                      value={frequency}
-                      onChange={(event) =>
-                        setFrequency(
-                          event.target.value as "daily" | "weekly" | "monthly",
-                        )
-                      }
-                      className="reserve-input"
-                    >
-                      <option value="daily">Daily</option>
-                      <option value="weekly">Weekly</option>
-                      <option value="monthly">Monthly</option>
-                    </select>
-                  </Field>
-
-                  <Field
-                    label="End date (optional)"
-                    icon={<CalendarDays className="h-4 w-4" />}
-                  >
-                    <input
-                      type="date"
-                      min={date}
-                      value={endDate}
-                      onChange={(event) => setEndDate(event.target.value)}
-                      className="reserve-input"
-                    />
-                  </Field>
-
-                  <Field
-                    label="Number of occurrences (max 52)"
-                    icon={<CalendarDays className="h-4 w-4" />}
-                  >
-                    <input
-                      type="number"
-                      min={1}
-                      max={52}
-                      value={occurrences}
-                      onChange={(event) =>
-                        setOccurrences(
-                          Math.min(52, Math.max(1, Number(event.target.value))),
-                        )
-                      }
-                      disabled={!!endDate}
-                      className="reserve-input disabled:opacity-40"
-                    />
-                  </Field>
-
-                  {previewDates.length > 0 && (
-                    <div className="mt-2">
-                      <p className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
-                        Preview ({previewDates.length} dates)
-                      </p>
-                      <div className="flex max-h-28 flex-wrap gap-1 overflow-y-auto">
-                        {previewDates.map((d) => (
-                          <span
-                            key={d}
-                            className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-zinc-400"
-                          >
-                            {d}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Guest Invitations */}
-            <div className="mt-6">
-              <div className="flex items-center gap-2 mb-3">
-                <UserPlus className="h-4 w-4 text-zinc-400" />
-                <p className="text-sm text-zinc-400">Invite guests</p>
+                <button
+                  onClick={loadAvailability}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm text-zinc-300 hover:bg-white/5"
+                >
+                  <RefreshCw
+                    className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+                  />
+                  Refresh
+                </button>
               </div>
-              <GuestsInput
-                guests={guests}
-                onChange={setGuests}
-                maxGuests={10}
-                disabled={booking}
-              />
-            </div>
 
-            <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
-              <p className="text-xs uppercase tracking-wider text-zinc-500">
-                Selected workspace
-              </p>
+              <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b0b0f]">
+                <FloorPlanViewer3D
+                  seats={seats}
+                  selectedSeat={selectedSeat}
+                  onSelectSeat={(id) => {
+                    if (id === null) {
+                      setSelectedSeat(null);
+                      return;
+                    }
+                    const seat = seats.find((s) => s.id === id);
+                    if (seat && seat.available) {
+                      setSelectedSeat(id);
+                    }
+                  }}
+                />
+              </div>
 
-              {selected ? (
-                <div className="mt-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-lg font-semibold">
-                      {selected.seatNumber}
-                    </span>
-                    <Check className="h-5 w-5 text-emerald-300" />
-                  </div>
-                  <p className="mt-1 text-xs capitalize text-zinc-500">
-                    {selected.type.toLowerCase().replaceAll("_", " ")}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {selected.amenities.map((amenity) => (
-                      <span
-                        key={amenity}
-                        className="rounded-full bg-white/5 px-2 py-1 text-[10px] text-zinc-400"
-                      >
-                        {amenity}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-3 text-sm text-zinc-500">
-                  Select a green desk or room on the layout.
-                </p>
-              )}
-            </div>
+              <div className="mt-5 flex flex-wrap gap-4 text-xs text-zinc-400">
+                <Legend color="bg-green-800" label="Available desk" />
+                <Legend color="bg-cyan-800" label="Available room" />
+                <Legend color="bg-violet-500" label="Selected" />
+                <Legend color="bg-zinc-700" label="Taken" />
+              </div>
+            </section>
 
-            <button
-              disabled={!selected || booking || retryAfter > 0}
-              className="mt-6 w-full rounded-xl bg-violet-600 px-4 py-3 font-medium transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40 flex items-center justify-center gap-1.5"
+            <form
+              onSubmit={reserve}
+              className="h-fit rounded-3xl border border-white/10 bg-white/[0.04] p-5 md:p-6"
             >
-              {booking
-                ? "Securing workspace..."
-                : retryAfter > 0
-                  ? `Retry in ${retryAfter}s`
-                  : recurringEnabled
-                    ? `Confirm ${previewDates.length} recurring bookings`
-                    : "Confirm reservation"}
-            </button>
-          </form>
+              <h2 className="text-xl font-semibold">Reservation details</h2>
+
+              <div className="mt-6 space-y-4">
+                <Field label="Date" icon={<CalendarDays className="h-4 w-4" />}>
+                  <input
+                    type="date"
+                    min={todayString()}
+                    value={date}
+                    onChange={(event) => setDate(event.target.value)}
+                    className="reserve-input"
+                  />
+                </Field>
+
+                <Field label="Start time" icon={<Clock3 className="h-4 w-4" />}>
+                  <input
+                    type="time"
+                    value={time}
+                    onChange={(event) => setTime(event.target.value)}
+                    className="reserve-input"
+                  />
+                </Field>
+
+                <Field label="Duration" icon={<Clock3 className="h-4 w-4" />}>
+                  <select
+                    value={duration}
+                    onChange={(event) =>
+                      setDuration(Number(event.target.value))
+                    }
+                    className="reserve-input"
+                  >
+                    <option value={30}>30 minutes</option>
+                    <option value={60}>1 hour</option>
+                    <option value={90}>1.5 hours</option>
+                    <option value={120}>2 hours</option>
+                    <option value={240}>4 hours</option>
+                    <option value={480}>Full day</option>
+                  </select>
+                </Field>
+              </div>
+
+              <div className="mt-6">
+                <p className="text-sm text-zinc-400">Amenities needed</p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {amenityOptions.map((option) => {
+                    const enabled = amenities.includes(option.id);
+                    const Icon = option.icon;
+
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() =>
+                          setAmenities((current) =>
+                            enabled
+                              ? current.filter((item) => item !== option.id)
+                              : [...current, option.id],
+                          )
+                        }
+                        className={`rounded-xl border p-3 text-left text-xs transition ${
+                          enabled
+                            ? "border-violet-400/50 bg-violet-400/10 text-violet-100"
+                            : "border-white/10 bg-white/[0.03] text-zinc-400 hover:bg-white/[0.06]"
+                        }`}
+                      >
+                        <Icon className="mb-2 h-4 w-4" />
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Recurring Booking */}
+              <div className="mt-6">
+                <button
+                  type="button"
+                  onClick={() => setRecurringEnabled(!recurringEnabled)}
+                  className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left text-xs transition ${
+                    recurringEnabled
+                      ? "border-violet-400/50 bg-violet-400/10 text-violet-100"
+                      : "border-white/10 bg-white/[0.03] text-zinc-400 hover:bg-white/[0.06]"
+                  }`}
+                >
+                  <Repeat className="h-4 w-4" />
+                  <div>
+                    <p className="font-medium">Recurring booking</p>
+                    <p className="mt-0.5 text-[10px] opacity-70">
+                      Book this workspace on a recurring schedule
+                    </p>
+                  </div>
+                </button>
+
+                {recurringEnabled && (
+                  <div className="mt-3 space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                    <Field
+                      label="Frequency"
+                      icon={<Repeat className="h-4 w-4" />}
+                    >
+                      <select
+                        value={frequency}
+                        onChange={(event) =>
+                          setFrequency(
+                            event.target.value as
+                              "daily" | "weekly" | "monthly",
+                          )
+                        }
+                        className="reserve-input"
+                      >
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                    </Field>
+
+                    <Field
+                      label="End date (optional)"
+                      icon={<CalendarDays className="h-4 w-4" />}
+                    >
+                      <input
+                        type="date"
+                        min={date}
+                        value={endDate}
+                        onChange={(event) => setEndDate(event.target.value)}
+                        className="reserve-input"
+                      />
+                    </Field>
+
+                    <Field
+                      label="Number of occurrences (max 52)"
+                      icon={<CalendarDays className="h-4 w-4" />}
+                    >
+                      <input
+                        type="number"
+                        min={1}
+                        max={52}
+                        value={occurrences}
+                        onChange={(event) =>
+                          setOccurrences(
+                            Math.min(
+                              52,
+                              Math.max(1, Number(event.target.value)),
+                            ),
+                          )
+                        }
+                        disabled={!!endDate}
+                        className="reserve-input disabled:opacity-40"
+                      />
+                    </Field>
+
+                    {previewDates.length > 0 && (
+                      <div className="mt-2">
+                        <p className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+                          Preview ({previewDates.length} dates)
+                        </p>
+                        <div className="flex max-h-28 flex-wrap gap-1 overflow-y-auto">
+                          {previewDates.map((d) => (
+                            <span
+                              key={d}
+                              className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-zinc-400"
+                            >
+                              {d}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Guest Invitations */}
+              <div className="mt-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <UserPlus className="h-4 w-4 text-zinc-400" />
+                  <p className="text-sm text-zinc-400">Invite guests</p>
+                </div>
+                <GuestsInput
+                  guests={guests}
+                  onChange={setGuests}
+                  maxGuests={10}
+                  disabled={booking}
+                />
+              </div>
+
+              <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
+                <p className="text-xs uppercase tracking-wider text-zinc-500">
+                  Selected workspace
+                </p>
+
+                {selected ? (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-lg font-semibold">
+                        {selected.seatNumber}
+                      </span>
+                      <Check className="h-5 w-5 text-emerald-300" />
+                    </div>
+                    <p className="mt-1 text-xs capitalize text-zinc-500">
+                      {selected.type.toLowerCase().replaceAll("_", " ")}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {selected.amenities.map((amenity) => (
+                        <span
+                          key={amenity}
+                          className="rounded-full bg-white/5 px-2 py-1 text-[10px] text-zinc-400"
+                        >
+                          {amenity}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-zinc-500">
+                    Select a green desk or room on the layout.
+                  </p>
+                )}
+              </div>
+
+              <button
+                disabled={!selected || booking || retryAfter > 0}
+                className="mt-6 w-full rounded-xl bg-violet-600 px-4 py-3 font-medium transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40 flex items-center justify-center gap-1.5"
+              >
+                {booking
+                  ? "Securing workspace..."
+                  : retryAfter > 0
+                    ? `Retry in ${retryAfter}s`
+                    : recurringEnabled
+                      ? `Confirm ${previewDates.length} recurring bookings`
+                      : "Confirm reservation"}
+              </button>
+            </form>
+          </div>
         </div>
       </div>
 

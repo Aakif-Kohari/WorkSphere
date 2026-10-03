@@ -107,8 +107,9 @@ export function checkIsContextCompressed(
   if (explicitIsCompressed) return true;
   if (!Array.isArray(messages) || messages.length === 0) return false;
 
-  return messages.some((m) => {
-    if (!m) return false;
+  return messages.some((raw) => {
+    if (!raw) return false;
+    const m = raw as any;
     if (m.isCompressed === true || m.contextCompressed === true) return true;
     if (m.role === "system" && typeof m.content === "string") {
       return (
@@ -118,7 +119,7 @@ export function checkIsContextCompressed(
     }
     if (Array.isArray(m.agentSteps)) {
       return m.agentSteps.some(
-        (step) =>
+        (step: any) =>
           step?.agent === "Compression" ||
           step?.compressed === true ||
           (step?.result as Record<string, unknown>)?.compressed === true,
@@ -183,7 +184,9 @@ export function CompressionNotice({ className }: { className?: string }) {
       }`}
     >
       <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
-      <span className="px-2 font-medium">Earlier messages compressed to preserve memory</span>
+      <span className="px-2 font-medium">
+        Earlier messages compressed to preserve memory
+      </span>
       <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
     </div>
   );

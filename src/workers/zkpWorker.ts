@@ -80,14 +80,14 @@ async function generateProof(
   let wtns: { type: "mem" } | null = { type: "mem" };
 
   try {
-    await snarkjs.wtns.calculate(
+    await (snarkjs as any).wtns.calculate(
       { identityToken, expectedCommit },
       "/zkp/premium_membership.wasm",
       wtns,
       { memorySize: 0 },
     );
 
-    return await snarkjs.groth16.prove(
+    return await (snarkjs.groth16 as any).prove(
       "/zkp/premium_membership.zkey",
       wtns,
       undefined,
@@ -128,10 +128,7 @@ self.addEventListener("message", async (e: MessageEvent<WorkerMessage>) => {
   const myGeneration = ++generation;
   const { identityToken, expectedCommit } = e.data;
 
-  if (
-    typeof identityToken !== "string" ||
-    !/^-?\d+$/.test(identityToken)
-  ) {
+  if (typeof identityToken !== "string" || !/^-?\d+$/.test(identityToken)) {
     self.postMessage({
       type: "error",
       error: "Invalid identity token.",
@@ -139,10 +136,7 @@ self.addEventListener("message", async (e: MessageEvent<WorkerMessage>) => {
     return;
   }
 
-  if (
-    typeof expectedCommit !== "string" ||
-    !/^-?\d+$/.test(expectedCommit)
-  ) {
+  if (typeof expectedCommit !== "string" || !/^-?\d+$/.test(expectedCommit)) {
     self.postMessage({
       type: "error",
       error: "Invalid commitment value.",
