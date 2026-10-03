@@ -88,10 +88,12 @@ export async function GET(req: NextRequest) {
       : 50;
     const skip = (page - 1) * limit;
 
-    // Fallback: If no coordinates are provided, return all venues (or filtered by cities)
+    // Fallback: If no coordinates are provided, return all venues (or filtered by cities/query)
     if (!searchParams.get("lat") || !searchParams.get("lng")) {
       const citiesParam = searchParams.get("cities");
+      const queryParam = searchParams.get("query") || searchParams.get("q");
       const where: any = {};
+      const andConditions: any[] = [];
 
       if (citiesParam) {
         const cityList = citiesParam
@@ -99,10 +101,28 @@ export async function GET(req: NextRequest) {
           .map((c) => c.trim())
           .filter(Boolean);
         if (cityList.length > 0) {
-          where.OR = cityList.map((city) => ({
-            address: { contains: city, mode: "insensitive" },
-          }));
+          andConditions.push({
+            OR: cityList.map((city) => ({
+              address: { contains: city, mode: "insensitive" },
+            })),
+          });
         }
+      }
+
+      if (queryParam) {
+        andConditions.push({
+          OR: [
+            { name: { contains: queryParam, mode: "insensitive" } },
+            { address: { contains: queryParam, mode: "insensitive" } },
+            { description: { contains: queryParam, mode: "insensitive" } },
+          ],
+        });
+      }
+
+      if (andConditions.length === 1) {
+        Object.assign(where, andConditions[0]);
+      } else if (andConditions.length > 1) {
+        where.AND = andConditions;
       }
 
       const hasWhere = Object.keys(where).length > 0;
@@ -161,6 +181,7 @@ export async function GET(req: NextRequest) {
       "pourOverAvailable",
       "musicStyle",
       "cities",
+      "query",
     ];
     for (const key of keys) {
       const val = searchParams.get(key);
@@ -336,6 +357,20 @@ export async function GET(req: NextRequest) {
         } else {
           where.OR = cityConditions;
         }
+      }
+    }
+
+    if (rawData.query) {
+      const queryConditions = [
+        { name: { contains: rawData.query, mode: "insensitive" } },
+        { address: { contains: rawData.query, mode: "insensitive" } },
+        { description: { contains: rawData.query, mode: "insensitive" } },
+      ];
+      if (where.OR) {
+        where.AND = [{ OR: where.OR }, { OR: queryConditions }];
+        delete where.OR;
+      } else {
+        where.OR = queryConditions;
       }
     }
 
