@@ -10,7 +10,43 @@ import {
 
 export type PartySocketOptions = Parameters<typeof usePartySocketReact>[0] & {
   disableLeaderElection?: boolean;
+  baseDelay?: number;
+  maxDelay?: number;
+  onConnectionStatusChange?: (
+    status: "connected" | "reconnecting" | "offline",
+  ) => void;
 };
+
+export type ConnectionStatus = "connected" | "reconnecting" | "offline";
+
+export interface CalculateJitteredBackoffOptions {
+  baseDelay?: number;
+  maxDelay?: number;
+  random?: () => number;
+}
+
+/**
+ * Full-jitter exponential backoff formula (#3769):
+ * twait = min(tmax, tbase * 2^attempt) * random(0.8, 1.2)
+ */
+export function calculateJitteredBackoff(
+  attempt: number,
+  options: CalculateJitteredBackoffOptions = {},
+): number {
+  if (attempt <= 0) return 0;
+
+  const baseDelay =
+    options.baseDelay ?? PARTY_SOCKET_RECONNECT_OPTIONS.minReconnectionDelay; // 1,000ms
+  const maxDelay =
+    options.maxDelay ?? PARTY_SOCKET_RECONNECT_OPTIONS.maxReconnectionDelay; // 30,000ms
+  const randomFn = options.random ?? Math.random;
+
+  const cappedBase = Math.min(maxDelay, baseDelay * Math.pow(2, attempt - 1));
+  const jitterFactor = 0.8 + randomFn() * 0.4;
+  const delayWithJitter = cappedBase * jitterFactor;
+
+  return Math.round(Math.min(maxDelay, Math.max(0, delayWithJitter)));
+}
 
 interface LeaderHeartbeatMessage {
   type: "LEADER_HEARTBEAT";
@@ -64,11 +100,12 @@ const HEARTBEAT_TIMEOUT_MS = 2500;
 
 /**
  * Custom PartySocket hook with:
- * 1. Multi-tab leadership coordination via BroadcastChannel (only 1 active WebSocket connection).
- * 2. Automatic leader election and smooth transfer on tab close.
- * 3. Message & presence relay between leader and follower tabs.
- * 4. Token re-authentication interceptor (Clerk 4001).
- * 5. Capped retries + jittered exponential backoff.
+ * 1. Multi-tab leadership coordination via BroadcastChannel (only 1 active WebSocket connection) (#3767).
+ * 2. Full-jitter exponential backoff on disconnection up to a 30s cap (#3769).
+ * 3. Connection status indicator support ("Reconnecting...").
+ * 4. Message handshake retry counter resets.
+ * 5. Automatic leader election and smooth transfer on tab close.
+ * 6. Token re-authentication interceptor (Clerk 4001).
  */
 export function usePartySocket(options: PartySocketOptions) {
   const { getToken } = useAuth();
@@ -87,6 +124,17 @@ export function usePartySocket(options: PartySocketOptions) {
 
   const isLeaderRef = useRef<boolean>(isLeader);
   isLeaderRef.current = isLeader;
+
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("offline");
+  const [reconnectAttempt, setReconnectAttempt] = useState<number>(0);
+  const reconnectAttemptRef = useRef<number>(0);
+
+  const {
+    baseDelay = PARTY_SOCKET_RECONNECT_OPTIONS.minReconnectionDelay,
+    maxDelay = PARTY_SOCKET_RECONNECT_OPTIONS.maxReconnectionDelay,
+    onConnectionStatusChange,
+    ...socketOptions
+  } = options;
 
   const channelRef = useRef<BroadcastChannel | null>(null);
   const lastLeaderHeartbeatRef = useRef<number>(0);
@@ -138,7 +186,6 @@ export function usePartySocket(options: PartySocketOptions) {
       if (msg.type === "LEADER_HEARTBEAT") {
         lastLeaderHeartbeatRef.current = Date.now();
         if (msg.tabId !== tabId && isLeaderRef.current) {
-          // Collision resolution: lower tab ID wins leadership
           if (msg.tabId < tabId) {
             setIsLeader(false);
           }
@@ -150,7 +197,6 @@ export function usePartySocket(options: PartySocketOptions) {
         }
       } else if (msg.type === "LEADER_RESIGN") {
         lastLeaderHeartbeatRef.current = 0;
-        // Primary tab closed, claim leadership
         setIsLeader(true);
         channel.postMessage({
           type: "LEADER_CLAIM",
@@ -160,7 +206,6 @@ export function usePartySocket(options: PartySocketOptions) {
         });
       } else if (msg.type === "RELAY_INBOUND") {
         if (!isLeaderRef.current) {
-          // Follower tab receives inbound message forwarded by leader
           dispatchFollowerEvent("message", {
             type: "message",
             data: msg.data,
@@ -182,7 +227,6 @@ export function usePartySocket(options: PartySocketOptions) {
 
     channel.addEventListener("message", handleChannelMessage);
 
-    // Initial leader claim check: if no leader seen recently, claim leadership
     const claimTimer = setTimeout(() => {
       if (Date.now() - lastLeaderHeartbeatRef.current > HEARTBEAT_TIMEOUT_MS) {
         setIsLeader(true);
@@ -195,7 +239,6 @@ export function usePartySocket(options: PartySocketOptions) {
       }
     }, 150 + Math.random() * 150);
 
-    // Leader heartbeat ticker & follower watchdog
     const heartbeatInterval = setInterval(() => {
       if (isLeaderRef.current) {
         channel.postMessage({
@@ -205,7 +248,6 @@ export function usePartySocket(options: PartySocketOptions) {
           timestamp: Date.now(),
         });
       } else {
-        // Watchdog: check if leader missed heartbeats
         if (Date.now() - lastLeaderHeartbeatRef.current > HEARTBEAT_TIMEOUT_MS) {
           setIsLeader(true);
           channel.postMessage({
@@ -250,17 +292,30 @@ export function usePartySocket(options: PartySocketOptions) {
   // Only the elected leader opens the active WebSocket connection to PartyKit
   const socket = usePartySocketReact({
     ...PARTY_SOCKET_RECONNECT_OPTIONS,
-    ...options,
+    ...socketOptions,
     startClosed: !isLeader || options.startClosed,
   });
 
   const attachedSocket = attachJitteredBackoff(socket);
+
+  // Attach full-jitter exponential backoff override
+  if (attachedSocket) {
+    (attachedSocket as any)._getNextDelay = function () {
+      const attempt = (this._retryCount ?? 0) + 1;
+      return calculateJitteredBackoff(attempt, { baseDelay, maxDelay });
+    };
+  }
 
   // Leader tab: relay inbound messages & connection state across BroadcastChannel
   useEffect(() => {
     if (!isLeader || !attachedSocket) return;
 
     const handleLeaderOpen = () => {
+      reconnectAttemptRef.current = 0;
+      setReconnectAttempt(0);
+      setConnectionStatus("connected");
+      onConnectionStatusChange?.("connected");
+
       channelRef.current?.postMessage({
         type: "RELAY_STATE",
         room,
@@ -269,6 +324,11 @@ export function usePartySocket(options: PartySocketOptions) {
     };
 
     const handleLeaderClose = (ev: any) => {
+      reconnectAttemptRef.current += 1;
+      setReconnectAttempt(reconnectAttemptRef.current);
+      setConnectionStatus("reconnecting");
+      onConnectionStatusChange?.("reconnecting");
+
       channelRef.current?.postMessage({
         type: "RELAY_STATE",
         room,
@@ -278,6 +338,12 @@ export function usePartySocket(options: PartySocketOptions) {
     };
 
     const handleLeaderMessage = (ev: any) => {
+      if (reconnectAttemptRef.current > 0) {
+        reconnectAttemptRef.current = 0;
+        setReconnectAttempt(0);
+      }
+      setConnectionStatus("connected");
+
       channelRef.current?.postMessage({
         type: "RELAY_INBOUND",
         room,
@@ -285,11 +351,20 @@ export function usePartySocket(options: PartySocketOptions) {
       });
     };
 
+    const handleError = () => {
+      setConnectionStatus("reconnecting");
+      onConnectionStatusChange?.("reconnecting");
+    };
+
     (attachedSocket as any).addEventListener?.("open", handleLeaderOpen);
     (attachedSocket as any).addEventListener?.("close", handleLeaderClose);
     (attachedSocket as any).addEventListener?.("message", handleLeaderMessage);
+    (attachedSocket as any).addEventListener?.("error", handleError);
 
-    // Listen for outbound messages posted by follower tabs to send through leader socket
+    if ((attachedSocket as any).readyState === 1) {
+      setConnectionStatus("connected");
+    }
+
     const handleFollowerOutbound = (ev: MessageEvent<CrossTabMessage>) => {
       if (ev.data?.type === "RELAY_OUTBOUND" && ev.data.room === room) {
         try {
@@ -306,9 +381,10 @@ export function usePartySocket(options: PartySocketOptions) {
       (attachedSocket as any).removeEventListener?.("open", handleLeaderOpen);
       (attachedSocket as any).removeEventListener?.("close", handleLeaderClose);
       (attachedSocket as any).removeEventListener?.("message", handleLeaderMessage);
+      (attachedSocket as any).removeEventListener?.("error", handleError);
       channelRef.current?.removeEventListener("message", handleFollowerOutbound);
     };
-  }, [isLeader, attachedSocket, room]);
+  }, [isLeader, attachedSocket, room, onConnectionStatusChange]);
 
   // Intercept 4001 token expiration codes to refresh Clerk token
   useEffect(() => {
@@ -345,13 +421,22 @@ export function usePartySocket(options: PartySocketOptions) {
     };
   }, [attachedSocket, getToken]);
 
-  // Return augmented socket proxy supporting followers
+  // Return augmented socket proxy supporting followers & status
   const proxySocket = useRef<any>(null);
   if (!proxySocket.current || proxySocket.current.__target !== attachedSocket) {
     proxySocket.current = new Proxy(attachedSocket, {
       get(target, prop, receiver) {
         if (prop === "isLeader") {
           return isLeader;
+        }
+        if (prop === "connectionStatus") {
+          return connectionStatus;
+        }
+        if (prop === "isReconnecting") {
+          return connectionStatus === "reconnecting";
+        }
+        if (prop === "reconnectAttempt") {
+          return reconnectAttempt;
         }
         if (prop === "addEventListener") {
           return (eventName: string, listener: (...args: any[]) => void) => {
@@ -379,7 +464,6 @@ export function usePartySocket(options: PartySocketOptions) {
             if (isLeaderRef.current) {
               return typeof target.send === "function" ? target.send(data) : undefined;
             } else {
-              // Follower tab: relay to leader tab over BroadcastChannel
               const serialized = typeof data === "string" ? data : JSON.stringify(data);
               channelRef.current?.postMessage({
                 type: "RELAY_OUTBOUND",
