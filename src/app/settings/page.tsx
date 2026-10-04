@@ -12,6 +12,7 @@ import { WorkStyleProfile } from "@/app/dashboard/WorkStyleProfile";
 import { NotificationSettings } from "@/app/dashboard/NotificationSettings";
 import { MemoryManager } from "@/app/dashboard/MemoryManager";
 import { DistanceUnitToggle } from "@/components/settings/DistanceUnitToggle";
+import { ChatSoundToggle } from "@/components/settings/ChatSoundToggle";
 
 const PERSONALIZATION_KEY = "ai_personalization_enabled";
 
@@ -121,6 +122,7 @@ export default function SettingsPage() {
           >
             <WorkStyleProfile />
             <DistanceUnitToggle />
+            <ChatSoundToggle />
             <UserPreferenceToggle
               enabled={personalizationEnabled}
               onToggle={handleToggle}

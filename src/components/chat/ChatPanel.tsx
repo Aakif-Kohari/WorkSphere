@@ -1,8 +1,9 @@
 "use client";
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect, useRef } from "react";
 import { estimateTokens } from "@/lib/context-compression/tokens";
 export { estimateTokens };
 import type { Message } from "./ChatMessages";
+import { playChatMessageSound, isChatSoundEnabled } from "@/lib/chatSound";
 
 /**
  * Default context capacity in tokens for the WorkSphere AI discovery assistant.
@@ -288,6 +289,19 @@ export function ChatPanel({
     () => checkIsContextCompressed(messages, isCompressed),
     [messages, isCompressed],
   );
+
+  const prevMessageCountRef = useRef(messages.length);
+
+  useEffect(() => {
+    // When a new message arrives, check if it's an incoming assistant/system message
+    if (messages.length > prevMessageCountRef.current) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.role !== "user") {
+        playChatMessageSound();
+      }
+    }
+    prevMessageCountRef.current = messages.length;
+  }, [messages]);
 
   return (
     <div
