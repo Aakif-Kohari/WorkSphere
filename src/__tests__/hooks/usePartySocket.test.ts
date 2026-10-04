@@ -1,5 +1,7 @@
 import { renderHook, act } from "@testing-library/react";
-import usePartySocket, { calculateJitteredBackoff } from "@/hooks/usePartySocket";
+import usePartySocket, {
+  calculateJitteredBackoff,
+} from "@/hooks/usePartySocket";
 
 describe("calculateJitteredBackoff (#3769)", () => {
   it("returns 0 for initial connect (attempt <= 0)", () => {
@@ -39,7 +41,9 @@ describe("calculateJitteredBackoff (#3769)", () => {
   });
 
   it("prevents synchronized reconnect spikes across multiple simulated clients", () => {
-    const samples = Array.from({ length: 20 }, () => calculateJitteredBackoff(2));
+    const samples = Array.from({ length: 20 }, () =>
+      calculateJitteredBackoff(2),
+    );
     const uniqueDelays = new Set(samples);
     expect(uniqueDelays.size).toBeGreaterThan(1);
   });
@@ -57,7 +61,7 @@ const mockSocketsCreated: any[] = [];
 jest.mock("partysocket/react", () => ({
   __esModule: true,
   default: jest.fn((options: any) => {
-    const listeners: Record<string, Function[]> = {};
+    const listeners: Record<string, ((...args: any[]) => void)[]> = {};
     const socket = {
       options,
       query: { ...options?.query },
@@ -220,7 +224,7 @@ describe("usePartySocket BroadcastChannel Leader Election & Coordination (#3767)
   });
 
   it("relays incoming messages from leader WebSocket to follower tabs locally", () => {
-    const tab1 = renderHook(() =>
+    const _tab1 = renderHook(() =>
       usePartySocket({ host: "localhost:1999", room: "relay-room" }),
     );
     act(() => {
