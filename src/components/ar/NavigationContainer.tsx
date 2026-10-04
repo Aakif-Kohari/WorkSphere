@@ -45,6 +45,7 @@ export default function NavigationContainer({
   const { isSupported, requestSession } = useWebXR();
   const [session, setSession] = useState<XRSession | null>(null);
   const [useFallback, setUseFallback] = useState(false);
+  const [fallbackMode, setFallbackMode] = useState<"ekf" | "compass">("ekf");
   const [seats, setSeats] = useState<SeatData[]>([]);
   const [anchors, setAnchors] = useState<AnchorData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -194,8 +195,6 @@ export default function NavigationContainer({
       />
     );
   }
-
-  const [fallbackMode, setFallbackMode] = useState<"ekf" | "compass">("ekf");
 
   if (useFallback || isSupported === false) {
     return (
