@@ -99,3 +99,119 @@ export function buildPrfAuthenticationExtension(salt?: Uint8Array | string): {
   };
 }
 
+/**
+ * Default expiration window for passkey challenges stored in client storage (5 minutes in milliseconds).
+ */
+export const PASSKEY_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+
+export const PASSKEY_SESSION_STORAGE_KEY = "worksphere_passkey_challenge";
+
+export interface StoredPasskeyChallenge {
+  challenge: string;
+  ceremonyType: "registration" | "authentication" | "step_up";
+  createdAt: number;
+  expiresAt: number;
+}
+
+/**
+ * Stores a passkey ceremony challenge in sessionStorage with a timestamp and 5-minute expiration window.
+ *
+ * @param challenge The challenge string received from server options
+ * @param ceremonyType The ceremony type ("registration" | "authentication" | "step_up")
+ * @param ttlMs Time-to-live in milliseconds (defaults to 5 minutes)
+ */
+export function savePasskeyChallengeToSession(
+  challenge: string,
+  ceremonyType: "registration" | "authentication" | "step_up" = "authentication",
+  ttlMs: number = PASSKEY_CHALLENGE_TTL_MS,
+): StoredPasskeyChallenge | null {
+  if (typeof window === "undefined" || !window.sessionStorage) return null;
+  const now = Date.now();
+  const entry: StoredPasskeyChallenge = {
+    challenge,
+    ceremonyType,
+    createdAt: now,
+    expiresAt: now + ttlMs,
+  };
+  try {
+    window.sessionStorage.setItem(
+      PASSKEY_SESSION_STORAGE_KEY,
+      JSON.stringify(entry),
+    );
+    return entry;
+  } catch (err) {
+    console.warn("Failed to save passkey challenge to sessionStorage:", err);
+    return null;
+  }
+}
+
+/**
+ * Retrieves the stored passkey challenge from sessionStorage.
+ * Automatically invalidates and removes the challenge if it is older than 5 minutes.
+ *
+ * @param expectedCeremonyType Optional ceremony type to ensure matching context
+ * @returns The active challenge string, or null if expired, missing, or mismatched
+ */
+export function getValidPasskeyChallengeFromSession(
+  expectedCeremonyType?: "registration" | "authentication" | "step_up",
+): string | null {
+  if (typeof window === "undefined" || !window.sessionStorage) return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(PASSKEY_SESSION_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed: StoredPasskeyChallenge = JSON.parse(raw);
+    const now = Date.now();
+
+    // Check 5-minute expiration window or corrupted timestamp
+    if (!parsed || !parsed.challenge || !parsed.expiresAt || now >= parsed.expiresAt) {
+      clearPasskeyChallengeFromSession();
+      return null;
+    }
+
+    // Optional ceremony type verification
+    if (expectedCeremonyType && parsed.ceremonyType !== expectedCeremonyType) {
+      clearPasskeyChallengeFromSession();
+      return null;
+    }
+
+    return parsed.challenge;
+  } catch (err) {
+    clearPasskeyChallengeFromSession();
+    return null;
+  }
+}
+
+/**
+ * Clears any cached passkey challenge from sessionStorage.
+ * Can be called upon ceremony completion, cancellation, start of fresh ceremony, or page unload.
+ */
+export function clearPasskeyChallengeFromSession(): void {
+  if (typeof window === "undefined" || !window.sessionStorage) return;
+  try {
+    window.sessionStorage.removeItem(PASSKEY_SESSION_STORAGE_KEY);
+  } catch (err) {
+    console.warn("Failed to remove passkey challenge from sessionStorage:", err);
+  }
+}
+
+/**
+ * Attaches beforeunload / unload event listener to clear passkey challenge from sessionStorage on tab/window close.
+ * Returns a cleanup unsubscribe function.
+ */
+export function setupPasskeyUnloadCleanup(): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  const handleUnload = () => {
+    clearPasskeyChallengeFromSession();
+  };
+
+  window.addEventListener("beforeunload", handleUnload);
+  window.addEventListener("pagehide", handleUnload);
+
+  return () => {
+    window.removeEventListener("beforeunload", handleUnload);
+    window.removeEventListener("pagehide", handleUnload);
+  };
+}
