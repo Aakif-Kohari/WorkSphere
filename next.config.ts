@@ -95,6 +95,9 @@ const nextConfig: NextConfig = {
     }
     return config;
   },
+  experimental: {
+    cpus: 4,
+  },
   // Use turbopack config (Next.js 16 default)
   turbopack: {},
 };

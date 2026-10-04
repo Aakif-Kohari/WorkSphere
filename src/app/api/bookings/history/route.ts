@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { ensureUserExists } from "@/lib/auth";
 
-export async function GET(req?: NextRequest | Request) {
+export async function GET(req: NextRequest) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -97,7 +97,9 @@ export async function GET(req?: NextRequest | Request) {
 
     const hasMore = items.length > take;
     const bookings = hasMore ? items.slice(0, take) : items;
-    const nextCursor = hasMore ? bookings[bookings.length - 1]?.id ?? null : null;
+    const nextCursor = hasMore
+      ? (bookings[bookings.length - 1]?.id ?? null)
+      : null;
 
     return NextResponse.json({
       bookings,
