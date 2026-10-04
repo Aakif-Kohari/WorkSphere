@@ -11,6 +11,7 @@
     "test:watch": "jest --watch",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "db:verify-partitions": "node --experimental-strip-types scripts/verify-partition-backups.ts",
     "zkp:compile": "bash scripts/compile-zkp.sh",
     "build:wasm:audio-filter": "bash wasm/audio-filter/build.sh",
     "bench:audio-filter": "node scripts/bench-audio-filter-pool.mjs",
