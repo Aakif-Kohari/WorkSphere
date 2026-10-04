@@ -60,7 +60,7 @@ export async function verifyPasskeyRegistration(
   let verification;
   try {
     verification = await verifyRegistrationResponse({
-      response: registrationResponse,
+      response: registrationResponse as any,
       expectedChallenge: challengeRecord.challenge,
       expectedOrigin: getExpectedOrigin(req, clientData?.origin),
       expectedRPID: getRpId(req),

@@ -11,7 +11,7 @@
  */
 
 import { createHmac, randomInt, timingSafeEqual } from "crypto";
-import nodemailer from "nodemailer";
+import nodemailer, { type Transporter } from "nodemailer";
 import { prisma } from "@/lib/prisma";
 import { escapeHtml } from "@/lib/html";
 
@@ -89,7 +89,7 @@ const ACTION_LABELS: Record<PasskeyOtpAction, string> = {
   revoke: "remove",
 };
 
-function createMailer(): nodemailer.Transporter | null {
+function createMailer(): Transporter | null {
   const { SMTP_USER, SMTP_PASS } = process.env;
   if (!SMTP_USER || !SMTP_PASS) return null;
   return nodemailer.createTransport({
