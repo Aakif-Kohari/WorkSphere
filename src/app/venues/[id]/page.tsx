@@ -11,6 +11,7 @@ import { WeatherCloudRenderer } from "@/components/WeatherCloudRenderer";
 import { NoiseForecastChart } from "@/components/noise/NoiseForecastChart";
 import { AmbientNoiseTrendGraph } from "@/components/noise/AmbientNoiseTrendGraph";
 import { SeatingForecastChart } from "@/components/venue/SeatingForecastChart";
+import { OccupancyTrendChart } from "@/components/analytics/OccupancyTrendChart";
 import { RecentlyViewedTracker } from "@/components/venues/RecentlyViewedTracker";
 
 import { CollaborativeNotes } from "@/components/bookings/CollaborativeNotes"; // <-- 1. Imported your new component here!
@@ -278,6 +279,12 @@ export default async function VenuePage({ params }: PageProps) {
                 <span>Seating Availability Forecast</span>
               </h3>
               <SeatingForecastChart venueId={venue.id} />
+              <div className="mt-4">
+                <OccupancyTrendChart
+                  venueId={venue.id}
+                  venueCapacity={venue.maxCapacity || 50}
+                />
+              </div>
             </div>
             {/* Live WebGL 3D Volumetric Cloud Weather Visualizer for Outdoor Workspaces */}
             <div className="pt-2">
