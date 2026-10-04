@@ -60,6 +60,7 @@ import {
   NoiseTimelineChart,
   HourlyForecast,
 } from "@/components/noise/NoiseTimelineChart";
+import { AmbientNoiseTrendGraph } from "@/components/noise/AmbientNoiseTrendGraph";
 import { CopyToClipboardButton } from "@/components/ui/CopyToClipboardButton";
 import { ExportRatingsCSVButton } from "@/components/analytics/ExportRatingsCSVButton";
 import {
@@ -1667,7 +1668,13 @@ export function VenueDetailDialog({
               )}
 
               {noiseForecast.length > 0 && (
-                <NoiseTimelineChart forecast={noiseForecast} />
+                <>
+                  <AmbientNoiseTrendGraph
+                    venueId={venue.id}
+                    forecast={noiseForecast}
+                  />
+                  <NoiseTimelineChart forecast={noiseForecast} />
+                </>
               )}
 
               {/* Free Street Parking Tag */}

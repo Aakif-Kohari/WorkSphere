@@ -1,4 +1,4 @@
-import { mean, standardDeviation } from "./statistics";
+import { mean, standardDeviation, median } from "./statistics";
 
 export interface RawNoiseData {
   avgDecibels: number;
@@ -8,6 +8,7 @@ export interface RawNoiseData {
 export interface HourlyForecast {
   hour: number;
   predictedDb: number | null;
+  medianDb?: number | null;
   confidence: number;
   samples: number;
 }
@@ -49,6 +50,7 @@ export function generateNoiseForecast(
     }
 
     const avg = mean(samples);
+    const med = median(samples);
     const stdDev = standardDeviation(samples);
 
     // 3. Confidence Algorithm
@@ -67,6 +69,7 @@ export function generateNoiseForecast(
     forecast.push({
       hour: i,
       predictedDb: Math.round(avg * 10) / 10,
+      medianDb: Math.round(med * 10) / 10,
       confidence: Math.round(confidence * 100) / 100, // 2 decimal places
       samples: n,
     });
