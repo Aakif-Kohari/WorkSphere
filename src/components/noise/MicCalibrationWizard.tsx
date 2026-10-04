@@ -2,14 +2,12 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
-  Mic,
   Sliders,
   CheckCircle,
   X,
   Volume2,
   VolumeX,
   RotateCcw,
-  Sparkles,
   Smartphone,
   Laptop,
   Headphones,
@@ -39,11 +37,12 @@ export function MicCalibrationWizard({
   onCalibrationSaved,
 }: MicCalibrationWizardProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-  const [profile, setProfile] = useState<MicCalibrationProfile>(getMicCalibration());
+  const [profile, setProfile] =
+    useState<MicCalibrationProfile>(getMicCalibration());
   const [isListening, setIsListening] = useState(false);
   const [liveRawDb, setLiveRawDb] = useState(40);
   const [liveCalibratedDb, setLiveCalibratedDb] = useState(40);
-  const [liveRms, setLiveRms] = useState(0.01);
+  const [_liveRms, setLiveRms] = useState(0.01);
   const [peakDb, setPeakDb] = useState(40);
   const [isSamplingNoiseFloor, setIsSamplingNoiseFloor] = useState(false);
   const [samplingCountdown, setSamplingCountdown] = useState(3);
@@ -54,17 +53,6 @@ export function MicCalibrationWizard({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const sampledValuesRef = useRef<number[]>([]);
-
-  // Load existing profile when opened
-  useEffect(() => {
-    if (isOpen) {
-      setProfile(getMicCalibration());
-      setStep(1);
-      setMicError(null);
-    } else {
-      stopAudioStream();
-    }
-  }, [isOpen]);
 
   const stopAudioStream = useCallback(() => {
     if (animationFrameRef.current) {
@@ -81,6 +69,17 @@ export function MicCalibrationWizard({
     }
     setIsListening(false);
   }, []);
+
+  // Load existing profile when opened
+  useEffect(() => {
+    if (isOpen) {
+      setProfile(getMicCalibration());
+      setStep(1);
+      setMicError(null);
+    } else {
+      stopAudioStream();
+    }
+  }, [isOpen, stopAudioStream]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -112,7 +111,8 @@ export function MicCalibrationWizard({
 
       const AudioCtx =
         window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
       const ctx = new AudioCtx();
       audioContextRef.current = ctx;
 
@@ -166,7 +166,7 @@ export function MicCalibrationWizard({
       setMicError(
         err instanceof Error
           ? err.message
-          : "Unable to access microphone. Please check browser permissions."
+          : "Unable to access microphone. Please check browser permissions.",
       );
       setIsListening(false);
     }
@@ -274,7 +274,8 @@ export function MicCalibrationWizard({
                 Microphone dB Calibration Wizard
               </h2>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Calibrate acoustic gain offset for accurate ambient decibel reporting.
+                Calibrate acoustic gain offset for accurate ambient decibel
+                reporting.
               </p>
             </div>
           </div>
@@ -304,8 +305,8 @@ export function MicCalibrationWizard({
                 step === s.num
                   ? "bg-blue-500 text-white border-blue-500 shadow-md shadow-blue-500/20"
                   : step > s.num
-                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700"
-                  : "bg-zinc-50 dark:bg-zinc-900 text-zinc-400 border-transparent"
+                    ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700"
+                    : "bg-zinc-50 dark:bg-zinc-900 text-zinc-400 border-transparent"
               }`}
             >
               <span className="hidden sm:inline">Step {s.num}: </span>
@@ -322,16 +323,34 @@ export function MicCalibrationWizard({
               <div className="p-3.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/50 rounded-2xl text-xs text-blue-700 dark:text-blue-300 flex items-start gap-2.5">
                 <HelpCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>
-                  Different microphone preamps and device types have varying hardware sensitivity. Choose the profile that best matches your recording hardware.
+                  Different microphone preamps and device types have varying
+                  hardware sensitivity. Choose the profile that best matches
+                  your recording hardware.
                 </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
-                  { type: "built_in", icon: Laptop, ...DEVICE_PRESETS.built_in },
-                  { type: "smartphone", icon: Smartphone, ...DEVICE_PRESETS.smartphone },
-                  { type: "headset", icon: Headphones, ...DEVICE_PRESETS.headset },
-                  { type: "studio_mic", icon: Radio, ...DEVICE_PRESETS.studio_mic },
+                  {
+                    type: "built_in",
+                    icon: Laptop,
+                    ...DEVICE_PRESETS.built_in,
+                  },
+                  {
+                    type: "smartphone",
+                    icon: Smartphone,
+                    ...DEVICE_PRESETS.smartphone,
+                  },
+                  {
+                    type: "headset",
+                    icon: Headphones,
+                    ...DEVICE_PRESETS.headset,
+                  },
+                  {
+                    type: "studio_mic",
+                    icon: Radio,
+                    ...DEVICE_PRESETS.studio_mic,
+                  },
                 ].map((item) => {
                   const Icon = item.icon;
                   const isSelected = profile.profileType === item.type;
@@ -339,7 +358,11 @@ export function MicCalibrationWizard({
                     <button
                       key={item.type}
                       type="button"
-                      onClick={() => handleSelectPreset(item.type as MicCalibrationProfile["profileType"])}
+                      onClick={() =>
+                        handleSelectPreset(
+                          item.type as MicCalibrationProfile["profileType"],
+                        )
+                      }
                       className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between ${
                         isSelected
                           ? "bg-blue-500/10 border-blue-500 shadow-sm"
@@ -348,16 +371,26 @@ export function MicCalibrationWizard({
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2 font-bold text-sm text-zinc-900 dark:text-zinc-100">
-                          <Icon className={`w-4 h-4 ${isSelected ? "text-blue-500" : "text-zinc-500"}`} />
+                          <Icon
+                            className={`w-4 h-4 ${isSelected ? "text-blue-500" : "text-zinc-500"}`}
+                          />
                           <span>{item.label}</span>
                         </div>
-                        {isSelected && <CheckCircle className="w-4 h-4 text-blue-500" />}
+                        {isSelected && (
+                          <CheckCircle className="w-4 h-4 text-blue-500" />
+                        )}
                       </div>
                       <p className="text-xs text-zinc-500 dark:text-zinc-400">
                         {item.description}
                       </p>
                       <div className="mt-3 text-[11px] font-mono text-zinc-400">
-                        Default Offset: <span className="font-bold text-zinc-700 dark:text-zinc-300">{item.defaultOffset >= 0 ? `+${item.defaultOffset}` : item.defaultOffset} dB</span>
+                        Default Offset:{" "}
+                        <span className="font-bold text-zinc-700 dark:text-zinc-300">
+                          {item.defaultOffset >= 0
+                            ? `+${item.defaultOffset}`
+                            : item.defaultOffset}{" "}
+                          dB
+                        </span>
                       </div>
                     </button>
                   );
@@ -414,7 +447,9 @@ export function MicCalibrationWizard({
                   <span className="text-4xl sm:text-5xl font-black tracking-tight text-zinc-900 dark:text-zinc-50 font-mono">
                     {isListening ? liveCalibratedDb.toFixed(1) : "--"}
                   </span>
-                  <span className="text-base font-bold text-zinc-500">dB SPL</span>
+                  <span className="text-base font-bold text-zinc-500">
+                    dB SPL
+                  </span>
                 </div>
 
                 {/* Level Meter Progress Bar */}
@@ -438,12 +473,20 @@ export function MicCalibrationWizard({
 
                 <div className="grid grid-cols-2 gap-4 w-full pt-3 border-t border-zinc-200 dark:border-zinc-700/60 text-xs">
                   <div>
-                    <span className="text-zinc-500 dark:text-zinc-400">Raw Input:</span>{" "}
-                    <span className="font-mono font-bold text-zinc-700 dark:text-zinc-200">{liveRawDb.toFixed(1)} dB</span>
+                    <span className="text-zinc-500 dark:text-zinc-400">
+                      Raw Input:
+                    </span>{" "}
+                    <span className="font-mono font-bold text-zinc-700 dark:text-zinc-200">
+                      {liveRawDb.toFixed(1)} dB
+                    </span>
                   </div>
                   <div>
-                    <span className="text-zinc-500 dark:text-zinc-400">Peak Observed:</span>{" "}
-                    <span className="font-mono font-bold text-zinc-700 dark:text-zinc-200">{peakDb.toFixed(1)} dB</span>
+                    <span className="text-zinc-500 dark:text-zinc-400">
+                      Peak Observed:
+                    </span>{" "}
+                    <span className="font-mono font-bold text-zinc-700 dark:text-zinc-200">
+                      {peakDb.toFixed(1)} dB
+                    </span>
                   </div>
                 </div>
               </div>
@@ -466,7 +509,9 @@ export function MicCalibrationWizard({
                   disabled={isSamplingNoiseFloor}
                   className="px-3 py-1.5 rounded-xl bg-zinc-200 dark:bg-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-600 text-xs font-bold transition-all disabled:opacity-50"
                 >
-                  {isSamplingNoiseFloor ? `Sampling (${samplingCountdown}s)...` : "Sample Silence"}
+                  {isSamplingNoiseFloor
+                    ? `Sampling (${samplingCountdown}s)...`
+                    : "Sample Silence"}
                 </button>
               </div>
             </div>
@@ -480,7 +525,8 @@ export function MicCalibrationWizard({
                   Acoustic Offset & Sensitivity
                 </h3>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Manually adjust the gain offset or match against an expected sound level.
+                  Manually adjust the gain offset or match against an expected
+                  sound level.
                 </p>
               </div>
 
@@ -491,16 +537,23 @@ export function MicCalibrationWizard({
                   <span>Current Calibrated Reading:</span>
                 </span>
                 <span className="font-mono font-black text-sm text-blue-700 dark:text-blue-300">
-                  {isListening ? `${liveCalibratedDb.toFixed(1)} dB` : `${(45 + profile.offsetDb).toFixed(1)} dB (test)`}
+                  {isListening
+                    ? `${liveCalibratedDb.toFixed(1)} dB`
+                    : `${(45 + profile.offsetDb).toFixed(1)} dB (test)`}
                 </span>
               </div>
 
               {/* Offset Slider */}
               <div className="p-4 bg-zinc-50 dark:bg-zinc-800/50 rounded-2xl border border-zinc-200 dark:border-zinc-800 space-y-3">
                 <div className="flex items-center justify-between text-xs font-bold">
-                  <span className="text-zinc-700 dark:text-zinc-300">Decibel Offset (dB)</span>
+                  <span className="text-zinc-700 dark:text-zinc-300">
+                    Decibel Offset (dB)
+                  </span>
                   <span className="font-mono text-blue-600 dark:text-blue-400">
-                    {profile.offsetDb > 0 ? `+${profile.offsetDb}` : profile.offsetDb} dB
+                    {profile.offsetDb > 0
+                      ? `+${profile.offsetDb}`
+                      : profile.offsetDb}{" "}
+                    dB
                   </span>
                 </div>
                 <input
@@ -536,24 +589,36 @@ export function MicCalibrationWizard({
                     onClick={() => handleAlignToTarget(35)}
                     className="p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 font-medium text-center transition-colors"
                   >
-                    <div className="font-bold text-emerald-600 dark:text-emerald-400">Quiet ~35 dB</div>
-                    <div className="text-[10px] text-zinc-400">Whisper / Silent</div>
+                    <div className="font-bold text-emerald-600 dark:text-emerald-400">
+                      Quiet ~35 dB
+                    </div>
+                    <div className="text-[10px] text-zinc-400">
+                      Whisper / Silent
+                    </div>
                   </button>
                   <button
                     type="button"
                     onClick={() => handleAlignToTarget(60)}
                     className="p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 font-medium text-center transition-colors"
                   >
-                    <div className="font-bold text-amber-600 dark:text-amber-400">Voice ~60 dB</div>
-                    <div className="text-[10px] text-zinc-400">Conversation</div>
+                    <div className="font-bold text-amber-600 dark:text-amber-400">
+                      Voice ~60 dB
+                    </div>
+                    <div className="text-[10px] text-zinc-400">
+                      Conversation
+                    </div>
                   </button>
                   <button
                     type="button"
                     onClick={() => handleAlignToTarget(68)}
                     className="p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 font-medium text-center transition-colors"
                   >
-                    <div className="font-bold text-rose-600 dark:text-rose-400">Cafe ~68 dB</div>
-                    <div className="text-[10px] text-zinc-400">Busy Ambience</div>
+                    <div className="font-bold text-rose-600 dark:text-rose-400">
+                      Cafe ~68 dB
+                    </div>
+                    <div className="text-[10px] text-zinc-400">
+                      Busy Ambience
+                    </div>
                   </button>
                 </div>
               </div>
@@ -570,7 +635,8 @@ export function MicCalibrationWizard({
                     Calibration Ready
                   </h4>
                   <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-0.5">
-                    Your calibration profile is configured and ready to be applied across all noise monitoring widgets.
+                    Your calibration profile is configured and ready to be
+                    applied across all noise monitoring widgets.
                   </p>
                 </div>
               </div>
@@ -579,13 +645,17 @@ export function MicCalibrationWizard({
                 <div className="flex justify-between py-1 border-b border-zinc-200/50 dark:border-zinc-700/50">
                   <span className="text-zinc-500">Hardware Profile:</span>
                   <span className="font-bold text-zinc-800 dark:text-zinc-200">
-                    {DEVICE_PRESETS[profile.profileType]?.label || profile.profileType}
+                    {DEVICE_PRESETS[profile.profileType]?.label ||
+                      profile.profileType}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-zinc-200/50 dark:border-zinc-700/50">
                   <span className="text-zinc-500">Applied Decibel Offset:</span>
                   <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
-                    {profile.offsetDb >= 0 ? `+${profile.offsetDb}` : profile.offsetDb} dB
+                    {profile.offsetDb >= 0
+                      ? `+${profile.offsetDb}`
+                      : profile.offsetDb}{" "}
+                    dB
                   </span>
                 </div>
                 {profile.baselineNoiseFloorDb && (

@@ -40,8 +40,12 @@ jest.mock("@/lib/partitionMaintenance", () => ({
   autoCreateUpcomingPartitions: jest
     .fn()
     .mockResolvedValue(["partition_2026_11"]),
--  archiveExpiredPushNotificationPartitions: jest.fn().mockResolvedValue({ archived: [], retained: [] }),
-  archiveExpiredTelemetryPartitions: jest.fn().mockResolvedValue({ archived: [], retained: [] }),
+  archiveExpiredPushNotificationPartitions: jest
+    .fn()
+    .mockResolvedValue({ archived: [], retained: [] }),
+  archiveExpiredTelemetryPartitions: jest
+    .fn()
+    .mockResolvedValue({ archived: [], retained: [] }),
 
   checkPartitionHealth: jest.fn().mockResolvedValue({ status: "OK" }),
 }));
@@ -49,7 +53,16 @@ jest.mock("@/lib/partitionMaintenance", () => ({
 jest.mock("@/lib/partitionRetention", () => ({
   runPartitionRetention: jest.fn().mockResolvedValue({
     tables: [
-      { table: "WifiTelemetry", created: [], dropped: ["WifiTelemetry_y2026m03"], archived: [], defaultRowsRehomed: 0, defaultRowsExpired: 0, vacuumed: [], errors: [] },
+      {
+        table: "WifiTelemetry",
+        created: [],
+        dropped: ["WifiTelemetry_y2026m03"],
+        archived: [],
+        defaultRowsRehomed: 0,
+        defaultRowsExpired: 0,
+        vacuumed: [],
+        errors: [],
+      },
     ],
   }),
 }));
@@ -142,13 +155,28 @@ describe("GET /api/cron/partition-maintenance — telemetry retention (#3362)", 
   it("runs telemetry/audit retention and reports it", async () => {
     const res = await GET(makeRequest());
     const data = await res.json();
-    expect(data.retention.tables[0].dropped).toEqual(["WifiTelemetry_y2026m03"]);
+    expect(data.retention.tables[0].dropped).toEqual([
+      "WifiTelemetry_y2026m03",
+    ]);
   });
 
   it("returns 207 with a table-scoped error when retention fails for a table", async () => {
-    const { runPartitionRetention } = jest.requireMock("@/lib/partitionRetention");
+    const { runPartitionRetention } = jest.requireMock(
+      "@/lib/partitionRetention",
+    );
     runPartitionRetention.mockResolvedValueOnce({
-      tables: [{ table: "AdminAuditLog", created: [], dropped: [], archived: [], defaultRowsRehomed: 0, defaultRowsExpired: 0, vacuumed: [], errors: ["lock timeout"] }],
+      tables: [
+        {
+          table: "AdminAuditLog",
+          created: [],
+          dropped: [],
+          archived: [],
+          defaultRowsRehomed: 0,
+          defaultRowsExpired: 0,
+          vacuumed: [],
+          errors: ["lock timeout"],
+        },
+      ],
     });
     const res = await GET(makeRequest());
     expect(res.status).toBe(207);
