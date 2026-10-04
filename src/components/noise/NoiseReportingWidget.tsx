@@ -268,7 +268,10 @@ export function NoiseReportingWidget({
   }));
 
   return (
-    <div className="w-full rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/90 text-zinc-900 dark:text-zinc-100">
+    <div
+      data-testid="noise-reporting-widget"
+      className="w-full rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/90 text-zinc-900 dark:text-zinc-100"
+    >
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2.5">
           <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500 border border-blue-500/20">
