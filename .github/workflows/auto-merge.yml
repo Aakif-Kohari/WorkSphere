@@ -192,8 +192,31 @@ jobs:
               }
 
               // Execute squash merge with co-author attribution
+              const authorLogin = (pr.user?.login || '').toLowerCase();
+              const isMaintainer = authorLogin === 'satyampandey-07';
+
+              let coAuthorTrailers = [];
+              if (isMaintainer) {
+                // If maintainer authored the PR, pair with Claude / AI pairing partner to earn Pair Extraordinaire
+                coAuthorTrailers.push('Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>');
+              } else {
+                // If contributor authored the PR, credit maintainer as co-author
+                coAuthorTrailers.push('Co-authored-by: Satyam Pandey <satyam53@tsecol.onmicrosoft.com>');
+                coAuthorTrailers.push('Co-authored-by: SatyamPandey-07 <186389297+SatyamPandey-07@users.noreply.github.com>');
+              }
+
+              const cleanDescription = (rawBody || '')
+                .replace(/<!--[\s\S]*?-->/g, '')
+                .trim();
+
+              const missingTrailers = coAuthorTrailers.filter(trailer => 
+                !cleanDescription.toLowerCase().includes(trailer.toLowerCase())
+              );
+
               const commitTitle = `${title} (#${prNumber})`;
-              const commitMessage = `${body}\n\nCo-authored-by: Satyam Pandey <satyam53@tsecol.onmicrosoft.com>\nCo-authored-by: SatyamPandey-07 <186389297+SatyamPandey-07@users.noreply.github.com>`;
+              const commitMessage = missingTrailers.length > 0
+                ? `${cleanDescription}\n\n${missingTrailers.join('\n')}`
+                : cleanDescription;
 
               const mergeResponse = await github.rest.pulls.merge({
                 owner,

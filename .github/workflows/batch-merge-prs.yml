@@ -144,8 +144,23 @@ jobs:
                   .replace(/<!--[\s\S]*?-->/g, '')
                   .trim();
 
+                const authorLogin = (pr.user?.login || '').toLowerCase();
+                const isMaintainer = authorLogin === 'satyampandey-07';
+
+                let coAuthorTrailers = [];
+                if (isMaintainer) {
+                  coAuthorTrailers.push('Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>');
+                } else {
+                  coAuthorTrailers.push('Co-authored-by: Satyam Pandey <satyam53@tsecol.onmicrosoft.com>');
+                  coAuthorTrailers.push('Co-authored-by: SatyamPandey-07 <186389297+SatyamPandey-07@users.noreply.github.com>');
+                }
+
+                const missingTrailers = coAuthorTrailers.filter(trailer => 
+                  !cleanBody.toLowerCase().includes(trailer.toLowerCase())
+                );
+
                 const commitTitle = `${pr.title} (#${prNumber})`;
-                const commitMessage = `${cleanBody}\n\nFixes #${trackingIssue}\n\nCo-authored-by: Satyam Pandey <satyam53@tsecol.onmicrosoft.com>\nCo-authored-by: SatyamPandey-07 <186389297+SatyamPandey-07@users.noreply.github.com>`;
+                const commitMessage = `${cleanBody}\n\nFixes #${trackingIssue}${missingTrailers.length > 0 ? '\n\n' + missingTrailers.join('\n') : ''}`.trim();
 
                 const mergeRes = await github.rest.pulls.merge({
                   owner,
