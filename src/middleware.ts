@@ -37,6 +37,16 @@ function getPartyKitOrigins(): string[] {
   return origins;
 }
 
+export function generateCryptographicNonce(): string {
+  // 16 cryptographically random bytes encoded in base64 (standard secure CSP nonce)
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return btoa(String.fromCharCode(...bytes));
+  }
+  return btoa(crypto.randomUUID());
+}
+
 export function generateCsp(nonce: string): string {
   const isDev = process.env.NODE_ENV === "development";
   const clerkFrontendApi = getClerkFrontendApiHost();
@@ -46,21 +56,27 @@ export function generateCsp(nonce: string): string {
     ...(clerkFrontendApi ? [`https://${clerkFrontendApi}`] : []),
   ].join(" ");
 
+  // Map tile CDNs, geocoding and routing endpoints
+  const mapboxOrigins = "https://*.mapbox.com https://api.mapbox.com https://events.mapbox.com";
+  const openStreetMapOrigins = "https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://nominatim.openstreetmap.org https://router.project-osrm.org";
+  const cartoOrigins = "https://*.basemaps.cartocdn.com";
+
   return [
     `default-src 'self'`,
     `base-uri 'self'`,
     `object-src 'none'`,
     `frame-ancestors 'self'`,
     `form-action 'self'`,
-    `script-src 'self' 'nonce-${nonce}' ${clerkHosts} https://challenges.cloudflare.com${isDev ? " 'unsafe-eval'" : ""}`,
-    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
+    `script-src 'self' 'nonce-${nonce}' ${clerkHosts} ${mapboxOrigins} https://challenges.cloudflare.com${isDev ? " 'unsafe-eval'" : ""}`,
+    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com ${mapboxOrigins}`,
     `font-src 'self' https://fonts.gstatic.com data:`,
-    // Map tiles, avatars, venue photos and user uploads come from many hosts.
-    `img-src 'self' data: blob: https:`,
+    // Map tiles (OpenStreetMap, CartoCDN, Mapbox), avatars, venue photos, and user uploads
+    `img-src 'self' data: blob: https: ${openStreetMapOrigins} ${cartoOrigins} ${mapboxOrigins}`,
     `media-src 'self' blob: data:`,
-    `connect-src 'self' ${clerkHosts} https://clerk-telemetry.com https://router.project-osrm.org https://nominatim.openstreetmap.org ${getPartyKitOrigins().join(" ")}`,
+    `connect-src 'self' ${clerkHosts} https://clerk-telemetry.com ${openStreetMapOrigins} ${cartoOrigins} ${mapboxOrigins} ${getPartyKitOrigins().join(" ")}`,
     `frame-src 'self' ${clerkHosts} https://challenges.cloudflare.com`,
     `worker-src 'self' blob:`,
+    `upgrade-insecure-requests`,
   ].join("; ");
 }
 
@@ -249,7 +265,7 @@ export default clerkMiddleware(async (auth, req) => {
     }
   }
 
-  const nonce = btoa(crypto.randomUUID());
+  const nonce = generateCryptographicNonce();
   const csp = generateCsp(nonce);
 
   // Next.js reads the nonce from the request's CSP header and applies it to
