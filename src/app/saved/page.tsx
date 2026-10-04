@@ -49,6 +49,114 @@ function exportCollectionAsCSV(favorites: SavedVenue[]) {
   URL.revokeObjectURL(url);
 }
 
+function exportCollectionAsGeoJSON(favorites: SavedVenue[]) {
+  const geojson = {
+    type: "FeatureCollection",
+    features: favorites
+      .filter((fav) => {
+        const { latitude, longitude } = fav.venue;
+        return (
+          typeof latitude === "number" &&
+          typeof longitude === "number" &&
+          Number.isFinite(latitude) &&
+          Number.isFinite(longitude) &&
+          latitude >= -90 &&
+          latitude <= 90 &&
+          longitude >= -180 &&
+          longitude <= 180 &&
+          !(latitude === 0 && longitude === 0)
+        );
+      })
+      .map((fav) => ({
+        type: "Feature",
+        id: fav.id,
+        geometry: {
+          type: "Point",
+          coordinates: [fav.venue.longitude, fav.venue.latitude],
+        },
+        properties: {
+          venueId: fav.venue.id,
+          name: fav.venue.name,
+          category: fav.venue.category,
+          address: fav.venue.address ?? null,
+          rating: fav.venue.rating ?? null,
+          tags: fav.tags.map((t) => t.name),
+          notes: fav.notes ?? null,
+          wifiQuality: fav.venue.wifiQuality ?? null,
+          wifiSpeed: fav.venue.wifiSpeed ?? null,
+          hasOutlets: Boolean(fav.venue.hasOutlets),
+          noiseLevel: fav.venue.noiseLevel ?? null,
+        },
+      })),
+  };
+
+  const blob = new Blob([JSON.stringify(geojson, null, 2)], {
+    type: "application/geo+json;charset=utf-8;",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "worksphere-saved-venues.geojson";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportCollectionAsKML(favorites: SavedVenue[]) {
+  const placemarks = favorites
+    .filter((fav) => {
+      const { latitude, longitude } = fav.venue;
+      return (
+        typeof latitude === "number" &&
+        typeof longitude === "number" &&
+        Number.isFinite(latitude) &&
+        Number.isFinite(longitude) &&
+        !(latitude === 0 && longitude === 0)
+      );
+    })
+    .map((fav) => {
+      const tags = fav.tags.map((t) => t.name).join(", ");
+      const desc = [
+        `Address: ${fav.venue.address || "N/A"}`,
+        `Category: ${fav.venue.category || "N/A"}`,
+        `Rating: ${fav.venue.rating ?? "N/A"}`,
+        `Tags: ${tags || "None"}`,
+        fav.notes ? `Notes: ${fav.notes}` : "",
+      ]
+        .filter(Boolean)
+        .join(" | ");
+
+      return [
+        "    <Placemark>",
+        `      <name>${fav.venue.name}</name>`,
+        `      <description>${desc}</description>`,
+        "      <Point>",
+        `        <coordinates>${fav.venue.longitude},${fav.venue.latitude},0</coordinates>`,
+        "      </Point>",
+        "    </Placemark>",
+      ].join("\n");
+    });
+
+  const kml = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<kml xmlns="http://www.opengis.net/kml/2.2">',
+    "  <Document>",
+    "    <name>WorkSphere Saved Venues</name>",
+    ...placemarks,
+    "  </Document>",
+    "</kml>",
+  ].join("\n");
+
+  const blob = new Blob([kml], {
+    type: "application/vnd.google-earth.kml+xml;charset=utf-8;",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "worksphere-saved-venues.kml";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function SavedVenuesPage() {
   const {
     favorites,
@@ -129,15 +237,35 @@ export default function SavedVenuesPage() {
           </div>
 
           {!loading && favorites.length > 0 && (
-            <button
-              type="button"
-              onClick={() => exportCollectionAsCSV(favorites)}
-              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--primary-accent)] focus:ring-offset-2 dark:focus:ring-offset-zinc-950"
-              aria-label="Export saved venues as CSV"
-            >
-              <Download className="w-4 h-4" />
-              Export CSV
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => exportCollectionAsGeoJSON(favorites)}
+                className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--primary-accent)] focus:ring-offset-2 dark:focus:ring-offset-zinc-950"
+                aria-label="Download saved venues as GeoJSON"
+              >
+                <Download className="w-4 h-4" />
+                Download GeoJSON
+              </button>
+              <button
+                type="button"
+                onClick={() => exportCollectionAsKML(favorites)}
+                className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--primary-accent)] focus:ring-offset-2 dark:focus:ring-offset-zinc-950"
+                aria-label="Download saved venues as KML"
+              >
+                <Download className="w-4 h-4" />
+                Download KML
+              </button>
+              <button
+                type="button"
+                onClick={() => exportCollectionAsCSV(favorites)}
+                className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--primary-accent)] focus:ring-offset-2 dark:focus:ring-offset-zinc-950"
+                aria-label="Export saved venues as CSV"
+              >
+                <Download className="w-4 h-4" />
+                Export CSV
+              </button>
+            </div>
           )}
         </div>
 
