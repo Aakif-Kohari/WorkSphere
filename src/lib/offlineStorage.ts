@@ -89,6 +89,15 @@ export async function initOfflineDB(): Promise<IDBDatabase> {
   if (db) return db;
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        console.warn("[OfflineDB] IndexedDB open timed out (likely Safari Private Browsing)");
+        reject(new DOMException("IndexedDB open timed out", "SecurityError"));
+      }
+    }, 3000);
+
     try {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
@@ -97,6 +106,9 @@ export async function initOfflineDB(): Promise<IDBDatabase> {
       };
 
       request.onerror = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
         console.error("[OfflineDB] Failed to open database");
         const err = request.error || new Error("Unknown IndexedDB error");
         if (err.name === "SecurityError") {
@@ -106,6 +118,9 @@ export async function initOfflineDB(): Promise<IDBDatabase> {
       };
 
       request.onsuccess = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
         db = request.result;
         db.onversionchange = () => {
           db?.close();
@@ -200,6 +215,9 @@ export async function initOfflineDB(): Promise<IDBDatabase> {
         console.log("[OfflineDB] Database schema created");
       };
     } catch (err: any) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
       console.error("[OfflineDB] Synchronous error on open:", err);
       if (err.name === "SecurityError") {
         showPrivateBrowsingAlert();
