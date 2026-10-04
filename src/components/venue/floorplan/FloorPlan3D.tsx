@@ -36,6 +36,13 @@ export function FloorPlan3D({ venueId, data }: FloorPlan3DProps) {
 
     const canvas = canvasRef.current;
     const renderer = new WebGPUFloorPlanRenderer(canvas);
+    const margin = 2.0;
+    renderer.setPanBounds({
+      minX: -stableData.width / 2 - margin,
+      maxX: stableData.width / 2 + margin,
+      minY: -stableData.depth / 2 - margin,
+      maxY: stableData.depth / 2 + margin,
+    });
     rendererRef.current = renderer;
     let detachRecovery: (() => void) | null = null;
     let fallbackCleanup: (() => void) | null = null;
@@ -115,20 +122,24 @@ export function FloorPlan3D({ venueId, data }: FloorPlan3DProps) {
   const handleReset = useCallback(() => {
     const r = rendererRef.current;
     if (r) {
-      const cam = r as unknown as {
-        camera: {
-          rotationX: number;
-          rotationY: number;
-          distance: number;
-          panX: number;
-          panY: number;
+      if (typeof r.resetView === "function") {
+        r.resetView();
+      } else {
+        const cam = r as unknown as {
+          camera: {
+            rotationX: number;
+            rotationY: number;
+            distance: number;
+            panX: number;
+            panY: number;
+          };
         };
-      };
-      cam.camera.rotationX = -0.8;
-      cam.camera.rotationY = 0.5;
-      cam.camera.distance = 8;
-      cam.camera.panX = 0;
-      cam.camera.panY = 0;
+        cam.camera.rotationX = -0.8;
+        cam.camera.rotationY = 0.5;
+        cam.camera.distance = 8;
+        cam.camera.panX = 0;
+        cam.camera.panY = 0;
+      }
     }
   }, []);
 

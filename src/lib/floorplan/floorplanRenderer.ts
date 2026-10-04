@@ -177,10 +177,22 @@ export class FloorplanRenderer {
 
   pan(x: number, z: number) {
     const target = this.camera.userData.target as THREE.Vector3;
-    target.x += x;
-    target.z += z;
-    this.camera.position.x += x;
-    this.camera.position.z += z;
+    const floorWidth = SVG_WIDTH * SCENE_SCALE;
+    const floorDepth = SVG_HEIGHT * SCENE_SCALE;
+    const margin = 2.0;
+    const maxPanX = floorWidth / 2 + margin;
+    const maxPanZ = floorDepth / 2 + margin;
+
+    const newTargetX = THREE.MathUtils.clamp(target.x + x, -maxPanX, maxPanX);
+    const newTargetZ = THREE.MathUtils.clamp(target.z + z, -maxPanZ, maxPanZ);
+
+    const deltaX = newTargetX - target.x;
+    const deltaZ = newTargetZ - target.z;
+
+    target.x = newTargetX;
+    target.z = newTargetZ;
+    this.camera.position.x += deltaX;
+    this.camera.position.z += deltaZ;
     this.camera.lookAt(target);
   }
 
