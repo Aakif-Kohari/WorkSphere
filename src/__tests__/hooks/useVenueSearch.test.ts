@@ -1,7 +1,9 @@
 import { renderHook, act } from "@testing-library/react";
 import { useVenueSearch } from "@/hooks/useVenueSearch";
 
-describe("useVenueSearch (#3434)", () => {
+describe("useVenueSearch (#3513)", () => {
+  const originalFetch = global.fetch;
+
   let mockFetch: jest.Mock;
 
   beforeEach(() => {
@@ -11,8 +13,10 @@ describe("useVenueSearch (#3434)", () => {
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    jest.runOnlyPendingTimers();
     jest.useRealTimers();
+    global.fetch = originalFetch;
+    jest.clearAllMocks();
   });
 
   it("initializes with default idle state", () => {
@@ -26,10 +30,12 @@ describe("useVenueSearch (#3434)", () => {
     expect(result.current.error).toBeNull();
   });
 
-  it("debounces network requests by 250ms by default", async () => {
+  it("debounces rapid keystrokes by 300ms and fires at most one request", async () => {
     const mockVenues = [
-      { id: "v1", name: "Coffee Lab", category: "cafe", latitude: 10, longitude: 20 },
+      { id: "v1", name: "Central Cafe", category: "cafe" },
+      { id: "v2", name: "Central Library", category: "library" },
     ];
+
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ venues: mockVenues }),
@@ -37,34 +43,54 @@ describe("useVenueSearch (#3434)", () => {
 
     const { result } = renderHook(() => useVenueSearch());
 
+    // Rapid keystroke simulation (typing 'central' with 80ms intervals between strokes)
     act(() => {
-      result.current.setQuery("coffee");
+      result.current.setQuery("c");
+    });
+    act(() => {
+      jest.advanceTimersByTime(80);
+    });
+    act(() => {
+      result.current.setQuery("ce");
+    });
+    act(() => {
+      jest.advanceTimersByTime(80);
+    });
+    act(() => {
+      result.current.setQuery("cen");
+    });
+    act(() => {
+      jest.advanceTimersByTime(80);
+    });
+    act(() => {
+      result.current.setQuery("cent");
+    });
+    act(() => {
+      jest.advanceTimersByTime(80);
+    });
+    act(() => {
+      result.current.setQuery("central");
     });
 
-    // Before 250ms, no network call should be dispatched
+    // Advance 299ms: Still no request should have been dispatched
     act(() => {
-      jest.advanceTimersByTime(200);
+      jest.advanceTimersByTime(299);
     });
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(result.current.isLoading).toBe(false);
 
-    // After remaining 50ms, the fetch should be dispatched
+    // Advance final 1ms (reaching 300ms debounce threshold): Only 'central' should be queried
     await act(async () => {
-      jest.advanceTimersByTime(50);
+      jest.advanceTimersByTime(1);
     });
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch).toHaveBeenCalledWith(
-      "/api/venues?query=coffee",
+      "/api/venues?query=central",
       expect.objectContaining({
         signal: expect.any(AbortSignal),
       }),
     );
-
-    // Results updated
     expect(result.current.venues).toEqual(mockVenues);
-    expect(result.current.isLoading).toBe(false);
-    expect(result.current.error).toBeNull();
   });
 
   it("cancels pending debounce timers on rapid keystrokes", async () => {
@@ -101,13 +127,13 @@ describe("useVenueSearch (#3434)", () => {
       result.current.setQuery("central");
     });
 
-    // Advance 249ms: Still no request
+    // Advance 299ms: Still no request should have been dispatched
     act(() => {
-      jest.advanceTimersByTime(249);
+      jest.advanceTimersByTime(299);
     });
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // Advance final 1ms: Only 'central' should be queried
+    // Advance final 1ms (reaching 300ms debounce threshold): Only 'central' should be queried
     await act(async () => {
       jest.advanceTimersByTime(1);
     });
@@ -150,7 +176,7 @@ describe("useVenueSearch (#3434)", () => {
       result.current.setQuery("slow");
     });
     act(() => {
-      jest.advanceTimersByTime(250);
+      jest.advanceTimersByTime(300);
     });
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -162,7 +188,7 @@ describe("useVenueSearch (#3434)", () => {
       result.current.setQuery("fast");
     });
     await act(async () => {
-      jest.advanceTimersByTime(250);
+      jest.advanceTimersByTime(300);
     });
 
     // Verify first request was aborted
@@ -197,7 +223,7 @@ describe("useVenueSearch (#3434)", () => {
       result.current.setQuery("query1");
     });
     act(() => {
-      jest.advanceTimersByTime(250);
+      jest.advanceTimersByTime(300);
     });
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
@@ -206,7 +232,7 @@ describe("useVenueSearch (#3434)", () => {
       result.current.setQuery("query2");
     });
     await act(async () => {
-      jest.advanceTimersByTime(250);
+      jest.advanceTimersByTime(300);
     });
     expect(mockFetch).toHaveBeenCalledTimes(2);
 
@@ -244,7 +270,7 @@ describe("useVenueSearch (#3434)", () => {
     });
 
     await act(async () => {
-      jest.advanceTimersByTime(250);
+      jest.advanceTimersByTime(300);
     });
 
     // Should not throw or set error state
@@ -263,7 +289,7 @@ describe("useVenueSearch (#3434)", () => {
     });
 
     await act(async () => {
-      jest.advanceTimersByTime(250);
+      jest.advanceTimersByTime(300);
     });
 
     expect(result.current.error).toBeNull();
@@ -282,7 +308,7 @@ describe("useVenueSearch (#3434)", () => {
     });
 
     await act(async () => {
-      jest.advanceTimersByTime(250);
+      jest.advanceTimersByTime(300);
     });
 
     expect(result.current.error).toContain("status 500");
@@ -299,7 +325,7 @@ describe("useVenueSearch (#3434)", () => {
     });
 
     await act(async () => {
-      jest.advanceTimersByTime(250);
+      jest.advanceTimersByTime(300);
     });
 
     expect(result.current.error).toBe("Network connection failed");
@@ -319,7 +345,7 @@ describe("useVenueSearch (#3434)", () => {
       result.current.setQuery("some query");
     });
     act(() => {
-      jest.advanceTimersByTime(250);
+      jest.advanceTimersByTime(300);
     });
 
     expect(capturedSignal?.aborted).toBe(false);
@@ -348,7 +374,7 @@ describe("useVenueSearch (#3434)", () => {
       result.current.setQuery("pending query");
     });
     act(() => {
-      jest.advanceTimersByTime(250);
+      jest.advanceTimersByTime(300);
     });
 
     expect(capturedSignal?.aborted).toBe(false);
@@ -375,7 +401,7 @@ describe("useVenueSearch (#3434)", () => {
     rerender({ query: "prop-search" });
 
     await act(async () => {
-      jest.advanceTimersByTime(250);
+      jest.advanceTimersByTime(300);
     });
 
     expect(mockFetch).toHaveBeenCalledWith(

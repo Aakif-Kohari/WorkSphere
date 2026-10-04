@@ -23,7 +23,7 @@ export interface UseVenueSearchOptions {
   query?: string;
   /** Initial query string for uncontrolled mode */
   initialQuery?: string;
-  /** Debounce delay in milliseconds before dispatching fetch (default: 250ms) */
+  /** Debounce delay in milliseconds before dispatching fetch (default: 300ms) */
   debounceMs?: number;
   /** Minimum query length required to trigger search (default: 1) */
   minQueryLength?: number;
@@ -45,11 +45,11 @@ export interface UseVenueSearchReturn<T = VenueSearchResult> {
 }
 
 /**
- * Custom hook for fuzzy venue searching with:
- * - 250ms debounce before dispatching network requests
- * - AbortController stored in a useRef to cancel in-flight HTTP requests
- * - Silent handling of AbortError without error banners or resetting results
- * - Prevention of out-of-order race conditions
+ * Custom hook for debounced, cancelable venue search with AbortController (#3513):
+ * - 300ms debounce before dispatching network requests to avoid rapid request flooding.
+ * - AbortController stored in a useRef to cancel any in-flight HTTP request prior to dispatching new queries.
+ * - Silent handling of AbortError so canceled requests never overwrite newer responses.
+ * - Prevents out-of-order race conditions when fast typing occurs.
  */
 export function useVenueSearch<T = VenueSearchResult>(
   queryOrOptions?: string | UseVenueSearchOptions,
@@ -63,7 +63,7 @@ export function useVenueSearch<T = VenueSearchResult>(
   const {
     query: controlledQuery,
     initialQuery = "",
-    debounceMs = 250,
+    debounceMs = 300,
     minQueryLength = 1,
     apiEndpoint = "/api/venues",
   } = options;
@@ -76,9 +76,9 @@ export function useVenueSearch<T = VenueSearchResult>(
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Active AbortController reference stored in a useRef
+  // Active AbortController reference stored in a useRef to cancel in-flight requests
   const abortControllerRef = useRef<AbortController | null>(null);
-  // Timer reference for debounce
+  // Timer reference for debounce delay
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const abort = useCallback(() => {
@@ -183,7 +183,7 @@ export function useVenueSearch<T = VenueSearchResult>(
     [abort, activeQuery, apiEndpoint, minQueryLength],
   );
 
-  // Debounced search trigger on activeQuery change
+  // Debounced search trigger on activeQuery change (300ms default)
   useEffect(() => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
@@ -252,3 +252,5 @@ export function useVenueSearch<T = VenueSearchResult>(
     search: performSearch,
   };
 }
+
+export const useDebouncedSearch = useVenueSearch;

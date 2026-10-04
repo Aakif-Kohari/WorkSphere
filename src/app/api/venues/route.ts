@@ -355,11 +355,12 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (rawData.query) {
+const querySearch = rawData.query || rawData.q;
+    if (querySearch) {
       const queryConditions = [
-        { name: { contains: rawData.query, mode: "insensitive" } },
-        { address: { contains: rawData.query, mode: "insensitive" } },
-        { description: { contains: rawData.query, mode: "insensitive" } },
+        { name: { contains: querySearch, mode: "insensitive" } },
+        { address: { contains: querySearch, mode: "insensitive" } },
+        { description: { contains: querySearch, mode: "insensitive" } },
       ];
       if (where.OR) {
         where.AND = [{ OR: where.OR }, { OR: queryConditions }];
