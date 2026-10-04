@@ -30,12 +30,17 @@ interface TerminateMessage {
   type: "terminate";
 }
 
+interface AbortMessage {
+  type: "abort";
+}
+
 type WorkerMessage =
   | PremiumProofRequest
   | StudentProofRequest
   | VerifyRequest
   | CancelMessage
-  | TerminateMessage;
+  | TerminateMessage
+  | AbortMessage;
 
 let generation = 0;
 
@@ -165,7 +170,7 @@ self.addEventListener("message", async (e: MessageEvent<WorkerMessage>) => {
     return;
   }
 
-  if (e.data.type === "terminate") {
+  if (e.data.type === "abort" || e.data.type === "terminate") {
     generation++;
     await terminateCurveBn128();
     if (typeof self !== "undefined" && typeof self.close === "function") {
