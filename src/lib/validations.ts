@@ -205,9 +205,20 @@ export const favoriteSchema = z.object({
   venueId: z.string().min(1),
 });
 
-// Favorite notes schema
+// Favorite notes schema - supports plaintext or zero-knowledge encrypted payload
 export const favoriteNotesSchema = z.object({
-  notes: z.string().max(2000).nullable(),
+  notes: z
+    .union([
+      z.string().max(8000).nullable(),
+      z.object({
+        ciphertext: z.string(),
+        iv: z.string(),
+        authTag: z.string(),
+        algorithm: z.literal("AES-GCM-256"),
+        keyDerivation: z.enum(["WEBAUTHN-PRF", "PBKDF2-FALLBACK"]),
+        salt: z.string(),
+      }),
+    ]),
 });
 
 // Favorite tag schemas
