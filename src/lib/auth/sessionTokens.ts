@@ -116,7 +116,7 @@ async function hmacVerify(data: string, signature: string, secret: string): Prom
       ["verify"],
     );
     const signatureBytes = base64UrlDecode(signature);
-    return await crypto.subtle.verify("HMAC", key, signatureBytes, ENCODER.encode(data));
+    return await crypto.subtle.verify("HMAC", key, signatureBytes as unknown as BufferSource, ENCODER.encode(data));
   } catch {
     return false;
   }

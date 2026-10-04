@@ -103,8 +103,9 @@ export function useVenueSearch<T = VenueSearchResult>(
   }, [abort, isControlled]);
 
   const performSearch = useCallback(
-    async (searchQuery: string): Promise<void> => {
-      const trimmedQuery = searchQuery.trim();
+    async (searchQuery?: string): Promise<void> => {
+      const targetQuery = typeof searchQuery === "string" ? searchQuery : activeQuery;
+      const trimmedQuery = targetQuery.trim();
 
       if (!trimmedQuery || trimmedQuery.length < minQueryLength) {
         abort();
@@ -179,7 +180,7 @@ export function useVenueSearch<T = VenueSearchResult>(
         }
       }
     },
-    [abort, apiEndpoint, minQueryLength],
+    [abort, activeQuery, apiEndpoint, minQueryLength],
   );
 
   // Debounced search trigger on activeQuery change

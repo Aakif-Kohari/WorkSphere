@@ -49,8 +49,6 @@ export async function GET(request: NextRequest) {
       activePartitions: string[];
       skippedTables: string[];
     };
-
-    };
     errors: string[];
   } = { errors: [] };
 
