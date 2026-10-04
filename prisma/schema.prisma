@@ -871,3 +871,13 @@ model UniversityMerkleRoot {
   @@index([university, epoch])
 }
 
+model StudentPassNullifier {
+  id            String   @id @default(cuid())
+  nullifierHash String   @unique
+  epoch         Int      @default(2026)
+  claimedAt     DateTime @default(now())
+
+  @@index([nullifierHash])
+  @@index([epoch])
+}
+
