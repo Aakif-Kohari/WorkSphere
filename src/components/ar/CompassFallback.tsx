@@ -53,6 +53,30 @@ export default function CompassFallback({
   const { heading, error: orientationError, isSupported, permissionState, requestPermission } =
     useDeviceOrientation();
 
+  const [filteredHeading, setFilteredHeading] = useState<number | null>(null);
+  const kalmanFilterRef = useRef<CompassKalmanFilter | null>(null);
+
+  if (!kalmanFilterRef.current) {
+    kalmanFilterRef.current = new CompassKalmanFilter({ q: kalmanQ, r: kalmanR });
+  }
+
+  useEffect(() => {
+    kalmanFilterRef.current?.setParameters({ q: kalmanQ, r: kalmanR });
+  }, [kalmanQ, kalmanR]);
+
+  useEffect(() => {
+    if (heading !== null && !isNaN(heading)) {
+      const smoothed = kalmanFilterRef.current?.update(heading);
+      if (smoothed !== null && smoothed !== undefined) {
+        setFilteredHeading(Math.round(smoothed * 10) / 10);
+      }
+    } else {
+      setFilteredHeading(null);
+    }
+  }, [heading]);
+
+  const activeHeading = filteredHeading !== null ? filteredHeading : heading;
+
   const [userLocation, setUserLocation] = useState<UserCoordinates | null>(null);
   const [geoError, setGeoError] = useState<string | null>(null);
   const [geoLoading, setGeoLoading] = useState<boolean>(true);
@@ -123,15 +147,15 @@ export default function CompassFallback({
       : null;
 
   const relativeBearing =
-    targetBearing !== null && heading !== null
-      ? calculateRelativeBearing(targetBearing, heading)
+    targetBearing !== null && activeHeading !== null
+      ? calculateRelativeBearing(targetBearing, activeHeading)
       : null;
 
   const isGuidingToVenue = mode === "venue" && relativeBearing !== null;
   const arrowRotation = isGuidingToVenue
     ? relativeBearing
-    : heading !== null
-      ? -heading
+    : activeHeading !== null
+      ? -activeHeading
       : 0;
 
   const turnGuidance = getRelativeDirectionDescription(relativeBearing);
@@ -242,11 +266,11 @@ export default function CompassFallback({
 
         {/* Compass & 2D Directional Arrow Dial */}
         <div className="relative w-64 h-64 flex items-center justify-center">
-          {/* Compass Base Ring (Cardinal Points rotate with -heading) */}
+          {/* Compass Base Ring (Cardinal Points rotate with -activeHeading) */}
           <div
             className="absolute inset-0 rounded-full border-4 border-slate-700/80 bg-slate-800/90 shadow-[0_0_40px_rgba(0,0,0,0.6)] backdrop-blur-sm transition-transform duration-200 ease-out flex items-center justify-center"
             style={{
-              transform: `rotate(${heading !== null ? -heading : 0}deg)`,
+              transform: `rotate(${activeHeading !== null ? -activeHeading : 0}deg)`,
             }}
           >
             {/* Cardinal Markers */}
@@ -316,8 +340,8 @@ export default function CompassFallback({
           {/* Heading Readout */}
           <div className="flex items-center gap-3 font-mono text-xs text-slate-400">
             <span className="bg-slate-800/80 px-2.5 py-1 rounded-md border border-slate-700/60">
-              Heading: <strong className="text-white">{heading !== null ? `${Math.round(heading)}°` : "---°"}</strong>{" "}
-              {getCompassDirection(heading)}
+              Heading: <strong className="text-white">{activeHeading !== null ? `${Math.round(activeHeading)}°` : "---°"}</strong>{" "}
+              {getCompassDirection(activeHeading)}
             </span>
 
             {targetBearing !== null && (
