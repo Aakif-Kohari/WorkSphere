@@ -844,3 +844,17 @@ model FoodVote {
   @@unique([userId, validationId])
 }
 
+model UniversityMerkleRoot {
+  id         String   @id @default(cuid())
+  university String
+  campus     String?
+  epoch      Int      @default(2026)
+  merkleRoot String   @unique
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([merkleRoot, isActive])
+  @@index([university, epoch])
+}
+
