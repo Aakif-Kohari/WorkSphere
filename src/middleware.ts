@@ -82,6 +82,8 @@ const isPublicRoute = createRouteMatcher([
   "/api/auth/sso/saml",
   // Passkey sign-in is used by signed-out visitors.
   "/api/auth/passkey/authenticate/(.*)",
+  // Session refresh and logout endpoints
+  "/api/auth/session(.*)",
 ]);
 
 // Routes exempt from CSRF validation even though they're mutating:
@@ -95,6 +97,7 @@ const isCsrfExemptMatcher = createRouteMatcher([
   // SAML responses are authenticated by the IdP XML signature.
   "/api/auth/sso/saml",
   "/api/venues/updates",
+  "/api/auth/session(.*)",
 ]);
 
 export function isCsrfExemptRoute(req: Request): boolean {

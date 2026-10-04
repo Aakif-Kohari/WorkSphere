@@ -125,6 +125,34 @@ function resolveMethod(input: RequestInfo | URL, init?: RequestInit): string {
   return "GET";
 }
 
+let _sessionRefreshPromise: Promise<boolean> | null = null;
+
+/**
+ * Silently rotates and refreshes the session token via /api/auth/session/refresh.
+ * Single-flight guard prevents redundant simultaneous refresh calls.
+ */
+export async function refreshSessionToken(): Promise<boolean> {
+  if (_sessionRefreshPromise) {
+    return _sessionRefreshPromise;
+  }
+
+  _sessionRefreshPromise = (async () => {
+    try {
+      const res = await fetch("/api/auth/session/refresh", {
+        method: "POST",
+        credentials: "include",
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  })().finally(() => {
+    _sessionRefreshPromise = null;
+  });
+
+  return _sessionRefreshPromise;
+}
+
 async function sendWithCsrf(
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -179,6 +207,22 @@ async function sendWithCsrf(
       }
     } catch {
       // If JSON parse fails or retry fetch fails, fall through to return original 403
+    }
+  }
+
+  // Silent session refresh and retry on 401 Unauthorized
+  if (
+    response.status === 401 &&
+    !urlString.includes("/api/auth/session/refresh") &&
+    !urlString.includes("/sign-in")
+  ) {
+    try {
+      const refreshed = await refreshSessionToken();
+      if (refreshed) {
+        return fetch(input, init);
+      }
+    } catch {
+      // Fall through to original 401 response
     }
   }
 

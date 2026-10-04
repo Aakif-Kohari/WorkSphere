@@ -17,6 +17,7 @@ import { ToastProvider } from "../components/ui/Toast";
 import { PWAUpdateListener } from "../components/PWAUpdateListener";
 import { KeyboardShortcutsModal } from "../components/KeyboardShortcutsModal";
 import { CommandPalette } from "../components/CommandPalette";
+import { IdleSessionDialog } from "../components/auth/IdleSessionDialog";
 
 const THEME_INIT_SCRIPT = `
 (function () {
@@ -163,6 +164,7 @@ export default async function RootLayout({
             <PWAUpdateListener />
             <KeyboardShortcutsModal />
             <CommandPalette />
+            <IdleSessionDialog />
             <I18nProvider>{children}</I18nProvider>
           </CurrencyProvider>
         </ToastProvider>
