@@ -4,9 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
+  AlertTriangle,
   ArrowLeft,
   Database,
   Gauge,
+  HardDrive,
   MousePointerClick,
   RefreshCw,
   Search,
@@ -121,12 +123,40 @@ const tooltipStyle = {
   borderRadius: 16,
 };
 
+type PartitionItem = {
+  name: string;
+  exists: boolean;
+  rowCount: number;
+  tableSizeBytes?: number;
+  tableSizePretty?: string;
+  isNearColdStorage?: boolean;
+};
+
+type PartitionHealthData = {
+  status: "HEALTHY" | "CRITICAL";
+  checkedAt: string;
+  partitions: PartitionItem[];
+};
+
 export default function AdminSystemDashboard() {
   const [range, setRange] = useState<RangeKey>("30d");
   const [data, setData] = useState<SystemMetrics | null>(null);
+  const [partitionsData, setPartitionsData] = useState<PartitionHealthData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const requestId = useRef(0);
+
+  async function loadPartitions() {
+    try {
+      const res = await fetch("/api/admin/system/partitions", { cache: "no-store" });
+      if (res.ok) {
+        const json = await res.json();
+        setPartitionsData(json);
+      }
+    } catch {
+      // Non-fatal if partition health cannot be loaded
+    }
+  }
 
   async function loadMetrics(selectedRange: RangeKey) {
   const currentRequest = ++requestId.current;
@@ -135,19 +165,19 @@ export default function AdminSystemDashboard() {
   setError("");
 
   try {
-    const response = await fetch(
-      `/api/admin/system?range=${selectedRange}`,
-      { cache: "no-store" },
-    );
+    const [metricsRes] = await Promise.all([
+      fetch(`/api/admin/system?range=${selectedRange}`, { cache: "no-store" }),
+      loadPartitions(),
+    ]);
 
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
+    if (!metricsRes.ok) {
+      const payload = await metricsRes.json().catch(() => null);
       throw new Error(
         payload?.error ?? "Unable to load system metrics",
       );
     }
 
-    const result = await response.json();
+    const result = await metricsRes.json();
 
     if (currentRequest !== requestId.current) return;
 
@@ -463,6 +493,163 @@ export default function AdminSystemDashboard() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </section>
+        {partitionsData && partitionsData.partitions.length > 0 && (
+          <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+            <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <HardDrive className="h-5 w-5 text-violet-400" />
+                  <h2 className="text-lg font-semibold">PostgreSQL Partition Disk Storage</h2>
+                </div>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Physical disk allocation per monthly declarative partition table (Threshold: 100 MB cold storage detachment)
+                </p>
+              </div>
+              <span
+                className={`inline-flex items-center gap-1.5 self-start rounded-full px-3 py-1 text-xs font-medium sm:self-auto ${
+                  partitionsData.status === "HEALTHY"
+                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                    : "bg-red-500/10 text-red-400 border border-red-500/20"
+                }`}
+              >
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    partitionsData.status === "HEALTHY" ? "bg-emerald-400" : "bg-red-400"
+                  }`}
+                />
+                {partitionsData.status}
+              </span>
+            </div>
+
+            {/* Stacked Storage Bar */}
+            {(() => {
+              const totalBytes = partitionsData.partitions.reduce(
+                (sum, p) => sum + (p.tableSizeBytes ?? 0),
+                0,
+              );
+              const maxScale = Math.max(totalBytes, 100 * 1024 * 1024); // at least 100MB scale
+              const colors = [
+                "bg-violet-500",
+                "bg-cyan-500",
+                "bg-amber-500",
+                "bg-pink-500",
+                "bg-emerald-500",
+                "bg-blue-500",
+              ];
+
+              return (
+                <div className="mb-6">
+                  <div className="mb-2 flex items-center justify-between text-xs text-zinc-400">
+                    <span>Partition Allocation (Stacked Bar)</span>
+                    <span>
+                      Total:{" "}
+                      <strong className="text-zinc-200">
+                        {totalBytes > 0
+                          ? totalBytes >= 1024 * 1024
+                            ? `${(totalBytes / (1024 * 1024)).toFixed(1)} MB`
+                            : `${(totalBytes / 1024).toFixed(1)} KB`
+                          : "0 B"}
+                      </strong>
+                    </span>
+                  </div>
+
+                  <div className="flex h-4 w-full overflow-hidden rounded-full bg-white/[0.08] p-0.5">
+                    {partitionsData.partitions.map((part, idx) => {
+                      const bytes = part.tableSizeBytes ?? 0;
+                      const percent = totalBytes > 0 ? (bytes / totalBytes) * 100 : 0;
+                      if (percent <= 0) return null;
+                      const isCold = part.isNearColdStorage || bytes >= 100 * 1024 * 1024;
+                      return (
+                        <div
+                          key={part.name}
+                          style={{ width: `${percent}%` }}
+                          title={`${part.name}: ${part.tableSizePretty ?? "0 B"} (${percent.toFixed(1)}%)`}
+                          className={`h-full transition-all ${
+                            isCold
+                              ? "bg-red-500 animate-pulse"
+                              : colors[idx % colors.length]
+                          }`}
+                        />
+                      );
+                    })}
+                    {totalBytes === 0 && (
+                      <div className="h-full w-full bg-zinc-700/50" title="No partition data" />
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Partition Cards / Grid */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {partitionsData.partitions.map((partition) => {
+                const isNearingThreshold =
+                  partition.isNearColdStorage ||
+                  (partition.tableSizeBytes ?? 0) >= 100 * 1024 * 1024;
+
+                return (
+                  <div
+                    key={partition.name}
+                    className={`rounded-2xl border p-4 transition-all ${
+                      isNearingThreshold
+                        ? "border-red-500/30 bg-red-500/[0.05]"
+                        : "border-white/10 bg-white/[0.02]"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="truncate">
+                        <p className="truncate text-sm font-medium text-zinc-200">
+                          {partition.name}
+                        </p>
+                        <p className="mt-0.5 text-xs text-zinc-500">
+                          {partition.rowCount.toLocaleString()} rows recorded
+                        </p>
+                      </div>
+                      {isNearingThreshold && (
+                        <span
+                          className="flex items-center gap-1 rounded-md border border-red-500/20 bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-400"
+                          title="Exceeds 100MB cold storage threshold"
+                        >
+                          <AlertTriangle className="h-3 w-3" />
+                          &gt;100MB
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-4 flex items-baseline justify-between">
+                      <span className="text-xs text-zinc-400">Size on disk:</span>
+                      <span
+                        className={`font-mono text-base font-semibold ${
+                          isNearingThreshold ? "text-red-400" : "text-violet-300"
+                        }`}
+                      >
+                        {partition.tableSizePretty ?? "0 B"}
+                      </span>
+                    </div>
+
+                    {/* Mini progress bar toward 100MB threshold */}
+                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                      <div
+                        className={`h-full ${
+                          isNearingThreshold ? "bg-red-500" : "bg-violet-500"
+                        }`}
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.round(
+                              ((partition.tableSizeBytes ?? 0) /
+                                (100 * 1024 * 1024)) *
+                                100,
+                            ),
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </section>
         )}

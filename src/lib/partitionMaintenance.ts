@@ -33,7 +33,29 @@ export interface PartitionHealthReport {
     name: string;
     exists: boolean;
     rowCount: number;
+    tableSizeBytes?: number;
+    tableSizePretty?: string;
+    isNearColdStorage?: boolean;
   }[];
+}
+
+/**
+ * Cold storage detachment threshold in bytes (100 MB).
+ */
+export const COLD_STORAGE_THRESHOLD_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Format raw byte size into human-readable string (e.g., "48 MB", "120 KB", "1.2 GB").
+ */
+export function formatPartitionBytes(bytes: number): string {
+  if (bytes <= 0 || isNaN(bytes)) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const unitIndex = Math.min(i, units.length - 1);
+  const formattedVal = (bytes / Math.pow(1024, unitIndex));
+  // Display integers directly, or with 1 decimal place if fractional
+  const valString = formattedVal % 1 === 0 ? formattedVal.toString() : formattedVal.toFixed(1);
+  return `${valString} ${units[unitIndex]}`;
 }
 
 // ─── PushNotificationLog Partition Helpers ──────────────────────────────────
@@ -407,9 +429,12 @@ export async function checkPartitionHealth(): Promise<PartitionHealthReport> {
     const partitionName = getPushNotificationPartitionName(targetDate);
 
     const result = await prisma.$queryRawUnsafe<
-      { relname: string; n_live_tup: number }[]
+      { relname: string; n_live_tup: number; total_bytes?: string | number }[]
     >(`
-      SELECT relname, n_live_tup::int AS n_live_tup
+      SELECT 
+        relname, 
+        n_live_tup::int AS n_live_tup,
+        pg_total_relation_size(relid)::bigint AS total_bytes
       FROM pg_stat_user_tables
       WHERE schemaname = 'public'
         AND relname = '${partitionName}'
@@ -418,12 +443,23 @@ export async function checkPartitionHealth(): Promise<PartitionHealthReport> {
 
     const exists = result.length > 0;
     const rowCount = exists ? result[0].n_live_tup : 0;
+    const rawBytes = exists && result[0].total_bytes != null ? Number(result[0].total_bytes) : 0;
+    const tableSizeBytes = isNaN(rawBytes) ? 0 : rawBytes;
+    const tableSizePretty = formatPartitionBytes(tableSizeBytes);
+    const isNearColdStorage = tableSizeBytes >= COLD_STORAGE_THRESHOLD_BYTES;
 
     if (offset === 1 && !exists) {
       isCritical = true;
     }
 
-    partitions.push({ name: partitionName, exists, rowCount });
+    partitions.push({
+      name: partitionName,
+      exists,
+      rowCount,
+      tableSizeBytes,
+      tableSizePretty,
+      isNearColdStorage,
+    });
   }
 
   return {
