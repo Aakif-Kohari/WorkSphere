@@ -133,19 +133,25 @@ async function checkDistributedTokenBucket(
   try {
     let limiter = upstashLimiters.get(tier.name);
     if (!limiter) {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { Redis } = require("@upstash/redis");
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { Ratelimit } = require("@upstash/ratelimit");
+      let RedisClass: any;
+      try {
+        const edgeRedis = await import("@upstash/redis/cloudflare");
+        RedisClass = edgeRedis.Redis;
+      } catch {
+        const defaultRedis = await import("@upstash/redis");
+        RedisClass = defaultRedis.Redis;
+      }
+      const ratelimitPkg = await import("@upstash/ratelimit");
+      const RatelimitClass = ratelimitPkg.Ratelimit;
 
-      if (typeof Redis !== "function" || typeof Ratelimit !== "function") {
+      if (typeof RedisClass !== "function" || typeof RatelimitClass !== "function") {
         return null;
       }
 
-      const redis = new Redis({ url, token });
-      limiter = new Ratelimit({
+      const redis = new RedisClass({ url, token });
+      limiter = new RatelimitClass({
         redis,
-        limiter: Ratelimit.tokenBucket(tier.limit, tier.interval, tier.limit),
+        limiter: RatelimitClass.tokenBucket(tier.limit, tier.interval, tier.limit),
         prefix: `worksphere:ratelimit:${tier.name}`,
       });
       upstashLimiters.set(tier.name, limiter);
