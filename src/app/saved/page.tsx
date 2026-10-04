@@ -2,7 +2,15 @@
 
 import { useState, useMemo, useCallback } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Bookmark, Download, Heart, Search, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bookmark,
+  Download,
+  Heart,
+  Search,
+  X,
+} from "lucide-react";
 import { useSavedVenues, type SavedVenue } from "@/hooks/useSavedVenues";
 import { SavedVenueCard, TagFilter } from "@/components/saved-venues";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -32,7 +40,9 @@ function exportCollectionAsCSV(favorites: SavedVenue[]) {
     escape(fav.venue.name),
     escape(fav.venue.category),
     escape(fav.venue.address),
-    escape(fav.venue.wifiQuality != null ? String(fav.venue.wifiQuality) : null),
+    escape(
+      fav.venue.wifiQuality != null ? String(fav.venue.wifiQuality) : null,
+    ),
     escape(fav.venue.noiseLevel),
     escape(fav.venue.rating != null ? String(fav.venue.rating) : null),
     escape(fav.tags.map((t) => t.name).join("; ")),
@@ -83,7 +93,7 @@ function exportCollectionAsGeoJSON(favorites: SavedVenue[]) {
           tags: fav.tags.map((t) => t.name),
           notes: fav.notes ?? null,
           wifiQuality: fav.venue.wifiQuality ?? null,
-          wifiSpeed: fav.venue.wifiSpeed ?? null,
+          wifiSpeed: (fav.venue as any).wifiSpeed ?? null,
           hasOutlets: Boolean(fav.venue.hasOutlets),
           noiseLevel: fav.venue.noiseLevel ?? null,
         },

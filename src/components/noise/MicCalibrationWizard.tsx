@@ -25,6 +25,10 @@ import {
   rmsToCalibratedDb,
 } from "@/lib/noise/calibration";
 import { useWebAudioAutoPause } from "@/hooks/useWebAudioAutoPause";
+import {
+  analyzeFrequencyBands,
+  type FrequencyBandSpectrum,
+} from "@/lib/noise/spectrumAnalyzer";
 
 interface MicCalibrationWizardProps {
   isOpen: boolean;
