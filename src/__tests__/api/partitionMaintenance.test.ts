@@ -40,9 +40,9 @@ jest.mock("@/lib/partitionMaintenance", () => ({
   autoCreateUpcomingPartitions: jest
     .fn()
     .mockResolvedValue(["partition_2026_11"]),
-  archiveExpiredPushNotificationPartitions: jest
-    .fn()
-    .mockResolvedValue({ archived: [], retained: [] }),
+-  archiveExpiredPushNotificationPartitions: jest.fn().mockResolvedValue({ archived: [], retained: [] }),
+  archiveExpiredTelemetryPartitions: jest.fn().mockResolvedValue({ archived: [], retained: [] }),
+
   checkPartitionHealth: jest.fn().mockResolvedValue({ status: "OK" }),
 }));
 

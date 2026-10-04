@@ -137,6 +137,7 @@ model Venue {
   sessions            CoworkingSession[]
   seats               VenueSeat[]
   wifiTelemetry       WifiTelemetry[]
+  telemetryRecords    TelemetryRecord[]
   validations         AmenityValidation[]
   foodValidations     FoodValidation[]
   folderVenues        FolderVenue[]
@@ -504,6 +505,25 @@ model WifiTelemetry {
   upload     Float
   latency    Float
   crowdLevel String
+  timestamp  DateTime @default(now())
+
+  @@id([id, timestamp])
+  @@index([venueId])
+  @@index([timestamp])
+  @@index([venueId, timestamp])
+}
+
+model TelemetryRecord {
+  id         String   @default(cuid())
+  venueId    String
+  venue      Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  download   Float?
+  upload     Float?
+  latency    Float?
+  noiseLevel Float?
+  occupancy  Int?
+  presence   Boolean? @default(true)
+  crowdLevel String?
   timestamp  DateTime @default(now())
 
   @@id([id, timestamp])

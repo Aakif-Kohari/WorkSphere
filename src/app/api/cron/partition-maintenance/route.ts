@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   autoCreateUpcomingPartitions,
   archiveExpiredPushNotificationPartitions,
+  archiveExpiredTelemetryPartitions,
   checkPartitionHealth,
 } from "@/lib/partitionMaintenance";
 import { runTelemetryPartitionMaintenance } from "@/lib/db/partitionManager";
@@ -17,11 +18,11 @@ export const maxDuration = 300;
  * GET /api/cron/partition-maintenance
  *
  * Monthly cron job that:
- * 1. Creates upcoming PushNotificationLog partitions (next 2 months)
- * 2. Archives expired PushNotificationLog partitions
- * 3. For WifiTelemetry + AdminAuditLog (#3362): pre-creates partitions,
- *    drops/archives expired ones in one transaction per table, and
- *    VACUUM (ANALYZE)s the active partitions
+ * 1. Creates upcoming table partitions (PushNotificationLog, WifiTelemetry, and AdminAuditLog)
+ * 2. Detaches and archives expired telemetry partitions older than 12 months to S3/cold storage
+ * 3. Archives expired PushNotificationLog partitions older than 6 months
+ * 4. Runs upkeep, drops/archives expired ones in one transaction per table, and VACUUM (ANALYZE)s active partitions
+
  * 4. Returns a health report
  *
  * Secure with a CRON_SECRET env var; configure in Vercel cron.json as
@@ -36,7 +37,9 @@ export async function GET(request: NextRequest) {
   const results: {
     partitionsCreated?: string[];
     partitionsArchived?: string[];
+    telemetryPartitionsArchived?: string[];
     retention?: RetentionRunReport;
+
     healthReport?: unknown;
     telemetryPartitions?: {
       created: string[];
@@ -52,7 +55,7 @@ export async function GET(request: NextRequest) {
     errors: string[];
   } = { errors: [] };
 
-  // 1. Create upcoming partitions
+  // 1. Create upcoming partitions (TelemetryRecord & PushNotificationLog)
   try {
     results.partitionsCreated = await autoCreateUpcomingPartitions();
     console.log(
@@ -64,17 +67,17 @@ export async function GET(request: NextRequest) {
     console.error("[PartitionCron] Failed to create partitions:", err);
   }
 
-  // 2. Archive expired partitions
+  // 2. Archive expired push notification partitions
   try {
     const archiveResult = await archiveExpiredPushNotificationPartitions();
     results.partitionsArchived = archiveResult.archived.map((a) => a.name);
     console.log(
-      `[PartitionCron] Archived ${results.partitionsArchived.length} expired partition(s)`,
+      `[PartitionCron] Archived ${results.partitionsArchived.length} expired push partition(s)`,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    results.errors.push(`archiveExpiredPartitions: ${msg}`);
-    console.error("[PartitionCron] Failed to archive partitions:", err);
+    results.errors.push(`archiveExpiredPushNotificationPartitions: ${msg}`);
+    console.error("[PartitionCron] Failed to archive push partitions:", err);
   }
 
   // 3. Telemetry / audit log partition upkeep + retention (#3362)
@@ -88,6 +91,22 @@ export async function GET(request: NextRequest) {
     results.errors.push(`runPartitionRetention: ${msg}`);
     console.error("[PartitionCron] Retention run failed:", err);
   }
+
+  // Detach and archive expired telemetry partitions older than 12 months to cold storage / S3
+  try {
+    if (typeof archiveExpiredTelemetryPartitions === "function") {
+      const telemetryArchiveResult = await archiveExpiredTelemetryPartitions();
+      results.telemetryPartitionsArchived = telemetryArchiveResult.archived.map((a) => a.name);
+      console.log(
+        `[PartitionCron] Archived ${results.telemetryPartitionsArchived.length} expired telemetry partition(s)`,
+      );
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    results.errors.push(`archiveExpiredTelemetryPartitions: ${msg}`);
+    console.error("[PartitionCron] Failed to archive telemetry partitions:", err);
+  }
+
 
   // 4. Collect health report
   try {
