@@ -5,6 +5,25 @@ import { calculatePartitionDates } from "../dateHelper";
 
 export const dynamic = "force-dynamic";
 
+export function escapeCsv(value: string | number | boolean | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  const str = String(value);
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+export type PartitionExportType = "telemetry" | "push";
+
+interface ExportRow {
+  [key: string]: unknown;
+}
+
+const BATCH_SIZE = 1000;
+
 export async function GET(request: NextRequest) {
   try {
     const admin = await getAdminUser();
@@ -18,6 +37,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = request.nextUrl;
     const yearParam = searchParams.get("year");
     const monthParam = searchParams.get("month");
+    const typeParam = (searchParams.get("type") || "telemetry").toLowerCase() as PartitionExportType;
 
     const now = new Date();
     const year = yearParam ? parseInt(yearParam, 10) : now.getUTCFullYear();
@@ -38,57 +58,182 @@ export async function GET(request: NextRequest) {
     }
 
     const { start, end } = calculatePartitionDates(year, month);
+    const startIso = start.toISOString();
+    const endIso = end.toISOString();
+    const monthStr = String(month + 1).padStart(2, "0");
 
-    const logs = await prisma.pushNotificationLog.findMany({
-      where: {
-        createdAt: {
-          gte: start,
-          lt: end,
-        },
-      },
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        userId: true,
-        venueId: true,
-        title: true,
-        body: true,
-        status: true,
-        error: true,
-        read: true,
-        createdAt: true,
-      },
-    });
+    const isTelemetry = typeParam === "telemetry";
+    const filename = isTelemetry
+      ? `telemetry-records-${year}-${monthStr}.csv`
+      : `push-logs-${year}-${monthStr}.csv`;
 
-    const csvRows: string[] = [
-      "id,userId,venueId,title,body,status,error,read,createdAt",
-    ];
+    const headers = isTelemetry
+      ? [
+          "id",
+          "venueId",
+          "timestamp",
+          "download",
+          "upload",
+          "latency",
+          "noiseLevel",
+          "occupancy",
+          "presence",
+          "crowdLevel",
+        ]
+      : [
+          "id",
+          "userId",
+          "venueId",
+          "title",
+          "body",
+          "status",
+          "error",
+          "read",
+          "createdAt",
+        ];
 
-    for (const log of logs) {
-      csvRows.push(
-        [
-          escapeCsv(log.id),
-          escapeCsv(log.userId),
-          escapeCsv(log.venueId ?? ""),
-          escapeCsv(log.title),
-          escapeCsv(log.body),
-          escapeCsv(log.status),
-          escapeCsv(log.error ?? ""),
-          log.read ? "true" : "false",
-          log.createdAt.toISOString(),
-        ].join(","),
-      );
-    }
+    // Using Node.js / Web standard TransformStream for streaming response
+    const transformStream = new TransformStream();
+    const writer = transformStream.writable.getWriter();
+    const encoder = new TextEncoder();
 
-    const csv = csvRows.join("\r\n");
-    const filename = `push-logs-${year}-${String(month + 1).padStart(2, "0")}.csv`;
+    // Stream generation asynchronously without blocking initial HTTP headers
+    (async () => {
+      let cursorId: string | null = null;
+      let aborted = false;
 
-    return new NextResponse(csv, {
+      const abortHandler = () => {
+        aborted = true;
+      };
+
+      request.signal.addEventListener("abort", abortHandler);
+
+      try {
+        // 1. Write CSV header line immediately (starts downloading in < 500ms)
+        await writer.write(encoder.encode(headers.join(",") + "\r\n"));
+
+        // 2. Fetch in streaming cursor batches using prisma.$queryRawUnsafe
+        let hasMore = true;
+
+        while (hasMore && !aborted && !request.signal.aborted) {
+          let rows: ExportRow[] = [];
+
+          if (isTelemetry) {
+            if (cursorId) {
+              rows = await prisma.$queryRawUnsafe<ExportRow[]>(
+                `
+                SELECT "id", "venueId", "timestamp", "download", "upload", "latency", "noiseLevel", "occupancy", "presence", "crowdLevel"
+                FROM "TelemetryRecord"
+                WHERE "timestamp" >= $1::timestamp
+                  AND "timestamp" < $2::timestamp
+                  AND "id" > $3
+                ORDER BY "id" ASC
+                LIMIT $4
+              `,
+                startIso,
+                endIso,
+                cursorId,
+                BATCH_SIZE,
+              );
+            } else {
+              rows = await prisma.$queryRawUnsafe<ExportRow[]>(
+                `
+                SELECT "id", "venueId", "timestamp", "download", "upload", "latency", "noiseLevel", "occupancy", "presence", "crowdLevel"
+                FROM "TelemetryRecord"
+                WHERE "timestamp" >= $1::timestamp
+                  AND "timestamp" < $2::timestamp
+                ORDER BY "id" ASC
+                LIMIT $3
+              `,
+                startIso,
+                endIso,
+                BATCH_SIZE,
+              );
+            }
+          } else {
+            // Push Notification Log partition export
+            if (cursorId) {
+              rows = await prisma.$queryRawUnsafe<ExportRow[]>(
+                `
+                SELECT "id", "userId", "venueId", "title", "body", "status", "error", "read", "createdAt"
+                FROM "PushNotificationLog"
+                WHERE "createdAt" >= $1::timestamp
+                  AND "createdAt" < $2::timestamp
+                  AND "id" > $3
+                ORDER BY "id" ASC
+                LIMIT $4
+              `,
+                startIso,
+                endIso,
+                cursorId,
+                BATCH_SIZE,
+              );
+            } else {
+              rows = await prisma.$queryRawUnsafe<ExportRow[]>(
+                `
+                SELECT "id", "userId", "venueId", "title", "body", "status", "error", "read", "createdAt"
+                FROM "PushNotificationLog"
+                WHERE "createdAt" >= $1::timestamp
+                  AND "createdAt" < $2::timestamp
+                ORDER BY "id" ASC
+                LIMIT $3
+              `,
+                startIso,
+                endIso,
+                BATCH_SIZE,
+              );
+            }
+          }
+
+          if (!rows || rows.length === 0) {
+            hasMore = false;
+            break;
+          }
+
+          // Format batch into CSV lines and write to stream chunk
+          let chunkText = "";
+          for (const row of rows) {
+            const formatted = headers.map((h) => {
+              const val = row[h];
+              if (val instanceof Date) {
+                return escapeCsv(val.toISOString());
+              }
+              return escapeCsv(val as string | number | boolean);
+            });
+            chunkText += formatted.join(",") + "\r\n";
+          }
+
+          await writer.write(encoder.encode(chunkText));
+
+          if (rows.length < BATCH_SIZE) {
+            hasMore = false;
+          } else {
+            cursorId = String(rows[rows.length - 1].id);
+          }
+        }
+      } catch (streamErr) {
+        if (!aborted) {
+          console.error("[Streaming Partition Export Error]:", streamErr);
+        }
+      } finally {
+        request.signal.removeEventListener("abort", abortHandler);
+        try {
+          await writer.close();
+        } catch {
+          // Stream already closed or client disconnected
+        }
+      }
+    })();
+
+    // 3. Return streaming response immediately with Transfer-Encoding chunked
+    return new NextResponse(transformStream.readable, {
       status: 200,
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="${filename}"`,
-        "Cache-Control": "private, no-store, max-age=0",
+        "Transfer-Encoding": "chunked",
+        "Cache-Control": "private, no-store, max-age=0, must-revalidate",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (error) {
@@ -98,11 +243,4 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
-}
-
-function escapeCsv(value: string): string {
-  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
 }
