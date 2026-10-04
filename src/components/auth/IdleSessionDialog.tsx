@@ -4,7 +4,7 @@ import React from "react";
 import { useIdleSession } from "@/hooks/useIdleSession";
 import { Clock, ShieldAlert, LogOut, CheckCircle2, Loader2 } from "lucide-react";
 
-interface IdleSessionDialogProps {
+export interface IdleSessionDialogProps {
   /** Optional custom idle timeout in ms */
   idleTimeoutMs?: number;
   /** Optional custom warning duration in ms */
@@ -99,7 +99,7 @@ export function IdleSessionDialog({
             ) : (
               <>
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Stay Signed In</span>
+                <span>Stay Logged In</span>
               </>
             )}
           </button>

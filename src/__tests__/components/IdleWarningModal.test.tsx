@@ -1,6 +1,6 @@
 import React from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
-import { IdleSessionDialog } from "@/components/auth/IdleSessionDialog";
+import { IdleWarningModal } from "@/components/auth/IdleWarningModal";
 
 const mockPush = jest.fn();
 jest.mock("next/navigation", () => ({
@@ -10,7 +10,7 @@ jest.mock("next/navigation", () => ({
   }),
 }));
 
-describe("IdleSessionDialog Component", () => {
+describe("IdleWarningModal Component", () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockPush.mockClear();
@@ -27,7 +27,7 @@ describe("IdleSessionDialog Component", () => {
 
   it("does not render when user is actively interacting", () => {
     render(
-      <IdleSessionDialog
+      <IdleWarningModal
         idleTimeoutMs={5000}
         warningDurationMs={3000}
       />,
@@ -36,9 +36,9 @@ describe("IdleSessionDialog Component", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("renders session timeout warning dialog after idle timeout", () => {
+  it("renders warning modal with live countdown exactly before idle timeout", () => {
     render(
-      <IdleSessionDialog
+      <IdleWarningModal
         idleTimeoutMs={5000}
         warningDurationMs={3000}
       />,
@@ -52,11 +52,12 @@ describe("IdleSessionDialog Component", () => {
     expect(screen.getByText(/Session Timeout Warning/i)).toBeInTheDocument();
     expect(screen.getByText(/Stay Logged In/i)).toBeInTheDocument();
     expect(screen.getByText(/Sign Out/i)).toBeInTheDocument();
+    expect(screen.getByText(/3s/i)).toBeInTheDocument();
   });
 
-  it("extends session and closes dialog on clicking 'Stay Logged In'", async () => {
+  it("refreshes session and resets idle timer when 'Stay Logged In' is clicked", async () => {
     render(
-      <IdleSessionDialog
+      <IdleWarningModal
         idleTimeoutMs={5000}
         warningDurationMs={3000}
       />,
@@ -66,9 +67,9 @@ describe("IdleSessionDialog Component", () => {
       jest.advanceTimersByTime(5500);
     });
 
-    const extendBtn = screen.getByText(/Stay Logged In/i);
+    const stayLoggedInBtn = screen.getByText(/Stay Logged In/i);
     await act(async () => {
-      fireEvent.click(extendBtn);
+      fireEvent.click(stayLoggedInBtn);
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
@@ -78,22 +79,24 @@ describe("IdleSessionDialog Component", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("signs out and redirects on clicking 'Sign Out'", async () => {
+  it("safely logs out and redirects when countdown finishes without user action", async () => {
     render(
-      <IdleSessionDialog
+      <IdleWarningModal
         idleTimeoutMs={5000}
         warningDurationMs={3000}
         redirectUrl="/sign-in"
       />,
     );
 
+    // Trigger warning modal
     act(() => {
       jest.advanceTimersByTime(5500);
     });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
 
-    const signOutBtn = screen.getByText(/Sign Out/i);
+    // Advance through the entire countdown (3000ms)
     await act(async () => {
-      fireEvent.click(signOutBtn);
+      jest.advanceTimersByTime(3500);
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
