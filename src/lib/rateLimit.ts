@@ -248,6 +248,18 @@ export function microTimestampMember(
   return `${sec}${padUsec}:${nonce}`;
 }
 
+// ─── Token Bucket Rate Limiting Exports (#3529) ──────────────────────────────
+export {
+  checkTokenBucketRateLimit,
+  checkInMemoryTokenBucket,
+  matchRateTier,
+  resetTokenBuckets,
+  RATE_TIERS,
+  type RateTier,
+  type RateTierType,
+  type RateLimitResult,
+} from "./tokenBucketRateLimit";
+
 // ─── Tier-Based Sliding Window Rate Limiter (#3475) ──────────────────────────
 
 export type RateLimitTier = "anonymous" | "authenticated";
@@ -297,17 +309,19 @@ export interface CheckTieredRateLimitOptions {
 }
 
 // Cached Upstash Ratelimit instances keyed by `${namespace}:${tier}`
-const upstashLimiters = new Map<string, Ratelimit>();
+const upstashLimiters = new Map<string, any>();
 
 function getUpstashLimiter(
   redis: any,
   namespace: string,
   tier: RateLimitTier,
-): Ratelimit {
+): any {
   const cacheKey = `${namespace}:${tier}`;
   let limiter = upstashLimiters.get(cacheKey);
   if (!limiter) {
     const config = TIER_CONFIGS[tier];
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { Ratelimit } = require("@upstash/ratelimit");
     limiter = new Ratelimit({
       redis,
       limiter: Ratelimit.slidingWindow(config.limit, config.windowDuration),
@@ -366,13 +380,6 @@ export function memTieredRateLimit(
 
   let entry = memStore.get(key);
   if (!entry) {
-    if (memStore.size >= MAX_MEM_ENTRIES) {
-      cleanupExpiredEntries();
-      if (memStore.size >= MAX_MEM_ENTRIES) {
-        const oldestKey = memStore.keys().next().value;
-        if (oldestKey) memStore.delete(oldestKey);
-      }
-    }
     entry = { timestamps: [], resetTime: now + windowMs };
     memStore.set(key, entry);
   }
@@ -480,6 +487,8 @@ export async function checkTieredRateLimit(
     userId = options.userId ?? null;
   } else {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { auth } = require("@clerk/nextjs/server");
       const authResult = await auth();
       userId = authResult?.userId ?? null;
     } catch {
@@ -565,7 +574,9 @@ export function getRateLimitHeaders(
  */
 export function createRateLimitResponse(
   result: TieredRateLimitResult,
-): NextResponse {
+): any {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { NextResponse } = require("next/server");
   return NextResponse.json(
     { error: "Too many requests. Please try again later." },
     {

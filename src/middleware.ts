@@ -7,6 +7,11 @@ import {
   issueCsrfToken,
   verifyCsrfToken,
 } from "./lib/csrf";
+import {
+  matchRateTier,
+  getClientIp,
+  checkTokenBucketRateLimit,
+} from "./lib/tokenBucketRateLimit";
 
 function getClerkFrontendApiHost(): string | null {
   const key = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
@@ -185,6 +190,48 @@ function isAdminSession(sessionClaims: Record<string, any> | null): boolean {
 }
 
 export default clerkMiddleware(async (auth, req) => {
+  // CORS preflight requests bypass rate limits
+  if (req.method === "OPTIONS") {
+    return NextResponse.next();
+  }
+
+  // Multi-tier token bucket rate limiting for API routes
+  let rateLimitHeaders: Record<string, string> | null = null;
+  if (req.nextUrl.pathname.startsWith("/api")) {
+    const tier = matchRateTier(req.nextUrl.pathname);
+    if (tier) {
+      const clientIp = getClientIp(req);
+      const authState = await auth();
+      const userId = authState.userId;
+      const identifier = `${tier.name}:${userId || clientIp}`;
+      const rateLimitResult = await checkTokenBucketRateLimit(tier, identifier);
+
+      if (!rateLimitResult.success) {
+        return NextResponse.json(
+          {
+            error: "Too many requests. Please slow down and try again.",
+            retryAfter: rateLimitResult.retryAfter,
+          },
+          {
+            status: 429,
+            headers: {
+              "Retry-After": String(rateLimitResult.retryAfter),
+              "X-RateLimit-Limit": String(rateLimitResult.limit),
+              "X-RateLimit-Remaining": String(rateLimitResult.remaining),
+              "X-RateLimit-Reset": String(rateLimitResult.reset),
+            },
+          },
+        );
+      }
+
+      rateLimitHeaders = {
+        "X-RateLimit-Limit": String(rateLimitResult.limit),
+        "X-RateLimit-Remaining": String(rateLimitResult.remaining),
+        "X-RateLimit-Reset": String(rateLimitResult.reset),
+      };
+    }
+  }
+
   if (!isPublicRoute(req)) {
     await auth.protect();
   }
@@ -214,8 +261,17 @@ export default clerkMiddleware(async (auth, req) => {
 
   const res = NextResponse.next({ request: { headers: requestHeaders } });
   res.headers.set("Content-Security-Policy", csp);
-  return applyCsrfProtection(req, res);
+
+  const protectedRes = await applyCsrfProtection(req, res);
+  if (rateLimitHeaders) {
+    for (const [key, value] of Object.entries(rateLimitHeaders)) {
+      protectedRes.headers.set(key, value);
+    }
+  }
+  return protectedRes;
 });
+
+export { matchRateTier, getClientIp } from "./lib/tokenBucketRateLimit";
 
 export const config = {
   matcher: [
