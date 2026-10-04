@@ -28,6 +28,7 @@ import {
 import usePartySocket from "@/hooks/usePartySocketReconnect";
 import { Contrast } from "lucide-react";
 import { getVenueShape, type HighContrastShape } from "@/lib/mapAccessibility";
+import { formatDistance } from "@/lib/geo/formatDistance";
 
 function throttle<T extends (...args: any[]) => void>(
   func: T,
@@ -1523,7 +1524,7 @@ const Map = ({
                   </div>
                   <div>
                     Total Distance:{" "}
-                    {(optimizedRoute.distance / 1000).toFixed(2)} km
+                    {formatDistance(optimizedRoute.distance / 1000)}
                   </div>
                   <div>
                     Est. Travel Time: {Math.round(optimizedRoute.duration / 60)}{" "}
@@ -1563,7 +1564,7 @@ const Map = ({
               {route.distance && (
                 <Popup autoPanPadding={[20, 20]}>
                   <div className="text-sm">
-                    Distance: {(route.distance / 1000).toFixed(1)} km
+                    Distance: {formatDistance(route.distance / 1000)}
                     {route.duration && (
                       <div>Time: {Math.round(route.duration / 60)} min</div>
                     )}
@@ -1675,7 +1676,7 @@ const Map = ({
               <div className="flex justify-between">
                 <span>Total Distance:</span>
                 <span className="font-semibold text-zinc-200">
-                  {(optimizedRoute.distance / 1000).toFixed(2)} km
+                  {formatDistance(optimizedRoute.distance / 1000)}
                 </span>
               </div>
               <div className="flex justify-between">

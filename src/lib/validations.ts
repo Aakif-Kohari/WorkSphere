@@ -87,6 +87,7 @@ export const userSettingsSchema = z.object({
   timezone: z.string().max(64).optional(),
   imageUrl: z.string().url("Invalid image URL").or(z.literal("")).optional(),
   workStyleProfile: z.string().max(2000).optional(),
+  distanceUnit: z.enum(["METRIC", "IMPERIAL"]).optional(),
 });
 
 export type UserSettingsInput = z.infer<typeof userSettingsSchema>;

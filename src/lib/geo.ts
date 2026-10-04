@@ -52,21 +52,14 @@ export function calculateRelativeBearing(
   return ((targetBearing - deviceHeading) % 360 + 360) % 360;
 }
 
-/**
- * Formats a distance in kilometers into a user-friendly string (meters or kilometers).
- *
- * @param distanceKm Distance in kilometers
- * @returns Human-readable string e.g. "45 m", "350 m", "1.2 km"
- */
-export function formatDistance(distanceKm: number): string {
-  if (isNaN(distanceKm) || distanceKm < 0) return "--";
-
-  const meters = distanceKm * 1000;
-  if (meters < 1000) {
-    return `${Math.round(meters)} m`;
-  }
-  return `${distanceKm.toFixed(1)} km`;
-}
+export {
+  formatDistance,
+  formatWalkingBadgeWithUnit,
+  detectDefaultDistanceUnit,
+  getStoredDistanceUnit,
+  setStoredDistanceUnit,
+  type DistanceUnit,
+} from "./geo/formatDistance";
 
 /**
  * Converts a compass heading in degrees into a 16-point cardinal direction string.

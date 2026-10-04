@@ -11,6 +11,7 @@ import { TelegramStatusBanner } from "@/components/dashboard/TelegramStatusBanne
 import { WorkStyleProfile } from "@/app/dashboard/WorkStyleProfile";
 import { NotificationSettings } from "@/app/dashboard/NotificationSettings";
 import { MemoryManager } from "@/app/dashboard/MemoryManager";
+import { DistanceUnitToggle } from "@/components/settings/DistanceUnitToggle";
 
 const PERSONALIZATION_KEY = "ai_personalization_enabled";
 
@@ -119,6 +120,7 @@ export default function SettingsPage() {
             description="Tell WorkSphere how you like to work so results fit you better."
           >
             <WorkStyleProfile />
+            <DistanceUnitToggle />
             <UserPreferenceToggle
               enabled={personalizationEnabled}
               onToggle={handleToggle}
