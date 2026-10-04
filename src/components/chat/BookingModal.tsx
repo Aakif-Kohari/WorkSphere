@@ -684,6 +684,7 @@ export function BookingModal({
                     <CalendarPlus className="w-4 h-4" /> Add to Google Calendar
                   </a>
                   <button
+                    type="button"
                     onClick={() =>
                       downloadICS(
                         venue.name,
@@ -695,8 +696,9 @@ export function BookingModal({
                       )
                     }
                     className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                    aria-label="Add to Calendar (.ics)"
                   >
-                    <Calendar className="w-4 h-4" /> Download .ics
+                    <Calendar className="w-4 h-4" /> Add to Calendar (.ics)
                   </button>
                   {confirmation.bookingId && (
                     <a

@@ -249,6 +249,7 @@ export function BookingList({
                 Google Calendar
               </a>
               <button
+                type="button"
                 onClick={() =>
                   downloadICS(
                     venueName,
@@ -260,9 +261,10 @@ export function BookingList({
                   )
                 }
                 className={chipClass}
+                aria-label={`Download iCalendar file for booking ${booking.confirmationId}`}
               >
                 <Calendar className="w-3.5 h-3.5" />
-                .ics
+                Add to Calendar (.ics)
               </button>
               <button
                 onClick={() => cancelBooking(booking)}

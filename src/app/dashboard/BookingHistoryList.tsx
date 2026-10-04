@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Search, Filter, Calendar, MapPin, Download, CalendarPlus, Ban } from "lucide-react";
 import { BookingSummary } from "@/components/bookings/BookingList";
-import { getCalendarUrls } from "@/lib/calendar";
+import { getCalendarUrls, downloadICS } from "@/lib/calendar";
 
 export interface BookingHistoryListProps {
   bookings: BookingSummary[];
@@ -309,6 +309,24 @@ export function BookingHistoryList({
                             <CalendarPlus className="w-3.5 h-3.5" />
                             Google Calendar
                           </a>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              downloadICS(
+                                venueName,
+                                address,
+                                booking.date,
+                                booking.time,
+                                booking.duration || 60,
+                                booking.confirmationId,
+                              )
+                            }
+                            className={chipClass}
+                            aria-label={`Download iCalendar file for booking ${booking.confirmationId}`}
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                            Add to Calendar (.ics)
+                          </button>
                           {onCancelBooking && (
                             <button
                               type="button"
