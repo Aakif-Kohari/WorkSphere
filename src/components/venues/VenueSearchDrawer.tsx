@@ -458,21 +458,37 @@ export function VenueSearchDrawer({
             Noise Level Preference
           </label>
           <div className="flex flex-wrap gap-2">
-            {NOISE_LEVELS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                data-testid={`noise-${item.id}`}
-                onClick={() => handleNoiseChange(item.id)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                  noise === item.id
-                    ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
-                    : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700"
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
+            {NOISE_LEVELS.map((item) => {
+              const isSelected = noise === item.id;
+              const ariaLabel =
+                item.id === "all"
+                  ? "Filter by Any Noise level"
+                  : `Filter by ${item.label} spaces`;
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-testid={`noise-${item.id}`}
+                  aria-pressed={isSelected}
+                  aria-label={ariaLabel}
+                  onClick={() => handleNoiseChange(item.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleNoiseChange(item.id);
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    isSelected
+                      ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
+                      : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 

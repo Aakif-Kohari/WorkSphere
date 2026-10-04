@@ -143,4 +143,71 @@ describe("VenueSearchDrawer Component (#1429)", () => {
       expect(screen.queryByTestId("active-filter-badge")).not.toBeInTheDocument();
     });
   });
+
+  describe("Noise level filter chips accessibility (#3930)", () => {
+    it("renders noise filter chips with descriptive aria-label and aria-pressed attributes", () => {
+      render(
+        <VenueSearchDrawer
+          isOpen={true}
+          onClose={jest.fn()}
+          noiseLevel="quiet"
+        />,
+      );
+
+      const allChip = screen.getByTestId("noise-all");
+      const quietChip = screen.getByTestId("noise-quiet");
+      const moderateChip = screen.getByTestId("noise-moderate");
+      const loudChip = screen.getByTestId("noise-loud");
+
+      expect(allChip).toHaveAttribute("aria-label", "Filter by Any Noise level");
+      expect(allChip).toHaveAttribute("aria-pressed", "false");
+
+      expect(quietChip).toHaveAttribute("aria-label", "Filter by Quiet spaces");
+      expect(quietChip).toHaveAttribute("aria-pressed", "true");
+
+      expect(moderateChip).toHaveAttribute("aria-label", "Filter by Moderate spaces");
+      expect(moderateChip).toHaveAttribute("aria-pressed", "false");
+
+      expect(loudChip).toHaveAttribute("aria-label", "Filter by Lively spaces");
+      expect(loudChip).toHaveAttribute("aria-pressed", "false");
+    });
+
+    it("toggles noise filter selection and updates aria-pressed accordingly", () => {
+      const handleNoiseChange = jest.fn();
+      render(
+        <VenueSearchDrawer
+          isOpen={true}
+          onClose={jest.fn()}
+          onNoiseLevelChange={handleNoiseChange}
+        />,
+      );
+
+      const quietChip = screen.getByTestId("noise-quiet");
+      fireEvent.click(quietChip);
+
+      expect(handleNoiseChange).toHaveBeenCalledWith("quiet");
+    });
+
+    it("supports keyboard Enter and Space keys to toggle noise filter state", () => {
+      const handleNoiseChange = jest.fn();
+      render(
+        <VenueSearchDrawer
+          isOpen={true}
+          onClose={jest.fn()}
+          onNoiseLevelChange={handleNoiseChange}
+        />,
+      );
+
+      const moderateChip = screen.getByTestId("noise-moderate");
+
+      // Press Enter
+      fireEvent.keyDown(moderateChip, { key: "Enter", code: "Enter" });
+      expect(handleNoiseChange).toHaveBeenCalledWith("moderate");
+
+      // Press Space
+      fireEvent.keyDown(moderateChip, { key: " ", code: "Space" });
+      expect(handleNoiseChange).toHaveBeenCalledWith("moderate");
+    });
+  });
 });
+
