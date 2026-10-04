@@ -18,6 +18,7 @@ import { PWAUpdateListener } from "../components/PWAUpdateListener";
 import { KeyboardShortcutsModal } from "../components/KeyboardShortcutsModal";
 import { CommandPalette } from "../components/CommandPalette";
 import { IdleSessionDialog } from "../components/auth/IdleSessionDialog";
+import { StorageQuotaWarningBanner } from "../components/ui/StorageQuotaWarningBanner";
 
 const THEME_INIT_SCRIPT = `
 (function () {
@@ -168,6 +169,7 @@ export default async function RootLayout({
             <KeyboardShortcutsModal />
             <CommandPalette />
             <IdleSessionDialog />
+            <StorageQuotaWarningBanner />
             <I18nProvider>{children}</I18nProvider>
           </CurrencyProvider>
         </ToastProvider>

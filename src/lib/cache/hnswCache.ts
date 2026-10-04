@@ -44,17 +44,55 @@ export async function getCachedHnswIndex(
   return deserializeHnswIndex(cached.data);
 }
 
+import {
+  isQuotaExceededError,
+  dispatchStorageQuotaWarning,
+} from "@/lib/cache/storageQuota";
+
+export async function clearHnswCache(): Promise<void> {
+  if (typeof indexedDB === "undefined") return;
+  try {
+    const database = await getDatabase();
+    await database.clear(INDEX_STORE);
+  } catch (err) {
+    console.error("[HNSWCache] Failed to clear index store:", err);
+  }
+}
+
 export async function cacheHnswIndex(
   key: string,
   serverVersion: string,
   index: HNSWIndex,
 ): Promise<void> {
   const database = await getDatabase();
-  await database.put(
-    INDEX_STORE,
-    { version: serverVersion, data: serializeHnswIndex(index) },
-    key,
-  );
+  const serialized = serializeHnswIndex(index);
+
+  const attemptWrite = () =>
+    database.put(
+      INDEX_STORE,
+      { version: serverVersion, data: serialized },
+      key,
+    );
+
+  try {
+    await attemptWrite();
+  } catch (err) {
+    if (!isQuotaExceededError(err)) {
+      throw err;
+    }
+
+    console.warn("[HNSWCache] Storage quota exceeded; clearing index cache and retrying.");
+    dispatchStorageQuotaWarning("hnswCache", err);
+
+    try {
+      // Auto-purge ephemeral index cache before retrying
+      await database.clear(INDEX_STORE);
+      await attemptWrite();
+    } catch (retryErr) {
+      console.warn("[HNSWCache] Retrying after cache clear also failed or hit quota:", retryErr);
+      // Fail gracefully without unhandled promise rejection
+    }
+  }
 }
 
 export async function getOrFetchHnswIndex(
