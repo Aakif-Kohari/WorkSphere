@@ -128,6 +128,9 @@ export interface SessionResyncOptions {
   maxProcessedIds?: number;
 }
 
+/** Minimum wait before re-asking the server to fill the same sequence gap. */
+const SYNC_RETRY_MS = 5_000;
+
 const NON_REPLAYABLE_TYPES = new Set([
   "cursor",
   "presence",
@@ -149,6 +152,9 @@ export class SessionResyncQueue {
   private offlineCrdt: any[] = [];
   private processedMessageIds = new Set<string>();
   private pendingLiveEvents = new Map<number, any>();
+  /** Sequence slots the server acknowledged to us that carry no payload for us. */
+  private skippedSeqs = new Set<number>();
+  private syncRequestedAt: number | null = null;
   private readonly maxQueueSize: number;
   private readonly maxProcessedIds: number;
 
@@ -240,7 +246,60 @@ export class SessionResyncQueue {
     });
   }
 
-  handleSyncReplay(events: any[]): any[] {
+  /** True at most once per gap: the caller should then send `createSyncRequest()`. */
+  private claimSyncRequest(now: number = Date.now()): boolean {
+    if (this.syncRequestedAt !== null && now - this.syncRequestedAt < SYNC_RETRY_MS) {
+      return false;
+    }
+    this.syncRequestedAt = now;
+    return true;
+  }
+
+  /** Record that a sync_request is on the wire (e.g. the one sent on reconnect). */
+  markSyncRequested(now: number = Date.now()): void {
+    this.syncRequestedAt = now;
+  }
+
+  /** Forget an outstanding sync_request (socket closed, so no answer will come). */
+  resetSyncRequest(): void {
+    this.syncRequestedAt = null;
+  }
+
+  /**
+   * Adopt `(epoch, seq)` as the ordering baseline. Used when this client has no
+   * baseline yet (it just joined) or the server restarted (new epoch, sequence
+   * numbers restarted). There is nothing earlier to wait for in either case.
+   */
+  private adoptBaseline(epoch: number, seq: number): void {
+    if (this.lastEpoch !== null) {
+      // Numbers buffered under the previous epoch mean nothing in the new one.
+      this.pendingLiveEvents.clear();
+      this.skippedSeqs.clear();
+    }
+    this.lastEpoch = epoch;
+    this.lastSeq = seq;
+    this.syncRequestedAt = null;
+  }
+
+  /**
+   * Fast-forward to the server's reported position (sync_ack / sync_fallback)
+   * and release anything that was buffered behind it.
+   */
+  settle(latestSeq?: number, epoch?: number): any[] {
+    if (typeof epoch === "number" && epoch !== this.lastEpoch) {
+      this.pendingLiveEvents.clear();
+      this.skippedSeqs.clear();
+      this.lastEpoch = epoch;
+    }
+    if (typeof latestSeq === "number") {
+      this.lastSeq = latestSeq;
+    }
+    this.syncRequestedAt = null;
+    this.isCatchingUp = false;
+    return this.drainPendingLiveEvents();
+  }
+
+  handleSyncReplay(events: any[], toSeq?: number, epoch?: number): any[] {
     this.isCatchingUp = true;
     const sorted = [...events].sort((a, b) => {
       const seqA =
@@ -284,12 +343,25 @@ export class SessionResyncQueue {
       eventsToApply.push(parsed);
     }
 
+    // The replay covers everything up to `toSeq`. Numbers in that range that
+    // were not replayed (events this client sent itself, or ones that were
+    // never part of the shared stream) are settled too; without this, a
+    // trailing hole would block every live event buffered behind it.
+    if (
+      typeof toSeq === "number" &&
+      toSeq > this.lastSeq &&
+      (typeof epoch !== "number" || epoch === this.lastEpoch)
+    ) {
+      this.lastSeq = toSeq;
+    }
+
+    this.syncRequestedAt = null;
     this.isCatchingUp = false;
     const drained = this.drainPendingLiveEvents();
     return [...eventsToApply, ...drained];
   }
 
-  handleLiveEvent(data: any): { shouldApply: boolean; event: any } {
+  handleLiveEvent(data: any): { shouldApply: boolean; event: any; needsSync?: boolean } {
     const parsed =
       typeof data === "string"
         ? (() => {
@@ -316,13 +388,34 @@ export class SessionResyncQueue {
       return { shouldApply: false, event: parsed };
     }
 
-    if (seq <= this.lastSeq && (parsed.epoch === this.lastEpoch || !this.lastEpoch)) {
+    const epoch = typeof parsed.epoch === "number" ? parsed.epoch : null;
+    if (epoch !== null && epoch !== this.lastEpoch) {
+      // An older epoch is a straggler from a previous server instance.
+      if (this.lastEpoch !== null && epoch < this.lastEpoch) {
+        return { shouldApply: false, event: parsed };
+      }
+      // First event ever seen, or the server restarted and its sequence
+      // numbers started over: there is no earlier event to wait for.
+      this.adoptBaseline(epoch, seq);
+      if (msgId) {
+        this.markProcessed(msgId);
+      }
+      return { shouldApply: true, event: parsed };
+    }
+
+    if (seq <= this.lastSeq) {
       return { shouldApply: false, event: parsed };
     }
 
     if (this.isCatchingUp || seq > this.lastSeq + 1) {
       this.pendingLiveEvents.set(seq, parsed);
-      return { shouldApply: false, event: parsed };
+      // A real gap (not a replay already in flight): ask the server to fill it
+      // instead of waiting for numbers that may never arrive.
+      return {
+        shouldApply: false,
+        event: parsed,
+        needsSync: !this.isCatchingUp && this.claimSyncRequest(),
+      };
     }
 
     this.lastSeq = seq;
@@ -336,25 +429,83 @@ export class SessionResyncQueue {
     return { shouldApply: true, event: parsed };
   }
 
+  /**
+   * Handle the server's per-message acknowledgement. A `processed` ack tells the
+   * sender where its own message landed in the shared stream. The sender is
+   * excluded from the broadcast of its own event, so without this its in-order
+   * tracking would see that number as a permanent gap.
+   */
+  handleAck(ack: any): { needsSync: boolean; drained: any[] } {
+    const msgId = ack?.messageId;
+    if (msgId) {
+      // Our own message: never apply it again if a replay echoes it back.
+      this.markProcessed(msgId);
+    }
+
+    const seq = ack?.sequenceId;
+    if (ack?.status !== "processed" || typeof seq !== "number") {
+      // A "duplicate" ack carries the server's current position, not a slot.
+      return { needsSync: false, drained: [] };
+    }
+
+    const epoch = typeof ack.epoch === "number" ? ack.epoch : null;
+    if (epoch !== null && epoch !== this.lastEpoch) {
+      if (this.lastEpoch !== null && epoch < this.lastEpoch) {
+        return { needsSync: false, drained: [] };
+      }
+      this.adoptBaseline(epoch, seq);
+      return { needsSync: false, drained: this.drainPendingLiveEvents() };
+    }
+
+    if (seq <= this.lastSeq) {
+      return { needsSync: false, drained: [] };
+    }
+
+    if (this.isCatchingUp || seq > this.lastSeq + 1) {
+      this.skippedSeqs.add(seq);
+      return { needsSync: !this.isCatchingUp && this.claimSyncRequest(), drained: [] };
+    }
+
+    this.lastSeq = seq;
+    return { needsSync: false, drained: this.drainPendingLiveEvents() };
+  }
+
   drainPendingLiveEvents(): any[] {
+    // Anything at or below the current position is already settled.
+    for (const seq of this.pendingLiveEvents.keys()) {
+      if (seq <= this.lastSeq) this.pendingLiveEvents.delete(seq);
+    }
+    for (const seq of this.skippedSeqs) {
+      if (seq <= this.lastSeq) this.skippedSeqs.delete(seq);
+    }
+
     const drained: any[] = [];
-    while (this.pendingLiveEvents.has(this.lastSeq + 1)) {
+    for (;;) {
       const nextSeq = this.lastSeq + 1;
       const nextEvent = this.pendingLiveEvents.get(nextSeq);
-      this.pendingLiveEvents.delete(nextSeq);
 
-      const msgId = nextEvent.messageId || nextEvent.message?.id;
-      if (msgId && this.hasProcessed(msgId)) {
-        continue;
+      if (nextEvent !== undefined) {
+        this.pendingLiveEvents.delete(nextSeq);
+        // The slot is consumed whether or not the event is a duplicate, so the
+        // position must advance either way or the stream stalls on it.
+        this.lastSeq = nextSeq;
+        if (typeof nextEvent.epoch === "number") {
+          this.lastEpoch = nextEvent.epoch;
+        }
+
+        const msgId = nextEvent.messageId || nextEvent.message?.id;
+        if (msgId && this.hasProcessed(msgId)) {
+          continue;
+        }
+        if (msgId) {
+          this.markProcessed(msgId);
+        }
+        drained.push(nextEvent);
+      } else if (this.skippedSeqs.delete(nextSeq)) {
+        this.lastSeq = nextSeq;
+      } else {
+        break;
       }
-      this.lastSeq = nextSeq;
-      if (typeof nextEvent.epoch === "number") {
-        this.lastEpoch = nextEvent.epoch;
-      }
-      if (msgId) {
-        this.markProcessed(msgId);
-      }
-      drained.push(nextEvent);
     }
     return drained;
   }
@@ -521,6 +672,15 @@ export function attachJitteredBackoff<T extends object>(socket: T): T {
     }
   };
 
+  /** Ask the server to fill a sequence gap we detected (at most one in flight). */
+  const requestSync = () => {
+    if (originalSend && s.__worksphereState === ConnectionState.CONNECTED) {
+      originalSend.call(s, resyncQueue.createSyncRequest());
+    } else {
+      resyncQueue.resetSyncRequest();
+    }
+  };
+
   const handleIncomingMessage = (event: any) => {
     const raw = typeof event?.data === "string" ? event.data : null;
     if (!raw) {
@@ -532,7 +692,11 @@ export function attachJitteredBackoff<T extends object>(socket: T): T {
       const parsed = JSON.parse(raw);
 
       if (parsed.type === "sync_replay" && Array.isArray(parsed.events)) {
-        const eventsToApply = resyncQueue.handleSyncReplay(parsed.events);
+        const eventsToApply = resyncQueue.handleSyncReplay(
+          parsed.events,
+          parsed.toSeq,
+          parsed.epoch,
+        );
         flushQueues();
         for (const ev of eventsToApply) {
           dispatchToListeners(ev);
@@ -541,14 +705,8 @@ export function attachJitteredBackoff<T extends object>(socket: T): T {
       }
 
       if (parsed.type === "sync_ack") {
-        if (typeof parsed.latestSeq === "number") {
-          resyncQueue.lastSeq = parsed.latestSeq;
-        }
-        if (typeof parsed.epoch === "number") {
-          resyncQueue.lastEpoch = parsed.epoch;
-        }
+        const drained = resyncQueue.settle(parsed.latestSeq, parsed.epoch);
         flushQueues();
-        const drained = resyncQueue.drainPendingLiveEvents();
         for (const ev of drained) {
           dispatchToListeners(ev);
         }
@@ -556,18 +714,32 @@ export function attachJitteredBackoff<T extends object>(socket: T): T {
       }
 
       if (parsed.type === "sync_fallback") {
-        if (typeof parsed.latestSeq === "number") {
-          resyncQueue.lastSeq = parsed.latestSeq;
-        }
-        if (typeof parsed.epoch === "number") {
-          resyncQueue.lastEpoch = parsed.epoch;
-        }
+        const drained = resyncQueue.settle(parsed.latestSeq, parsed.epoch);
         flushQueues();
         dispatchToListeners(parsed);
+        for (const ev of drained) {
+          dispatchToListeners(ev);
+        }
         return;
       }
 
-      const { shouldApply, event: filteredEvent } = resyncQueue.handleLiveEvent(parsed);
+      // Per-message acknowledgement: tells the sender which sequence number its
+      // own message took (it is excluded from the broadcast of that event).
+      if (parsed.type === "msg_ack") {
+        const { needsSync, drained } = resyncQueue.handleAck(parsed);
+        if (needsSync) requestSync();
+        for (const ev of drained) {
+          dispatchToListeners(ev);
+        }
+        return;
+      }
+
+      const {
+        shouldApply,
+        event: filteredEvent,
+        needsSync,
+      } = resyncQueue.handleLiveEvent(parsed);
+      if (needsSync) requestSync();
       if (shouldApply) {
         dispatchToListeners(filteredEvent);
         const drained = resyncQueue.drainPendingLiveEvents();
@@ -609,8 +781,10 @@ export function attachJitteredBackoff<T extends object>(socket: T): T {
       s._retryCount = 0;
 
       // If reconnecting with previous sequence history, request delta resync
+      resyncQueue.resetSyncRequest();
       if (resyncQueue.lastSeq > 0 && originalSend) {
         originalSend.call(s, resyncQueue.createSyncRequest());
+        resyncQueue.markSyncRequested();
       } else {
         flushQueues();
       }
@@ -619,6 +793,7 @@ export function attachJitteredBackoff<T extends object>(socket: T): T {
     s.addEventListener("close", (event?: any) => {
       s.__worksphereState = ConnectionState.CLOSED;
       resyncQueue.isCatchingUp = false;
+      resyncQueue.resetSyncRequest();
       s.__lastCloseCode = event?.code ?? null;
       s.__lastCloseReason = event?.reason ?? null;
     });
@@ -626,6 +801,7 @@ export function attachJitteredBackoff<T extends object>(socket: T): T {
     s.addEventListener("error", () => {
       s.__worksphereState = ConnectionState.CLOSED;
       resyncQueue.isCatchingUp = false;
+      resyncQueue.resetSyncRequest();
     });
   }
 
