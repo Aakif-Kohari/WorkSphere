@@ -173,6 +173,17 @@ export async function initOfflineDB(): Promise<IDBDatabase> {
           });
         }
 
+// Recently viewed venues store (Issue #3512)
+        if (!database.objectStoreNames.contains("recentlyViewedVenues")) {
+          const recentStore = database.createObjectStore(
+            "recentlyViewedVenues",
+            {
+              keyPath: "id",
+            },
+          );
+          recentStore.createIndex("viewedAt", "viewedAt", { unique: false });
+        }
+
         // Dedicated offline reviews store (Issue #3366)
         if (!database.objectStoreNames.contains("pendingReviews")) {
           const reviewStore = database.createObjectStore("pendingReviews", {
@@ -1148,6 +1159,175 @@ export async function executeWithRetry<T>(
     }
   }
   throw new Error("Max retries exceeded");
+}
+
+// ============================================================
+// Recently Viewed Venues Offline Store (#3512)
+// Persists up to 20 recently viewed venue payloads in IndexedDB
+// ============================================================
+
+export interface RecentlyViewedVenuePayload {
+  id: string;
+  name: string;
+  address?: string | null;
+  category?: string | null;
+  imageUrl?: string | null;
+  rating?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  wifiQuality?: boolean | number | string | null;
+  hasOutlets?: boolean | null;
+  amenities?: string[] | null;
+  floorplan?: unknown | null;
+  details?: Record<string, unknown> | null;
+  viewedAt?: number;
+  [key: string]: unknown;
+}
+
+export const MAX_RECENTLY_VIEWED_IDB = 20;
+
+export async function saveRecentlyViewedVenueOffline(
+  venue: RecentlyViewedVenuePayload,
+  maxItems: number = MAX_RECENTLY_VIEWED_IDB,
+): Promise<void> {
+  return withWebLock(async () => {
+    try {
+      const database = await initOfflineDB();
+      const viewedAt = venue.viewedAt || Date.now();
+      const payload: RecentlyViewedVenuePayload = {
+        ...venue,
+        viewedAt,
+      };
+
+      // 1. Put into recentlyViewedVenues store
+      await new Promise<void>((resolve, reject) => {
+        const tx = database.transaction(["recentlyViewedVenues"], "readwrite");
+        const store = tx.objectStore("recentlyViewedVenues");
+        const req = store.put(payload);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+
+      // 2. Also populate standard venues store so getVenueOffline(id) can locate it
+      try {
+        const vTx = database.transaction(["venues"], "readwrite");
+        const vStore = vTx.objectStore("venues");
+        vStore.put({
+          id: venue.id,
+          name: venue.name,
+          address: venue.address ?? undefined,
+          category: venue.category ?? undefined,
+          latitude: typeof venue.latitude === "number" ? venue.latitude : 0,
+          longitude: typeof venue.longitude === "number" ? venue.longitude : 0,
+          rating: typeof venue.rating === "number" ? venue.rating : undefined,
+          amenities: Array.isArray(venue.amenities) ? venue.amenities : undefined,
+          savedAt: viewedAt,
+        });
+      } catch {
+        // venues store write is best-effort fallback
+      }
+
+      // 3. Prune oldest if store exceeds maxItems (default 20)
+      await new Promise<void>((resolve, reject) => {
+        const tx = database.transaction(["recentlyViewedVenues"], "readwrite");
+        const store = tx.objectStore("recentlyViewedVenues");
+        const req = store.getAll();
+
+        req.onsuccess = () => {
+          const all = (req.result as RecentlyViewedVenuePayload[]) || [];
+          if (all.length > maxItems) {
+            // Sort ascending by viewedAt (oldest first)
+            all.sort((a, b) => (a.viewedAt || 0) - (b.viewedAt || 0));
+            const toDelete = all.slice(0, all.length - maxItems);
+            for (const item of toDelete) {
+              store.delete(item.id);
+            }
+          }
+          resolve();
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } catch (err) {
+      console.error("[OfflineStorage] Failed to save recently viewed venue:", err);
+    }
+  });
+}
+
+export async function getRecentlyViewedVenuesOffline(): Promise<RecentlyViewedVenuePayload[]> {
+  return withWebLock(async () => {
+    try {
+      const database = await initOfflineDB();
+      return new Promise((resolve, reject) => {
+        const tx = database.transaction(["recentlyViewedVenues"], "readonly");
+        const store = tx.objectStore("recentlyViewedVenues");
+        const req = store.getAll();
+
+        req.onsuccess = () => {
+          const items = (req.result as RecentlyViewedVenuePayload[]) || [];
+          // Sort newest first
+          items.sort((a, b) => (b.viewedAt || 0) - (a.viewedAt || 0));
+          resolve(items);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } catch (err) {
+      console.error("[OfflineStorage] Failed to get recently viewed venues:", err);
+      return [];
+    }
+  });
+}
+
+export async function getRecentlyViewedVenueOffline(
+  id: string,
+): Promise<RecentlyViewedVenuePayload | null> {
+  return withWebLock(async () => {
+    try {
+      const database = await initOfflineDB();
+      return new Promise((resolve, reject) => {
+        const tx = database.transaction(["recentlyViewedVenues"], "readonly");
+        const store = tx.objectStore("recentlyViewedVenues");
+        const req = store.get(id);
+
+        req.onsuccess = () => {
+          if (req.result) {
+            resolve(req.result);
+          } else {
+            // Fall back to venues store
+            try {
+              const vTx = database.transaction(["venues"], "readonly");
+              const vStore = vTx.objectStore("venues");
+              const vReq = vStore.get(id);
+              vReq.onsuccess = () => resolve(vReq.result || null);
+              vReq.onerror = () => resolve(null);
+            } catch {
+              resolve(null);
+            }
+          }
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } catch (err) {
+      console.error("[OfflineStorage] Failed to get venue by ID:", err);
+      return null;
+    }
+  });
+}
+
+export async function clearRecentlyViewedVenuesOffline(): Promise<void> {
+  return withWebLock(async () => {
+    try {
+      const database = await initOfflineDB();
+      return new Promise((resolve, reject) => {
+        const tx = database.transaction(["recentlyViewedVenues"], "readwrite");
+        const store = tx.objectStore("recentlyViewedVenues");
+        const req = store.clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    } catch (err) {
+      console.error("[OfflineStorage] Failed to clear recently viewed venues:", err);
+    }
+  });
 }
 
 /**

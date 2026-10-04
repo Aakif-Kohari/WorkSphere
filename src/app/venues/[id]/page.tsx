@@ -121,6 +121,20 @@ export default async function VenuePage({ params }: PageProps) {
           address: venue.address,
           category: venue.category,
           imageUrl: venue.imageUrl,
+          rating: venue.rating,
+          latitude: venue.latitude,
+          longitude: venue.longitude,
+          wifiQuality: venue.wifiQuality,
+          hasOutlets: venue.hasOutlets,
+          amenities: [
+            venue.wifiQuality ? "WiFi" : null,
+            venue.hasOutlets ? "Power Outlets" : null,
+            venue.hasQuietZone ? "Quiet Zone" : null,
+            venue.hasPhoneBooths ? "Phone Booths" : null,
+            venue.hasErgonomic ? "Ergonomic Chairs" : null,
+            venue.hasAncHeadsetRental ? "ANC Headset Rental" : null,
+            venue.dogFriendly ? "Dog Friendly" : null,
+          ].filter(Boolean) as string[],
         }}
       />
       <TopNav hideAuth />

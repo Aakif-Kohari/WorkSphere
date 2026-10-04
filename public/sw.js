@@ -209,12 +209,13 @@ self.addEventListener("fetch", (event) => {
 
 async function handleFetch(request, event) {
   const isVenuesApi = request.url.includes("/api/venues");
+  const isReservationsApi = request.url.includes("/api/reservations/availability");
   const isMapTile =
     request.url.includes("tile.openstreetmap.org") ||
     request.url.includes("basemaps.cartocdn.com");
   const isExternalAsset = request.url.includes("images.unsplash.com");
 
-  if (isVenuesApi) {
+  if (isVenuesApi || isReservationsApi) {
     try {
       const response = await fetch(request);
       if (response.ok) {
@@ -224,7 +225,26 @@ async function handleFetch(request, event) {
       return response;
     } catch {
       const cached = await caches.match(request);
-      return cached || new Response("Offline", { status: 503 });
+      if (cached) return cached;
+      if (isReservationsApi) {
+        return new Response(
+          JSON.stringify({ seats: [], offline: true, cached: true }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      if (isVenuesApi) {
+        return new Response(
+          JSON.stringify({ venues: [], offline: true, cached: true }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      return new Response("Offline", { status: 503 });
     }
   } else if (isMapTile) {
     const cache = await caches.open(MAP_TILE_CACHE_NAME);
@@ -1170,6 +1190,14 @@ function openIndexedDB() {
             keyPath: "venueId",
           });
           deltaStore.createIndex("timestamp", "timestamp", { unique: false });
+        }
+
+// Recently viewed venues store (Issue #3512)
+        if (!db.objectStoreNames.contains("recentlyViewedVenues")) {
+          const recentStore = db.createObjectStore("recentlyViewedVenues", {
+            keyPath: "id",
+          });
+          recentStore.createIndex("viewedAt", "viewedAt", { unique: false });
         }
 
         // Dedicated offline reviews store (Issue #3366)

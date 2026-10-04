@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { saveRecentlyViewedVenueOffline } from "@/lib/offlineStorage";
 
 export interface RecentlyViewedVenue {
   id: string;
@@ -8,6 +9,15 @@ export interface RecentlyViewedVenue {
   address?: string | null;
   category?: string | null;
   imageUrl?: string | null;
+  rating?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  wifiQuality?: boolean | number | string | null;
+  hasOutlets?: boolean | null;
+  amenities?: string[] | null;
+  floorplan?: unknown | null;
+  details?: Record<string, unknown> | null;
+  [key: string]: unknown;
 }
 
 export const RECENTLY_VIEWED_STORAGE_KEY = "worksphere-recently-viewed";
@@ -67,8 +77,13 @@ export function RecentlyViewedTracker({ venue }: RecentlyViewedTrackerProps) {
         JSON.stringify(updated),
       );
     } catch (error) {
-      console.error("Failed to save recently viewed venue:", error);
+      console.error("Failed to save recently viewed venue to localStorage:", error);
     }
+
+    // Persist full payload in IndexedDB (up to 20 items for offline access)
+    saveRecentlyViewedVenueOffline(venue).catch((error) => {
+      console.warn("Failed to persist recently viewed venue to IndexedDB:", error);
+    });
   }, [venue]);
 
   return null;

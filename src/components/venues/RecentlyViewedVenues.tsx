@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MapPin, X } from "lucide-react";
+import { MapPin, X, WifiOff } from "lucide-react";
 import Link from "next/link";
 import {
   type RecentlyViewedVenue,
@@ -9,20 +9,69 @@ import {
   removeRecentlyViewedVenue,
   clearRecentlyViewedVenues,
 } from "@/components/venues/RecentlyViewedTracker";
+import {
+  getRecentlyViewedVenuesOffline,
+  clearRecentlyViewedVenuesOffline,
+} from "@/lib/offlineStorage";
 
 export function RecentlyViewedVenues() {
   const [venues, setVenues] = useState<RecentlyViewedVenue[]>([]);
+  const [isOffline, setIsOffline] = useState(false);
 
-  const loadRecentlyViewed = () => {
-    setVenues(getRecentlyViewedVenues());
+  const loadRecentlyViewed = async () => {
+    // 1. First try loading up to 20 cached venues from IndexedDB
+    try {
+      const idbVenues = await getRecentlyViewedVenuesOffline();
+      if (Array.isArray(idbVenues) && idbVenues.length > 0) {
+        setVenues(idbVenues as RecentlyViewedVenue[]);
+        return;
+      }
+    } catch {
+      // IndexedDB might not be available; fall back to standard tracker
+    }
+
+    // 2. Fall back to standard tracker (localStorage)
+    try {
+      setVenues(getRecentlyViewedVenues());
+    } catch (error) {
+      console.error("Failed to load recently viewed venues:", error);
+      setVenues([]);
+    }
   };
 
   useEffect(() => {
-    loadRecentlyViewed();
+    if (typeof window !== "undefined") {
+      setIsOffline(!navigator.onLine);
+
+      const handleOnline = () => {
+        setIsOffline(false);
+        loadRecentlyViewed();
+      };
+      const handleOffline = () => {
+        setIsOffline(true);
+        loadRecentlyViewed();
+      };
+
+      window.addEventListener("online", handleOnline);
+      window.addEventListener("offline", handleOffline);
+
+      loadRecentlyViewed();
+
+      return () => {
+        window.removeEventListener("online", handleOnline);
+        window.removeEventListener("offline", handleOffline);
+      };
+    }
   }, []);
 
-  const handleClear = () => {
-    clearRecentlyViewedVenues();
+  const handleClear = async () => {
+    try {
+      // Clear both synchronous local storage and offline IndexedDB
+      clearRecentlyViewedVenues();
+      await clearRecentlyViewedVenuesOffline();
+    } catch (error) {
+      console.error("Failed to clear recently viewed venues:", error);
+    }
     setVenues([]);
   };
 
@@ -37,6 +86,17 @@ export function RecentlyViewedVenues() {
 
   return (
     <section aria-labelledby="recently-viewed-heading" className="space-y-2">
+      {/* Offline Mode Banner (Issue #3512) */}
+      {isOffline && (
+        <div
+          data-testid="offline-cached-banner"
+          role="status"
+          className="flex items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-xs font-semibold text-amber-700 dark:text-amber-300"
+        >
+          <WifiOff className="h-4 w-4 shrink-0 text-amber-500" />
+          <span>Offline Mode (Cached Data)</span>
+        </div>
+      )}
       <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-2">
         <p
           id="recently-viewed-heading"
