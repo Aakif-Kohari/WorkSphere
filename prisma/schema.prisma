@@ -326,7 +326,9 @@ enum GuestStatus {
 enum BookingStatus {
   CONFIRMED
   PENDING
+  CHECKED_IN
   CANCELLED
+  COMPLETED
 }
 
 model UserMemory {
