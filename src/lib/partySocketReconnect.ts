@@ -806,16 +806,53 @@ export function attachJitteredBackoff<T extends object>(socket: T): T {
   }
 
   if (typeof window !== "undefined") {
+    let reconnectAbortController: AbortController | null = null;
+    let onlineDebounceTimer: NodeJS.Timeout | null = null;
+    let isTransitionLocked = false;
+
     const onlineHandler = () => {
-      s._retryCount = 0;
-      if (s.__worksphereState !== ConnectionState.CONNECTED) {
-        (s as any).__worksphereForceReconnect?.();
+      // 1. Cancel existing scheduled reconnection timers and abort previous controller
+      if (onlineDebounceTimer) {
+        clearTimeout(onlineDebounceTimer);
+        onlineDebounceTimer = null;
       }
+      if (reconnectAbortController) {
+        reconnectAbortController.abort();
+      }
+      reconnectAbortController = new AbortController();
+      const signal = reconnectAbortController.signal;
+
+      // 2. Debounced connection state transition lock to coalesce rapid network flapping
+      onlineDebounceTimer = setTimeout(() => {
+        onlineDebounceTimer = null;
+        if (signal.aborted) return;
+
+        if (isTransitionLocked) return;
+        isTransitionLocked = true;
+
+        s._retryCount = 0;
+        if (s.__worksphereState !== ConnectionState.CONNECTED) {
+          (s as any).__worksphereForceReconnect?.();
+        }
+
+        setTimeout(() => {
+          isTransitionLocked = false;
+        }, 300);
+      }, 150);
     };
+
     window.addEventListener("online", onlineHandler);
 
     const prevDisconnect = s._disconnect;
     s._disconnect = function (this: any, code?: number, reason?: string) {
+      if (onlineDebounceTimer) {
+        clearTimeout(onlineDebounceTimer);
+        onlineDebounceTimer = null;
+      }
+      if (reconnectAbortController) {
+        reconnectAbortController.abort();
+        reconnectAbortController = null;
+      }
       window.removeEventListener("online", onlineHandler);
       prevDisconnect?.call(this, code, reason);
     };

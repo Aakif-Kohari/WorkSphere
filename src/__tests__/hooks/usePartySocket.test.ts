@@ -256,4 +256,31 @@ describe("usePartySocket BroadcastChannel Leader Election & Coordination (#3767)
       expect.objectContaining({ data: incomingData }),
     );
   });
+
+  it("prevents duplicate reconnect loops and maintains single active socket on rapid network toggles (#3937)", () => {
+    const { result } = renderHook(() =>
+      usePartySocket({ host: "localhost:1999", room: "flapping-room" }),
+    );
+
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    const initialSocketCount = mockSocketsCreated.length;
+    expect(initialSocketCount).toBe(1);
+
+    // Simulate rapid offline/online network flapping
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+      window.dispatchEvent(new Event("online"));
+      window.dispatchEvent(new Event("online"));
+      jest.advanceTimersByTime(50);
+      window.dispatchEvent(new Event("online"));
+      jest.advanceTimersByTime(200);
+    });
+
+    // Reconnection timers were debounced and canceled, avoiding duplicate socket creation
+    expect(mockSocketsCreated.length).toBe(1);
+    expect(result.current.isLeader).toBe(true);
+  });
 });

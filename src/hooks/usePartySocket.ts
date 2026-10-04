@@ -106,6 +106,7 @@ const HEARTBEAT_TIMEOUT_MS = 2500;
  * 4. Message handshake retry counter resets.
  * 5. Automatic leader election and smooth transfer on tab close.
  * 6. Token re-authentication interceptor (Clerk 4001).
+ * 7. Reconnect loop prevention on rapid network toggles (#3937).
  */
 export function usePartySocket(options: PartySocketOptions) {
   const { getToken } = useAuth();
@@ -186,6 +187,7 @@ export function usePartySocket(options: PartySocketOptions) {
       if (msg.type === "LEADER_HEARTBEAT") {
         lastLeaderHeartbeatRef.current = Date.now();
         if (msg.tabId !== tabId && isLeaderRef.current) {
+          // Collision resolution: lower tab ID wins leadership
           if (msg.tabId < tabId) {
             setIsLeader(false);
           }
@@ -197,6 +199,7 @@ export function usePartySocket(options: PartySocketOptions) {
         }
       } else if (msg.type === "LEADER_RESIGN") {
         lastLeaderHeartbeatRef.current = 0;
+        // Primary tab closed, claim leadership
         setIsLeader(true);
         channel.postMessage({
           type: "LEADER_CLAIM",
@@ -206,6 +209,7 @@ export function usePartySocket(options: PartySocketOptions) {
         });
       } else if (msg.type === "RELAY_INBOUND") {
         if (!isLeaderRef.current) {
+          // Follower tab receives inbound message forwarded by leader
           dispatchFollowerEvent("message", {
             type: "message",
             data: msg.data,
@@ -227,6 +231,7 @@ export function usePartySocket(options: PartySocketOptions) {
 
     channel.addEventListener("message", handleChannelMessage);
 
+    // Initial leader claim check: if no leader seen recently, claim leadership
     const claimTimer = setTimeout(() => {
       if (Date.now() - lastLeaderHeartbeatRef.current > HEARTBEAT_TIMEOUT_MS) {
         setIsLeader(true);
@@ -239,6 +244,7 @@ export function usePartySocket(options: PartySocketOptions) {
       }
     }, 150 + Math.random() * 150);
 
+    // Leader heartbeat ticker & follower watchdog
     const heartbeatInterval = setInterval(() => {
       if (isLeaderRef.current) {
         channel.postMessage({
@@ -248,6 +254,7 @@ export function usePartySocket(options: PartySocketOptions) {
           timestamp: Date.now(),
         });
       } else {
+        // Watchdog: check if leader missed heartbeats
         if (Date.now() - lastLeaderHeartbeatRef.current > HEARTBEAT_TIMEOUT_MS) {
           setIsLeader(true);
           channel.postMessage({
@@ -272,7 +279,61 @@ export function usePartySocket(options: PartySocketOptions) {
 
     window.addEventListener("beforeunload", handleBeforeUnload);
 
+    // Reconnection controller & debounced state transition lock (#3937)
+    const reconnectAbortControllerRef = { current: null as AbortController | null };
+    let reconnectDebounceTimer: NodeJS.Timeout | null = null;
+    let isTransitionLocked = false;
+
+    // Online/network flapping handler
+    const handleOnline = () => {
+      // 1. Cancel existing scheduled reconnection timers and abort previous controller
+      if (reconnectDebounceTimer) {
+        clearTimeout(reconnectDebounceTimer);
+        reconnectDebounceTimer = null;
+      }
+      if (reconnectAbortControllerRef.current) {
+        reconnectAbortControllerRef.current.abort();
+      }
+      const controller = new AbortController();
+      reconnectAbortControllerRef.current = controller;
+
+      // 2. Debounced connection state transition lock to coalesce rapid network flapping
+      reconnectDebounceTimer = setTimeout(() => {
+        reconnectDebounceTimer = null;
+        if (controller.signal.aborted) return;
+
+        if (isTransitionLocked) return;
+        isTransitionLocked = true;
+
+        if (!isLeaderRef.current && Date.now() - lastLeaderHeartbeatRef.current > HEARTBEAT_TIMEOUT_MS) {
+          setIsLeader(true);
+          channel.postMessage({
+            type: "LEADER_CLAIM",
+            tabId,
+            room,
+            timestamp: Date.now(),
+          });
+        }
+
+        setTimeout(() => {
+          isTransitionLocked = false;
+        }, 300);
+      }, 150);
+    };
+
+    window.addEventListener("online", handleOnline);
+
     return () => {
+      if (reconnectDebounceTimer) {
+        clearTimeout(reconnectDebounceTimer);
+        reconnectDebounceTimer = null;
+      }
+      if (reconnectAbortControllerRef.current) {
+        reconnectAbortControllerRef.current.abort();
+        reconnectAbortControllerRef.current = null;
+      }
+      window.removeEventListener("online", handleOnline);
+
       clearTimeout(claimTimer);
       clearInterval(heartbeatInterval);
       window.removeEventListener("beforeunload", handleBeforeUnload);
@@ -465,6 +526,7 @@ export function usePartySocket(options: PartySocketOptions) {
             if (isLeaderRef.current) {
               return typeof target.send === "function" ? target.send(data) : undefined;
             } else {
+              // Follower tab: relay to leader tab over BroadcastChannel
               const serialized = typeof data === "string" ? data : JSON.stringify(data);
               channelRef.current?.postMessage({
                 type: "RELAY_OUTBOUND",
