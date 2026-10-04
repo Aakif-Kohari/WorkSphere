@@ -18,6 +18,14 @@ jobs:
           script: |
             try {
               const pr = context.payload.pull_request;
+              const prAuthor = (pr.user?.login || '').toLowerCase();
+              const BLOCKED_USERS = ['jasonjose007'];
+
+              if (BLOCKED_USERS.some(u => u.toLowerCase() === prAuthor)) {
+                core.setFailed(`🚫 Contributions from @${pr.user?.login} are blocked on this repository.`);
+                return;
+              }
+
               const rawBody = pr.body || "";
               // Strip HTML comments, code blocks, and inline code to prevent false positives from templates
               const body = rawBody

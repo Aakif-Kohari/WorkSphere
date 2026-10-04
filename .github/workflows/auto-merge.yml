@@ -26,6 +26,13 @@ jobs:
                 return;
               }
 
+              const prAuthor = (pr.user?.login || '').toLowerCase();
+              const BLOCKED_USERS = ['jasonjose007'];
+              if (BLOCKED_USERS.some(u => u.toLowerCase() === prAuthor)) {
+                console.log(`Aborting auto-merge for blocked user: ${prAuthor}`);
+                return;
+              }
+
               const prNumber = pr.number;
               const owner = context.repo.owner;
               const repo = context.repo.repo;
