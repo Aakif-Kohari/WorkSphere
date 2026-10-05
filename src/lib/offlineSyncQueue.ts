@@ -84,7 +84,36 @@ export function calculateBackoff(
 }
 
 /**
- * Generates a unique queue item identifier.
+ * Generates a deterministic idempotency key for queued offline actions
+ * based on entity type and payload content.
+ */
+export function generateIdempotencyKey<T = unknown>(type: string, payload: T): string {
+  try {
+    const payloadStr =
+      typeof payload === "string"
+        ? payload
+        : payload === null || payload === undefined
+          ? ""
+          : typeof payload === "object"
+            ? JSON.stringify(payload, Object.keys(payload).sort())
+            : String(payload);
+
+    let hash = 0;
+    const str = `${type}:${payloadStr}`;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash |= 0;
+    }
+    const hexHash = Math.abs(hash).toString(36);
+    return `sync_${type}_${hexHash}`;
+  } catch {
+    return `sync_${type}_${Date.now()}`;
+  }
+}
+
+/**
+ * Generates a unique fallback queue item identifier.
  */
 function generateId(): string {
   return `sync_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -103,7 +132,8 @@ export class OfflineSyncQueueManager {
   }
 
   /**
-   * Enqueues an action payload for offline sync.
+   * Enqueues an action payload for offline sync using deterministic idempotency keys
+   * to prevent duplicate queue entries (#4378).
    */
   public enqueue<T = unknown>(
     type: string,
@@ -111,7 +141,17 @@ export class OfflineSyncQueueManager {
     options: { maxRetries?: number; id?: string } = {},
   ): SyncQueueItem<T> {
     const now = Date.now();
-    const id = options.id || generateId();
+    const id = options.id || generateIdempotencyKey(type, payload);
+
+    const existing = this.items.get(id);
+    if (
+      existing &&
+      (existing.status === "pending" ||
+        existing.status === "processing" ||
+        existing.status === "retry")
+    ) {
+      return existing as SyncQueueItem<T>;
+    }
 
     const item: SyncQueueItem<T> = {
       id,

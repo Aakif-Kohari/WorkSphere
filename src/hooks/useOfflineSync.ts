@@ -1,11 +1,26 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getPendingFavorites, getTotalPendingMutationsCount } from "@/lib/offlineStorage";
+import { globalSyncQueue, generateIdempotencyKey, SyncQueueItem } from "@/lib/offlineSyncQueue";
 
 export interface UseOfflineSyncReturn {
   isOffline: boolean;
   hasPendingChanges: boolean;
   isSyncing: boolean;
   pendingCount: number;
+  enqueueMutation: <T = unknown>(type: string, payload: T, options?: { maxRetries?: number; id?: string }) => SyncQueueItem<T>;
+}
+
+/**
+ * Helper utility to enqueue an offline mutation with deterministic idempotency keys
+ * to prevent duplicate queue entries in IndexedDB offline mutation store (#4378).
+ */
+export function enqueueOfflineMutation<T = unknown>(
+  type: string,
+  payload: T,
+  options: { maxRetries?: number; id?: string } = {}
+): SyncQueueItem<T> {
+  const id = options.id || generateIdempotencyKey(type, payload);
+  return globalSyncQueue.enqueue(type, payload, { ...options, id });
 }
 
 export function useOfflineSync(): UseOfflineSyncReturn {
@@ -84,10 +99,18 @@ export function useOfflineSync(): UseOfflineSyncReturn {
     };
   }, []);
 
+  const enqueueMutation = useCallback(
+    <T = unknown>(type: string, payload: T, options: { maxRetries?: number; id?: string } = {}) => {
+      return enqueueOfflineMutation(type, payload, options);
+    },
+    []
+  );
+
   return {
     isOffline,
     hasPendingChanges,
     isSyncing,
     pendingCount,
+    enqueueMutation,
   };
 }
