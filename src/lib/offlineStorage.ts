@@ -67,6 +67,14 @@ export async function clearSearchHistoryOffline(): Promise<void> {
   await searchesRepository.clear();
 }
 
+export async function trimSearchHistoryOffline(maxEntries = 20): Promise<number> {
+  return searchesRepository.trimSearchHistory(maxEntries);
+}
+
+export async function trimSearchHistory(maxEntries = 20): Promise<number> {
+  return searchesRepository.trimSearchHistory(maxEntries);
+}
+
 export async function saveReceiptExportOffline(receipt: ReceiptExportItem): Promise<void> {
   await receiptsRepository.save(receipt);
 }
