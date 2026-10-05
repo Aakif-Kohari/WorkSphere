@@ -632,6 +632,8 @@ export class WebGPUFloorPlanRenderer {
   }
 
   clampPan(): void {
+    if (!Number.isFinite(this.camera.panX)) this.camera.panX = 0;
+    if (!Number.isFinite(this.camera.panY)) this.camera.panY = 0;
     this.camera.panX = Math.max(
       this.panBounds.minX,
       Math.min(this.panBounds.maxX, this.camera.panX),
