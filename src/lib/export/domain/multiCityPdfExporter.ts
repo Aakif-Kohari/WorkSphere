@@ -110,7 +110,7 @@ export async function generateMultiCityPdfReport(options: {
   // Draw comparison columns side-by-side
   cityMetrics.forEach((metric, index) => {
     const colX = margin + index * (colWidth + colGap);
-    let colY = startY;
+    const colY = startY;
 
     // Card background
     builder.currentPage.drawRectangle({
