@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { buildVenueSearchSchema } from "@/lib/filters";
+import { sanitizeDisplayName } from "@/lib/profileSanitizer";
 
 // =========================================================================
 // RESERVATION SCHEMAS
@@ -70,6 +71,11 @@ export type RecurringBookingInput = z.infer<typeof recurringBookingSchema>;
 // =========================================================================
 
 export const userSettingsSchema = z.object({
+  displayName: z
+    .string()
+    .transform((val) => sanitizeDisplayName(val))
+    .refine((val) => val.length > 0, "Display name cannot be empty or contain only whitespace")
+    .optional(),
   phoneNumber: z.string().max(20).optional(),
   smsAlertsEnabled: z.boolean().optional(),
   whatsappWebhookUrl: z.string().url("Invalid WhatsApp webhook URL").or(z.literal("")).optional(),
