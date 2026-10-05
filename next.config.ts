@@ -98,11 +98,23 @@ const nextConfig: NextConfig = {
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
+        "node:fs": false,
         net: false,
+        "node:net": false,
         dns: false,
+        "node:dns": false,
         tls: false,
+        "node:tls": false,
         child_process: false,
+        "node:child_process": false,
         "util/types": false,
+        "node:util": false,
+        crypto: false,
+        "node:crypto": false,
+        stream: false,
+        "node:stream": false,
+        path: false,
+        "node:path": false,
       };
     }
     return config;
