@@ -384,6 +384,9 @@ export function validateRequest<T>(
       success: false;
       error: string;
     } {
+  if (!schema) {
+    return { success: false, error: "Validation schema is required" };
+  }
   const result = schema.safeParse(data);
   if (result.success) {
     return { success: true, data: result.data };
