@@ -184,11 +184,12 @@ export function checkInMemoryTokenBucket(
   identifier: string,
 ): RateLimitResult {
   const now = Date.now();
-  let bucket = memoryBuckets.get(identifier);
+  const bucketKey = `${tier.name}:${identifier}`;
+  let bucket = memoryBuckets.get(bucketKey);
 
   if (!bucket) {
     bucket = { tokens: tier.limit, lastRefill: now };
-    memoryBuckets.set(identifier, bucket);
+    memoryBuckets.set(bucketKey, bucket);
   }
 
   // Refill tokens proportionally to elapsed time
