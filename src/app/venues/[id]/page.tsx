@@ -230,7 +230,7 @@ export default async function VenuePage({ params }: PageProps) {
                     </p>
                   </div>
                 </div>
-                <CopyToClipboardButton textToCopy={venue.address} />
+                <CopyToClipboardButton textToCopy={venue.address} ariaLabel="Copy venue address" />
               </div>
             )}
             <div className="grid grid-cols-2 gap-4">

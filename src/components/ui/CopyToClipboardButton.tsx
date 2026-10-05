@@ -8,13 +8,15 @@ interface CopyToClipboardButtonProps {
   className?: string;
   label?: string;
   toastMessage?: string;
+  ariaLabel?: string;
 }
 
 export function CopyToClipboardButton({ 
   textToCopy, 
   className = "", 
   label = "Copy Address",
-  toastMessage = "Address copied!"
+  toastMessage = "Address copied!",
+  ariaLabel
 }: CopyToClipboardButtonProps) {
   const [isCopied, setIsCopied] = useState(false);
   const [showToast, setShowToast] = useState(false);
@@ -81,8 +83,8 @@ export function CopyToClipboardButton({
       <button
         onClick={handleCopy}
         type="button"
-        title="Copy to clipboard"
-        aria-label="Copy to clipboard"
+        title={ariaLabel || "Copy to clipboard"}
+        aria-label={ariaLabel || "Copy to clipboard"}
         className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
           isCopied 
             ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" 
