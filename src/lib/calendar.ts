@@ -231,17 +231,17 @@ export function generateBulkICSContent(bookings: BulkBooking[]): string | null {
 
   if (events.length === 0) return null;
 
-  return (
-    [
-      "BEGIN:VCALENDAR",
-      "VERSION:2.0",
-      "PRODID:-//WorkSphere//EN",
-      "CALSCALE:GREGORIAN",
-      "METHOD:PUBLISH",
-      ...events,
-      "END:VCALENDAR",
-    ].join("\r\n") + "\r\n"
-  );
+  const rawLines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//WorkSphere//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    ...events.flatMap((e) => e.split("\r\n")),
+    "END:VCALENDAR",
+  ];
+
+  return rawLines.map(foldIcsLine).join("\r\n") + "\r\n";
 }
 
 /**
