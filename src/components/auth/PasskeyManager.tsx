@@ -218,9 +218,14 @@ export function PasskeyManager() {
   };
 
   const handleDelete = (pk: PasskeyItem) => {
+    const credId = pk?.credentialId || pk?.id;
+    if (!pk || !credId || typeof credId !== "string" || !credId.trim()) {
+      setError("Invalid passkey credential ID. Cannot revoke passkey.");
+      return;
+    }
     if (!confirm("Are you sure you want to remove this passkey credential?"))
       return;
-    setPending({ action: "revoke", id: pk.id, name: pk.name });
+    setPending({ action: "revoke", id: credId, name: pk.name || "Passkey" });
   };
 
   const handleRotate = (pk: PasskeyItem) => {
@@ -247,6 +252,11 @@ export function PasskeyManager() {
       setEditName("");
       setSuccess("Passkey renamed.");
     } else if (action === "revoke") {
+      if (!id || typeof id !== "string" || !id.trim()) {
+        setError("Invalid passkey credential ID. Cannot revoke passkey.");
+        setPending(null);
+        return;
+      }
       const res = await fetch(`/api/auth/passkey/credentials/${id}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
