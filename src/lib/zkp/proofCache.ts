@@ -206,7 +206,7 @@ export async function storeProof(
 
 /** Drop one credential's proof, e.g. after the server rejects it. */
 export async function invalidateProof(scope: string, commit: string): Promise<void> {
-  if (!isProofCacheAvailable()) return;
+  if (!isProofCacheAvailable() || !scope || !commit) return;
   try {
     await (await getDb()).delete(STORE, entryKey(scope, commit));
   } catch {
