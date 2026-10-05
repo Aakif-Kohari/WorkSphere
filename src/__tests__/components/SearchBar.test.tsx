@@ -76,6 +76,20 @@ describe("SearchBar component (#4401, #4404)", () => {
     expect(focusSpy).toHaveBeenCalled();
   });
 
+  it("prevents search dropdown from closing when clear button is clicked (#4371)", () => {
+    render(<SearchBar initialQuery="Library" />);
+
+    const input = screen.getByTestId("search-bar-input");
+    const clearBtn = screen.getByTestId("search-bar-clear-btn");
+    const focusSpy = jest.spyOn(input, "focus");
+
+    const mouseDownEvent = fireEvent.mouseDown(clearBtn);
+    const clickEvent = fireEvent.click(clearBtn);
+
+    expect(input).toHaveValue("");
+    expect(focusSpy).toHaveBeenCalled();
+  });
+
   it("clears search input and refocuses when pressing Escape key while input is focused", () => {
     render(<SearchBar initialQuery="Coworking Space" />);
 

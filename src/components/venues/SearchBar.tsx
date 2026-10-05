@@ -86,9 +86,13 @@ export function SearchBar({
     onSelect?.(venue);
   };
 
-  const handleClear = () => {
+  const handleClear = (e?: React.MouseEvent<HTMLButtonElement>) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     clear();
-    setIsOpen(false);
+    setIsOpen(true);
     inputRef.current?.focus();
   };
 
@@ -153,6 +157,10 @@ export function SearchBar({
               type="button"
               data-testid="search-bar-clear-btn"
               onClick={handleClear}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
               aria-label="Clear search query"
               className="p-1 rounded-full text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
             >
