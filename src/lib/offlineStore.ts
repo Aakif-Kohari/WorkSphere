@@ -338,6 +338,7 @@ export async function restoreFailedPayload(id: number): Promise<boolean> {
  * Clears an action from the store once it has been processed
  */
 export async function dequeueOfflineAction(id: number): Promise<void> {
+  if (id === undefined || id === null || isNaN(id)) return;
   return withWebLock(async () => {
     try {
       const db = await getDB();
