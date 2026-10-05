@@ -4,6 +4,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Search, Filter, Calendar, MapPin, Download, CalendarPlus, Ban } from "lucide-react";
 import { BookingSummary } from "@/components/bookings/BookingList";
 import { getCalendarUrls, downloadICS } from "@/lib/calendar";
+import { ExportBookingsCSVButton } from "@/components/bookings/ExportBookingsCSVButton";
 
 export interface BookingHistoryListProps {
   bookings: BookingSummary[];
@@ -175,21 +176,30 @@ export function BookingHistoryList({
           />
         </div>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-          {(["ALL", "UPCOMING", "COMPLETED", "CANCELLED"] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setStatusFilter(tab)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                statusFilter === tab
-                  ? "bg-blue-600 text-white"
-                  : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700"
-              }`}
-            >
-              {tab.charAt(0) + tab.slice(1).toLowerCase()}
-            </button>
-          ))}
+        <div className="flex items-center justify-between sm:justify-start gap-2 overflow-x-auto pb-1 sm:pb-0">
+          <div className="flex items-center gap-1.5">
+            {(["ALL", "UPCOMING", "COMPLETED", "CANCELLED"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setStatusFilter(tab)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                  statusFilter === tab
+                    ? "bg-blue-600 text-white"
+                    : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                }`}
+              >
+                {tab.charAt(0) + tab.slice(1).toLowerCase()}
+              </button>
+            ))}
+          </div>
+
+          <ExportBookingsCSVButton
+            bookings={filteredBookings}
+            label="Export CSV"
+            variant="outline"
+            className="shrink-0"
+          />
         </div>
       </div>
 
