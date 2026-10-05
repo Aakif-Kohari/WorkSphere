@@ -55,7 +55,9 @@ export function haversineMiles(
   lat2: number,
   lon2: number,
 ): number {
-  return haversineKm(lat1, lon1, lat2, lon2) * 0.621371;
+  const km = haversineKm(lat1, lon1, lat2, lon2);
+  if (isNaN(km)) return NaN;
+  return km * 0.621371;
 }
 
 export {
