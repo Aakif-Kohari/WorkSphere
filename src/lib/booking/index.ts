@@ -86,6 +86,7 @@ export function getBookingCancellationEligibility(input: {
 export function cancellationWindowHoursRemaining(
   millisecondsUntilStart: number,
 ): number {
+  if (!Number.isFinite(millisecondsUntilStart)) return 0;
   return Math.max(0, millisecondsUntilStart / (60 * 60 * 1000));
 }
 
