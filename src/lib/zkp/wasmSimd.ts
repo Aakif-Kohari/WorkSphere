@@ -108,6 +108,7 @@ export function simdBatchFieldAdd(
   aArray: bigint[],
   bArray: bigint[]
 ): bigint[] {
+  if (!aArray || !Array.isArray(aArray) || !bArray || !Array.isArray(bArray)) return [];
   const count = Math.min(aArray.length, bArray.length);
   const result = new Array<bigint>(count);
   const r = BN254_R;
