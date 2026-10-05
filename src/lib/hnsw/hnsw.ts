@@ -199,9 +199,29 @@ export class HNSWIndex {
             .filter((n): n is SearchResult => n !== null)
             .sort((a, b) => a.distance - b.distance);
 
-          neighborNeighbors = neighborDistances
+          const keptNeighbors = neighborDistances
             .slice(0, this.config.M)
             .map((n) => n.id);
+
+          const prunedNeighbors = neighborDistances
+            .slice(this.config.M)
+            .map((n) => n.id);
+
+          // Symmetrically detach displaced edges on pruned neighbor nodes to prevent memory leaks (#4384)
+          for (const prunedId of prunedNeighbors) {
+            const prunedNode = this.nodes.get(prunedId);
+            if (prunedNode) {
+              const prunedNodeNeighbors = prunedNode.neighbors.get(l);
+              if (prunedNodeNeighbors) {
+                prunedNode.neighbors.set(
+                  l,
+                  prunedNodeNeighbors.filter((nid) => nid !== neighborId),
+                );
+              }
+            }
+          }
+
+          neighborNeighbors = keptNeighbors;
         }
 
         neighborNode.neighbors.set(l, neighborNeighbors);
@@ -216,6 +236,45 @@ export class HNSWIndex {
       this.maxLevel = level;
       this.entryPoint = id;
     }
+  }
+
+  /**
+   * Graph integrity validator verifying all neighbor references exist, max degree constraints are met,
+   * and all bidirectional edges are symmetrically attached (#4384).
+   */
+  validateGraphIntegrity(): { isValid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    for (const [nodeId, node] of this.nodes.entries()) {
+      for (const [layer, neighborIds] of node.neighbors.entries()) {
+        if (neighborIds.length > this.config.M) {
+          errors.push(
+            `Node ${nodeId} at layer ${layer} exceeds max degree M (${neighborIds.length} > ${this.config.M})`,
+          );
+        }
+
+        for (const neighborId of neighborIds) {
+          if (!this.nodes.has(neighborId)) {
+            errors.push(
+              `Node ${nodeId} at layer ${layer} references non-existent neighbor ${neighborId}`,
+            );
+          } else {
+            const neighborNode = this.nodes.get(neighborId)!;
+            const backRef = neighborNode.neighbors.get(layer);
+            if (!backRef || !backRef.includes(nodeId)) {
+              errors.push(
+                `Asymmetric edge detected: Node ${nodeId} references ${neighborId} at layer ${layer}, but ${neighborId} does not reference ${nodeId}`,
+              );
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+    };
   }
 
   search(query: number[], k: number = 10): SearchResult[] {

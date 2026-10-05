@@ -257,3 +257,14 @@ export function deserializeHnswIndex(buffer: ArrayBuffer): HNSWIndex {
     nodes,
   });
 }
+
+/**
+ * Validates graph integrity for an HNSW index, checking for dangling edge references,
+ * degree violations, and asymmetric links (#4384).
+ */
+export function validateHnswGraphIntegrity(index: HNSWIndex): {
+  isValid: boolean;
+  errors: string[];
+} {
+  return index.validateGraphIntegrity();
+}
