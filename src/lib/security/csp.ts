@@ -54,6 +54,7 @@ export function generateCsp(nonce: string): string {
   const mapboxOrigins = "https://*.mapbox.com https://api.mapbox.com https://events.mapbox.com";
   const openStreetMapOrigins = "https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://nominatim.openstreetmap.org https://router.project-osrm.org";
   const cartoOrigins = "https://*.basemaps.cartocdn.com";
+  const pexelsOrigins = "https://api.pexels.com https://images.pexels.com";
 
   return [
     `default-src 'self'`,
@@ -67,7 +68,7 @@ export function generateCsp(nonce: string): string {
     // Map tiles (OpenStreetMap, CartoCDN, Mapbox), avatars, venue photos, and user uploads
     `img-src 'self' data: blob: https: ${openStreetMapOrigins} ${cartoOrigins} ${mapboxOrigins}`,
     `media-src 'self' blob: data:`,
-    `connect-src 'self' ${clerkHosts} https://clerk-telemetry.com ${openStreetMapOrigins} ${cartoOrigins} ${mapboxOrigins} ${getPartyKitOrigins().join(" ")}`,
+    `connect-src 'self' ${clerkHosts} https://clerk-telemetry.com ${openStreetMapOrigins} ${cartoOrigins} ${mapboxOrigins} ${pexelsOrigins} ${getPartyKitOrigins().join(" ")}`,
     `frame-src 'self' ${clerkHosts} https://challenges.cloudflare.com`,
     `worker-src 'self' blob:`,
     `upgrade-insecure-requests`,
