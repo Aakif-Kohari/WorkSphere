@@ -55,10 +55,34 @@ function isPrivateIPv6(ip: string): boolean {
   )
     return true;
 
-  // IPv4-mapped IPv6 addresses (e.g. ::ffff:192.168.1.1)
-  if (normalized.startsWith("::ffff:")) {
-    const ipv4Part = ip.substring(7);
-    return isPrivateIPv4(ipv4Part);
+  // IPv4-mapped IPv6 addresses (e.g. ::ffff:192.168.1.1 or ::ffff:7f00:1)
+  const mappedMatch = normalized.match(/^(?:(?:::)|(?:0+:){5})ffff:(.+)$/);
+  if (mappedMatch) {
+    const ipv4Part = mappedMatch[1];
+    if (ipv4Part.includes(".")) {
+      return isPrivateIPv4(ipv4Part);
+    }
+    const hexParts = ipv4Part.split(":");
+    if (hexParts.length === 2) {
+      const high = parseInt(hexParts[0], 16);
+      const low = parseInt(hexParts[1], 16);
+      if (
+        !isNaN(high) &&
+        !isNaN(low) &&
+        high >= 0 &&
+        high <= 0xffff &&
+        low >= 0 &&
+        low <= 0xffff
+      ) {
+        const b1 = (high >> 8) & 0xff;
+        const b2 = high & 0xff;
+        const b3 = (low >> 8) & 0xff;
+        const b4 = low & 0xff;
+        return isPrivateIPv4(`${b1}.${b2}.${b3}.${b4}`);
+      }
+      return true; // Treat malformed mapped address as unsafe
+    }
+    return true;
   }
 
   return false;
