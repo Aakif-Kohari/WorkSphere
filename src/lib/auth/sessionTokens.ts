@@ -219,6 +219,9 @@ export async function generateRefreshToken(
   userId: string,
   expiresInSeconds = REFRESH_TOKEN_EXPIRY_SECONDS,
 ): Promise<string> {
+  if (!userId || typeof userId !== "string") {
+    throw new Error("userId is required to generate a refresh token");
+  }
   const now = Math.floor(Date.now() / 1000);
   const familyId = generateRandomHex(16);
   const jti = generateRandomHex(16);
