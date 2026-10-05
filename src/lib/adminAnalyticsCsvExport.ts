@@ -104,7 +104,17 @@ export function downloadAnalyticsCSV(data: AnalyticsExportData): Blob {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    const dateStr = new Date(data.generatedAt).toISOString().slice(0, 10);
+    let dateStr: string;
+    try {
+      const parsedDate = new Date(data.generatedAt);
+      if (isNaN(parsedDate.getTime())) {
+        dateStr = new Date().toISOString().slice(0, 10);
+      } else {
+        dateStr = parsedDate.toISOString().slice(0, 10);
+      }
+    } catch {
+      dateStr = new Date().toISOString().slice(0, 10);
+    }
     anchor.download = `workspace-analytics-${data.range}-${dateStr}.csv`;
     document.body.appendChild(anchor);
     anchor.click();
