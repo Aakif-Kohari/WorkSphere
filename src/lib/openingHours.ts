@@ -52,11 +52,12 @@ export function parseStructuredHours(hoursStr: string | null | undefined): Struc
  * Formats a time string like "09:00" into 12-hour format "9:00 AM"
  */
 export function formatTime12h(time24: string): string {
-  const parts = time24.split(":");
+  if (!time24 || typeof time24 !== "string") return "";
+  const parts = time24.trim().split(":");
   if (parts.length < 2) return time24;
   const h = Number(parts[0]);
   const m = Number(parts[1]);
-  if (isNaN(h) || isNaN(m)) return time24;
+  if (isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) return time24;
   const ampm = h >= 12 ? "PM" : "AM";
   const displayH = h % 12 || 12;
   const displayM = String(m).padStart(2, "0");
