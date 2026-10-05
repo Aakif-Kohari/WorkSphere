@@ -196,9 +196,8 @@ export function NoiseMeter({ onMeasured }: Props) {
           cleanup();
           cleanupRef.current = null;
           setStatus("error");
+          resetNoiseProcessor();
         }
-        audioContext.close().catch(() => {});
-        resetNoiseProcessor();
       };
 
       document.addEventListener("visibilitychange", handleVisibilityChange);
