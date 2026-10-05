@@ -21,6 +21,9 @@ export interface NoiseForecastResult {
 export function generateNoiseForecast(
   data: RawNoiseData[],
 ): NoiseForecastResult {
+  if (!data || !Array.isArray(data)) {
+    return { forecast: [], recommendedHours: [] };
+  }
   // 1. Group historical readings by hour of day (0-23)
   const groupedByHour: Record<number, number[]> = {};
   for (let i = 0; i < 24; i++) {
@@ -28,6 +31,7 @@ export function generateNoiseForecast(
   }
 
   for (const entry of data) {
+    if (!entry || !entry.timestamp || !(entry.timestamp instanceof Date) || isNaN(entry.timestamp.getTime())) continue;
     const hour = entry.timestamp.getHours();
     groupedByHour[hour].push(entry.avgDecibels);
   }
