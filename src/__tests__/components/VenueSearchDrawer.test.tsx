@@ -209,5 +209,51 @@ describe("VenueSearchDrawer Component (#1429)", () => {
       expect(handleNoiseChange).toHaveBeenCalledWith("moderate");
     });
   });
+
+  describe("Filter preset saving and application", () => {
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    it("applies a default preset on click and updates all filter controls", () => {
+      const handleAmenitiesChange = jest.fn();
+      const handleNoiseChange = jest.fn();
+      const handleCategoryChange = jest.fn();
+
+      render(
+        <VenueSearchDrawer
+          isOpen={true}
+          onClose={jest.fn()}
+          onAmenitiesChange={handleAmenitiesChange}
+          onNoiseLevelChange={handleNoiseChange}
+          onCategoryChange={handleCategoryChange}
+        />,
+      );
+
+      const quietStudyPreset = screen.getByTestId("preset-item-preset-quiet-study");
+      expect(quietStudyPreset).toBeInTheDocument();
+      fireEvent.click(quietStudyPreset);
+
+      expect(handleAmenitiesChange).toHaveBeenCalledWith(["wifi", "outlets", "quiet"]);
+      expect(handleNoiseChange).toHaveBeenCalledWith("quiet");
+      expect(handleCategoryChange).toHaveBeenCalledWith("library");
+    });
+
+    it("saves custom filter combination as a new preset to localStorage", () => {
+      render(<VenueSearchDrawer isOpen={true} onClose={jest.fn()} />);
+
+      // Open save preset form
+      const openSaveBtn = screen.getByTestId("open-save-preset-btn");
+      fireEvent.click(openSaveBtn);
+
+      const nameInput = screen.getByTestId("preset-name-input");
+      fireEvent.change(nameInput, { target: { value: "Weekend Work" } });
+
+      const saveBtn = screen.getByTestId("confirm-save-preset-btn");
+      fireEvent.click(saveBtn);
+
+      expect(screen.getByText("Weekend Work")).toBeInTheDocument();
+    });
+  });
 });
 
