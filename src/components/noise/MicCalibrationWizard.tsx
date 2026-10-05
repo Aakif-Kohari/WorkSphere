@@ -28,11 +28,7 @@ import {
   type FrequencyBandSpectrum,
   analyzeFrequencyBands,
 } from "@/lib/noise/spectrumAnalyzer";
-import { useWebAudioAutoPause } from "@/hooks/useWebAudioAutoPause";
-import {
-  analyzeFrequencyBands,
-  type FrequencyBandSpectrum,
-} from "@/lib/noise/spectrumAnalyzer";
+
 
 interface MicCalibrationWizardProps {
   isOpen: boolean;
