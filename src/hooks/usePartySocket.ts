@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import usePartySocketReact from "partysocket/react";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -96,6 +96,9 @@ const HEARTBEAT_TIMEOUT_MS = 2500;
  */
 export function usePartySocket(options: PartySocketOptions) {
   const { getToken } = useAuth();
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
+
   const room = (options as any)?.room ?? "default-room";
   const channelName = `worksphere:partysocket:${room}`;
   const tabIdRef = useRef<string>(
@@ -122,6 +125,9 @@ export function usePartySocket(options: PartySocketOptions) {
     onConnectionStatusChange,
     ...socketOptions
   } = options;
+
+  const onConnectionStatusChangeRef = useRef(onConnectionStatusChange);
+  onConnectionStatusChangeRef.current = onConnectionStatusChange;
 
   const channelRef = useRef<BroadcastChannel | null>(null);
   const lastLeaderHeartbeatRef = useRef<number>(0);
@@ -343,15 +349,16 @@ export function usePartySocket(options: PartySocketOptions) {
     startClosed: !isLeader || options.startClosed,
   });
 
-  const attachedSocket = attachJitteredBackoff(socket);
-
-  // Attach full-jitter exponential backoff override
-  if (attachedSocket) {
-    (attachedSocket as any)._getNextDelay = function () {
-      const attempt = (this._retryCount ?? 0) + 1;
-      return calculateJitteredBackoff(attempt, { baseDelay, maxDelay });
-    };
-  }
+  const attachedSocket = useMemo(() => {
+    const s = attachJitteredBackoff(socket);
+    if (s) {
+      (s as any)._getNextDelay = function () {
+        const attempt = (this._retryCount ?? 0) + 1;
+        return calculateJitteredBackoff(attempt, { baseDelay, maxDelay });
+      };
+    }
+    return s;
+  }, [socket, baseDelay, maxDelay]);
 
   // Leader tab: relay inbound messages & connection state across BroadcastChannel
   useEffect(() => {
@@ -361,7 +368,7 @@ export function usePartySocket(options: PartySocketOptions) {
       reconnectAttemptRef.current = 0;
       setReconnectAttempt(0);
       setConnectionStatus("connected");
-      onConnectionStatusChange?.("connected");
+      onConnectionStatusChangeRef.current?.("connected");
 
       channelRef.current?.postMessage({
         type: "RELAY_STATE",
@@ -374,7 +381,7 @@ export function usePartySocket(options: PartySocketOptions) {
       reconnectAttemptRef.current += 1;
       setReconnectAttempt(reconnectAttemptRef.current);
       setConnectionStatus("reconnecting");
-      onConnectionStatusChange?.("reconnecting");
+      onConnectionStatusChangeRef.current?.("reconnecting");
 
       channelRef.current?.postMessage({
         type: "RELAY_STATE",
@@ -400,7 +407,7 @@ export function usePartySocket(options: PartySocketOptions) {
 
     const handleError = () => {
       setConnectionStatus("reconnecting");
-      onConnectionStatusChange?.("reconnecting");
+      onConnectionStatusChangeRef.current?.("reconnecting");
     };
 
     (attachedSocket as any).addEventListener?.("open", handleLeaderOpen);
@@ -431,7 +438,7 @@ export function usePartySocket(options: PartySocketOptions) {
       (attachedSocket as any).removeEventListener?.("error", handleError);
       channelRef.current?.removeEventListener("message", handleFollowerOutbound);
     };
-  }, [isLeader, attachedSocket, room, onConnectionStatusChange]);
+  }, [isLeader, attachedSocket, room]);
 
   // Intercept 4001 token expiration codes to refresh Clerk token
   useEffect(() => {
@@ -444,7 +451,7 @@ export function usePartySocket(options: PartySocketOptions) {
     const handleAuthClose = async (event: any) => {
       if (event?.code === 4001) {
         try {
-          const freshToken = await getToken({ skipCache: true });
+          const freshToken = await getTokenRef.current({ skipCache: true });
           if (freshToken) {
             if ((attachedSocket as any).query) {
               (attachedSocket as any).query.token = freshToken;
@@ -466,7 +473,7 @@ export function usePartySocket(options: PartySocketOptions) {
         (attachedSocket as any).removeEventListener("close", handleAuthClose);
       }
     };
-  }, [attachedSocket, getToken]);
+  }, [attachedSocket]);
 
   // Return augmented socket proxy supporting followers & status
   const proxySocket = useRef<any>(null);
