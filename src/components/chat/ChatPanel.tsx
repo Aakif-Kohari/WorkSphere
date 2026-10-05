@@ -664,7 +664,14 @@ export function ChatPanel({
 
       {onSubmit && (
         <form
-          onSubmit={onSubmit}
+          onSubmit={(e) => {
+            e.preventDefault();
+            const trimmed = (input || "").trim();
+            if (!trimmed || trimmed.length === 0) {
+              return;
+            }
+            onSubmit(e);
+          }}
           className="p-3 border-t border-zinc-200 dark:border-zinc-800 flex gap-2"
         >
           <input
@@ -676,7 +683,8 @@ export function ChatPanel({
           />
           <button
             type="submit"
-            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            disabled={!input || input.trim().length === 0}
+            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Send
           </button>
