@@ -27,52 +27,35 @@
  * ```
  */
 
-/**
- * Shared PartySocket reconnect tuning.
- *
- * Default partysocket uses infinite retries and a 0ms delay on the first
- * reconnect, which storms the server when the network interface flaps
- * (Wi‑Fi → cellular). Cap attempts and back off with jitter instead.
- */
+import {
+  PARTY_SOCKET_RECONNECT_OPTIONS,
+  PartyReconnectOptions,
+  jitteredReconnectDelay,
+  DEFAULT_BACKOFF_OPTIONS,
+  BackoffOptions,
+  calculateJitteredBackoff,
+} from "@/lib/utils/backoff";
+import {
+  ConnectionLifecycleState,
+  ConnectionState,
+  mapPartySocketToLifecycleState,
+  isConnectionAlive,
+  isConnectionTransitioning,
+} from "@/lib/realtime/connectionState";
 
-export const PARTY_SOCKET_RECONNECT_OPTIONS = {
-  maxRetries: 5,
-  minReconnectionDelay: 1_000,
-  maxReconnectionDelay: 30_000,
-  reconnectionDelayGrowFactor: 2,
-} as const;
-
-export type PartyReconnectOptions = {
-  maxRetries: number;
-  minReconnectionDelay: number;
-  maxReconnectionDelay: number;
-  reconnectionDelayGrowFactor: number;
+export {
+  PARTY_SOCKET_RECONNECT_OPTIONS,
+  type PartyReconnectOptions,
+  jitteredReconnectDelay,
+  DEFAULT_BACKOFF_OPTIONS,
+  type BackoffOptions,
+  calculateJitteredBackoff,
+  ConnectionLifecycleState,
+  ConnectionState,
+  mapPartySocketToLifecycleState,
+  isConnectionAlive,
+  isConnectionTransitioning,
 };
-
-/**
- * Delay before reconnect attempt `retryCount`.
- * PartySocket increments retryCount before waiting; 0 is the initial connect.
- */
-export function jitteredReconnectDelay(
-  retryCount: number,
-  opts: PartyReconnectOptions = PARTY_SOCKET_RECONNECT_OPTIONS,
-  random: () => number = Math.random,
-): number {
-  if (retryCount <= 0) return 0;
-
-  const { minReconnectionDelay: min, maxReconnectionDelay: max } = opts;
-  const grow = opts.reconnectionDelayGrowFactor;
-  const base = Math.min(max, min * grow ** (retryCount - 1));
-  // ±20% jitter so clients don't retry in lockstep after a mass disconnect
-  const jitter = base * (random() * 0.4 - 0.2);
-  return Math.round(Math.min(max, Math.max(min, base + jitter)));
-}
-
-export enum ConnectionState {
-  CLOSED = "CLOSED",
-  CONNECTING = "CONNECTING",
-  CONNECTED = "CONNECTED",
-}
 
 export interface ReplayableSessionEvent<T = any> {
   sequenceId: number;

@@ -7,6 +7,20 @@ import {
   attachJitteredBackoff,
   PARTY_SOCKET_RECONNECT_OPTIONS,
 } from "@/lib/partySocketReconnect";
+import {
+  calculateJitteredBackoff,
+  type CalculateJitteredBackoffOptions,
+} from "@/lib/utils/backoff";
+import {
+  ConnectionLifecycleState,
+  mapPartySocketToLifecycleState,
+} from "@/lib/realtime/connectionState";
+
+export {
+  calculateJitteredBackoff,
+  type CalculateJitteredBackoffOptions,
+  ConnectionLifecycleState,
+};
 
 export type PartySocketOptions = Parameters<typeof usePartySocketReact>[0] & {
   disableLeaderElection?: boolean;
@@ -15,38 +29,10 @@ export type PartySocketOptions = Parameters<typeof usePartySocketReact>[0] & {
   onConnectionStatusChange?: (
     status: "connected" | "reconnecting" | "offline",
   ) => void;
+  onLifecycleStateChange?: (state: ConnectionLifecycleState) => void;
 };
 
 export type ConnectionStatus = "connected" | "reconnecting" | "offline";
-
-export interface CalculateJitteredBackoffOptions {
-  baseDelay?: number;
-  maxDelay?: number;
-  random?: () => number;
-}
-
-/**
- * Full-jitter exponential backoff formula (#3769):
- * twait = min(tmax, tbase * 2^attempt) * random(0.8, 1.2)
- */
-export function calculateJitteredBackoff(
-  attempt: number,
-  options: CalculateJitteredBackoffOptions = {},
-): number {
-  if (attempt <= 0) return 0;
-
-  const baseDelay =
-    options.baseDelay ?? PARTY_SOCKET_RECONNECT_OPTIONS.minReconnectionDelay; // 1,000ms
-  const maxDelay =
-    options.maxDelay ?? PARTY_SOCKET_RECONNECT_OPTIONS.maxReconnectionDelay; // 30,000ms
-  const randomFn = options.random ?? Math.random;
-
-  const cappedBase = Math.min(maxDelay, baseDelay * Math.pow(2, attempt - 1));
-  const jitterFactor = 0.8 + randomFn() * 0.4;
-  const delayWithJitter = cappedBase * jitterFactor;
-
-  return Math.round(Math.min(maxDelay, Math.max(0, delayWithJitter)));
-}
 
 interface LeaderHeartbeatMessage {
   type: "LEADER_HEARTBEAT";

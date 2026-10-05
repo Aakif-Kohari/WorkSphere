@@ -2,9 +2,11 @@
 
 import React from "react";
 import { ConnectionStatus } from "@/hooks/usePartySocket";
+import { ConnectionLifecycleState } from "@/lib/realtime/connectionState";
 
 interface ReconnectingBadgeProps {
-  status?: ConnectionStatus;
+  status?: ConnectionStatus | ConnectionLifecycleState;
+  lifecycleState?: ConnectionLifecycleState;
   isReconnecting?: boolean;
   attempt?: number;
   className?: string;
@@ -16,6 +18,7 @@ interface ReconnectingBadgeProps {
  */
 export function ReconnectingBadge({
   status,
+  lifecycleState,
   isReconnecting,
   attempt,
   className = "",
@@ -23,7 +26,12 @@ export function ReconnectingBadge({
   const shouldShow =
     isReconnecting ||
     status === "reconnecting" ||
-    (typeof attempt === "number" && attempt > 0 && status !== "connected");
+    status === ConnectionLifecycleState.RECONNECTING ||
+    lifecycleState === ConnectionLifecycleState.RECONNECTING ||
+    (typeof attempt === "number" &&
+      attempt > 0 &&
+      status !== "connected" &&
+      status !== ConnectionLifecycleState.CONNECTED);
 
   if (!shouldShow) return null;
 
