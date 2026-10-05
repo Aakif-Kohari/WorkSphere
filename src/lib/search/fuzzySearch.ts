@@ -135,7 +135,8 @@ export function fuzzyFilterVenues<T extends { name: string; address?: string | n
   venues: T[],
   query: string
 ): T[] {
-  const trimmed = query.trim().toLowerCase();
+  if (!venues || !Array.isArray(venues)) return [];
+  const trimmed = typeof query === "string" ? query.trim().toLowerCase() : "";
   if (!trimmed) return venues;
 
   const threshold = getFuzzyThreshold(trimmed.length);
@@ -144,7 +145,9 @@ export function fuzzyFilterVenues<T extends { name: string; address?: string | n
 
   for (let i = 0; i < venues.length; i++) {
     const v = venues[i];
-    const nameMatch = isFuzzyMatch(trimmed, v.name, threshold);
+    if (!v) continue;
+    const nameStr = v.name || "";
+    const nameMatch = isFuzzyMatch(trimmed, nameStr, threshold);
 
     if (nameMatch.matched) {
       scored.push({ venue: v, score: nameMatch.distance });
