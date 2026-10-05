@@ -122,7 +122,13 @@ export function StudentDiscountVerification({
 
       if (type === "error") {
         setIsProving(false);
-        const { isOom } = e.data;
+        const { isOom, isTimeout } = e.data;
+        if (isTimeout || workerError === "VERIFICATION_TIMEOUT") {
+          setError("Verification timed out. Worker was reset.");
+          terminateWorker();
+          spawnWorker();
+          return;
+        }
         if (isOom) {
           // OOM during WASM instantiation — fall back to server-side verification
           // which does not require client-side snarkjs proof generation.
