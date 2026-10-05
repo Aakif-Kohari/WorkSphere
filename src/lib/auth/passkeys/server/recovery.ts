@@ -160,6 +160,9 @@ export function buildEmergencyKitPayload(
   share: EncryptedShare,
   label?: string,
 ): EmergencyKitPayload {
+  if (!share || typeof share !== "object") {
+    throw new Error("EncryptedShare is required to build emergency kit payload");
+  }
   return {
     version: 1,
     createdAt: new Date().toISOString(),
