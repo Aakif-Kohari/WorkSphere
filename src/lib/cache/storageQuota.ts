@@ -39,8 +39,9 @@ export function isQuotaExceededError(err: unknown): boolean {
 export function dispatchStorageQuotaWarning(source: string, error?: unknown): void {
   if (typeof window === "undefined") return;
 
+  const safeSource = typeof source === "string" && source.trim() ? source.trim() : "storage";
   const detail: StorageQuotaWarningDetail = {
-    source,
+    source: safeSource,
     errorName: (error as any)?.name ?? "QuotaExceededError",
     message: (error as any)?.message ?? "Storage quota exceeded",
     timestamp: Date.now(),
