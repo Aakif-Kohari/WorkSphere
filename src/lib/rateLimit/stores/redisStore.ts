@@ -45,6 +45,7 @@ export function microTimestampMember(
   usec: number,
   nonce: string,
 ): string {
-  const padUsec = String(usec).padStart(6, "0");
+  const safeUsec = Math.max(0, usec || 0);
+  const padUsec = String(safeUsec).padStart(6, "0");
   return `${sec}${padUsec}:${nonce}`;
 }
