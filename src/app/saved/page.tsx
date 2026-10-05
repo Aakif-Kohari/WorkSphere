@@ -111,6 +111,15 @@ function exportCollectionAsGeoJSON(favorites: SavedVenue[]) {
   URL.revokeObjectURL(url);
 }
 
+function escapeKmlXml(value: string | number | null | undefined): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 function exportCollectionAsKML(favorites: SavedVenue[]) {
   const placemarks = favorites
     .filter((fav) => {
@@ -137,8 +146,8 @@ function exportCollectionAsKML(favorites: SavedVenue[]) {
 
       return [
         "    <Placemark>",
-        `      <name>${fav.venue.name}</name>`,
-        `      <description>${desc}</description>`,
+        `      <name>${escapeKmlXml(fav.venue.name)}</name>`,
+        `      <description>${escapeKmlXml(desc)}</description>`,
         "      <Point>",
         `        <coordinates>${fav.venue.longitude},${fav.venue.latitude},0</coordinates>`,
         "      </Point>",
