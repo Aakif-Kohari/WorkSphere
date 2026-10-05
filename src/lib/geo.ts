@@ -81,6 +81,7 @@ export function calculateRelativeBearing(
   targetBearing: number,
   deviceHeading: number,
 ): number {
+  if (!Number.isFinite(targetBearing) || !Number.isFinite(deviceHeading)) return 0;
   return ((targetBearing - deviceHeading) % 360 + 360) % 360;
 }
 
