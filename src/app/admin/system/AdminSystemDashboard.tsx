@@ -14,6 +14,7 @@ import {
   Search,
   Star,
 } from "lucide-react";
+import { WebVitalsWidget } from "@/components/admin/WebVitalsWidget";
 import {
   Area,
   AreaChart,
@@ -323,6 +324,8 @@ export default function AdminSystemDashboard() {
             icon={Database}
           />
         </section>
+
+        <WebVitalsWidget className="mt-6" initialRange={range} />
 
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-5">
           <div className="mb-6">
