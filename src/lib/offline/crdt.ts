@@ -2,16 +2,76 @@ import * as Y from "yjs";
 import { initOfflineDB } from "./db";
 import type { OfflineVenue } from "./types";
 
-export const userDoc = new Y.Doc();
-export const yFavorites = userDoc.getMap<OfflineVenue>("favorites");
-export const yRatings = userDoc.getMap<Record<string, unknown>>("ratings");
+let _userDoc: Y.Doc | null = null;
 
-userDoc.on("update", async (update: Uint8Array) => {
-  try {
-    await queueCrdtUpdate(update);
-  } catch (err) {
-    console.error("Failed to queue CRDT update:", err);
+/**
+ * Lazy factory function for the user Y.Doc instance, guarded against SSR environments.
+ */
+export function getUserDoc(): Y.Doc | null {
+  if (typeof window === "undefined") {
+    return null;
   }
+  if (!_userDoc) {
+    _userDoc = new Y.Doc();
+    _userDoc.on("update", async (update: Uint8Array) => {
+      try {
+        await queueCrdtUpdate(update);
+      } catch (err) {
+        console.error("Failed to queue CRDT update:", err);
+      }
+    });
+  }
+  return _userDoc;
+}
+
+export function getYFavorites(): Y.Map<OfflineVenue> | null {
+  const doc = getUserDoc();
+  return doc ? doc.getMap<OfflineVenue>("favorites") : null;
+}
+
+export function getYRatings(): Y.Map<Record<string, unknown>> | null {
+  const doc = getUserDoc();
+  return doc ? doc.getMap<Record<string, unknown>>("ratings") : null;
+}
+
+export function resetUserDoc(): void {
+  if (_userDoc) {
+    _userDoc.destroy();
+    _userDoc = null;
+  }
+}
+
+// Lazy Proxies for backward compatibility without top-level SSR instantiation
+export const userDoc: Y.Doc = new Proxy({} as Y.Doc, {
+  get(_target, prop, receiver) {
+    const doc = getUserDoc();
+    if (!doc) return undefined;
+    const value = Reflect.get(doc, prop, receiver);
+    return typeof value === "function" ? value.bind(doc) : value;
+  },
+  set(_target, prop, value, receiver) {
+    const doc = getUserDoc();
+    if (!doc) return false;
+    return Reflect.set(doc, prop, value, receiver);
+  },
+});
+
+export const yFavorites: Y.Map<OfflineVenue> = new Proxy({} as Y.Map<OfflineVenue>, {
+  get(_target, prop, receiver) {
+    const map = getYFavorites();
+    if (!map) return undefined;
+    const value = Reflect.get(map, prop, receiver);
+    return typeof value === "function" ? value.bind(map) : value;
+  },
+});
+
+export const yRatings: Y.Map<Record<string, unknown>> = new Proxy({} as Y.Map<Record<string, unknown>>, {
+  get(_target, prop, receiver) {
+    const map = getYRatings();
+    if (!map) return undefined;
+    const value = Reflect.get(map, prop, receiver);
+    return typeof value === "function" ? value.bind(map) : value;
+  },
 });
 
 export async function queueCrdtUpdate(update: Uint8Array): Promise<void> {
