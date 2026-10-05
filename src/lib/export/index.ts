@@ -7,5 +7,6 @@
 
 export * from "./types";
 export * from "./csvBuilder";
+export * from "./csvExporter";
 export * from "./pdfBuilder";
 export * from "./domain";
