@@ -7,9 +7,10 @@
  * Deterministically generates two harmonious RGB colors from a string (hash or seed).
  */
 function hashToColors(str: string): [string, string] {
+  const safeStr = typeof str === "string" ? str : "worksphere";
   let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
+  for (let i = 0; i < safeStr.length; i++) {
+    hash = (hash << 5) - hash + safeStr.charCodeAt(i);
     hash |= 0;
   }
 
