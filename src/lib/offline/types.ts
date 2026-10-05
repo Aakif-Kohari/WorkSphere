@@ -2,6 +2,26 @@
  * Offline Storage & Synchronisation Engine Type Definitions.
  */
 
+export const MAX_RECENTLY_VIEWED_IDB = 20;
+
+export interface RecentlyViewedVenuePayload {
+  id: string;
+  name: string;
+  address?: string | null;
+  category?: string | null;
+  imageUrl?: string | null;
+  rating?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  amenities?: string[] | null;
+  floorplan?: unknown | null;
+  viewedAt?: number;
+  lastAccessedAt?: number;
+  isPinned?: boolean;
+  isFavorite?: boolean;
+  [key: string]: unknown;
+}
+
 export interface OfflineVenue {
   id: string;
   name: string;
@@ -13,6 +33,7 @@ export interface OfflineVenue {
   address?: string;
   rating?: number;
   amenities?: string[];
+  floorplan?: unknown;
   hasAncHeadsetRental?: boolean;
   savedAt?: number;
   lastAccessedAt?: number;

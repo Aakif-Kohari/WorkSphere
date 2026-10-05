@@ -98,3 +98,11 @@ export async function pruneLruVenuesOffline(
 ): Promise<number> {
   return venuesRepository.pruneLru(maxVenues);
 }
+
+export async function pruneRecentlyViewedVenuesOffline(
+  maxItems?: number,
+): Promise<number> {
+  const { pruneRecentlyViewedVenuesLru } = await import("./offline/venueCache");
+  return pruneRecentlyViewedVenuesLru(maxItems);
+}
+

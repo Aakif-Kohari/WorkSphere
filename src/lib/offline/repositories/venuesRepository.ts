@@ -28,38 +28,76 @@ export class VenuesRepository implements IRepository<OfflineVenue> {
 
   async save(venue: OfflineVenue): Promise<void> {
     const db = await initOfflineDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(["venues"], "readwrite");
-      const store = tx.objectStore("venues");
-      const req = store.put({
-        ...venue,
-        savedAt: venue.savedAt || Date.now(),
-        lastAccessedAt: venue.lastAccessedAt || Date.now(),
+    const putItem = () =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(["venues"], "readwrite");
+        const store = tx.objectStore("venues");
+        const req = store.put({
+          ...venue,
+          savedAt: venue.savedAt || Date.now(),
+          lastAccessedAt: venue.lastAccessedAt || Date.now(),
+        });
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
       });
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
-    });
+
+    try {
+      await putItem();
+    } catch (err) {
+      if (
+        err &&
+        typeof err === "object" &&
+        ("name" in err && (err.name === "QuotaExceededError" || err.name === "NS_ERROR_DOM_QUOTA_REACHED") ||
+          ("code" in err && err.code === 22) ||
+          ("message" in err && typeof (err as any).message === "string" && /quota/i.test((err as any).message)))
+      ) {
+        console.warn("[VenuesRepository] QuotaExceededError encountered. Pruning stale LRU caches...");
+        await this.pruneLru(Math.max(1, Math.floor(MAX_OFFLINE_VENUES / 2)));
+        await putItem();
+        return;
+      }
+      throw err;
+    }
   }
 
   async saveMany(venues: OfflineVenue[]): Promise<void> {
     if (venues.length === 0) return;
     const db = await initOfflineDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(["venues"], "readwrite");
-      const store = tx.objectStore("venues");
-      const now = Date.now();
+    const putAll = () =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(["venues"], "readwrite");
+        const store = tx.objectStore("venues");
+        const now = Date.now();
 
-      for (const venue of venues) {
-        store.put({
-          ...venue,
-          savedAt: venue.savedAt || now,
-          lastAccessedAt: venue.lastAccessedAt || now,
-        });
+        for (const venue of venues) {
+          store.put({
+            ...venue,
+            savedAt: venue.savedAt || now,
+            lastAccessedAt: venue.lastAccessedAt || now,
+          });
+        }
+
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+
+    try {
+      await putAll();
+    } catch (err) {
+      if (
+        err &&
+        typeof err === "object" &&
+        ("name" in err && (err.name === "QuotaExceededError" || err.name === "NS_ERROR_DOM_QUOTA_REACHED") ||
+          ("code" in err && err.code === 22) ||
+          ("message" in err && typeof (err as any).message === "string" && /quota/i.test((err as any).message)))
+      ) {
+        console.warn("[VenuesRepository] QuotaExceededError during saveMany. Pruning stale LRU caches...");
+        await this.pruneLru(Math.max(1, Math.floor(MAX_OFFLINE_VENUES / 2)));
+        await putAll();
+        return;
       }
-
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
+      throw err;
+    }
   }
 
   async delete(id: string): Promise<void> {
