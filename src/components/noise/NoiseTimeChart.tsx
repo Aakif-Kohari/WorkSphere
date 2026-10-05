@@ -3,15 +3,19 @@
 import { useEffect, useState } from "react";
 import { Volume2 } from "lucide-react";
 
-type Bucket = {
+export interface NoiseTimeChartBucket {
   label: string;
   averageDb: number | null;
   peakDb: number | null;
   samples: number;
-};
+}
 
-export function NoiseTimeChart({ venueId }: { venueId: string }) {
-  const [buckets, setBuckets] = useState<Bucket[]>([]);
+export interface NoiseTimeChartProps {
+  venueId: string;
+}
+
+export function NoiseTimeChart({ venueId }: NoiseTimeChartProps) {
+  const [buckets, setBuckets] = useState<NoiseTimeChartBucket[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
