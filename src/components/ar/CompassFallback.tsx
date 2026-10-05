@@ -265,7 +265,7 @@ export default function CompassFallback({
         )}
 
         {/* Error Notifications */}
-        {!isSupported && (
+        {(!isSupported || permissionState === "unsupported") && (
           <div className="w-full bg-red-950/40 text-red-300 p-3 rounded-lg border border-red-500/30 flex items-center gap-2.5 text-xs">
             <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
             <span>
