@@ -87,6 +87,7 @@ export function StudentDiscountVerification({
   const [error, setError] = useState<string | null>(null);
 
   const workerRef = useRef<Worker | null>(null);
+  const spawnWorkerRef = useRef<(() => Worker | null) | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const onVerifiedRef = useRef(onVerified);
   useEffect(() => {
@@ -126,7 +127,7 @@ export function StudentDiscountVerification({
         if (isTimeout || workerError === "VERIFICATION_TIMEOUT") {
           setError("Verification timed out. Worker was reset.");
           terminateWorker();
-          spawnWorker();
+          spawnWorkerRef.current?.();
           return;
         }
         if (isOom) {
@@ -205,6 +206,7 @@ export function StudentDiscountVerification({
     workerRef.current = worker;
     return worker;
   }, [terminateWorker]);
+  spawnWorkerRef.current = spawnWorker;
 
   useEffect(() => {
     spawnWorker();
