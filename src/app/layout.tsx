@@ -136,7 +136,7 @@ export default async function RootLayout({
       }
       suppressHydrationWarning
     >
-      <head>
+      <head suppressHydrationWarning>
         <script
           id="theme-init"
           suppressHydrationWarning

@@ -49,11 +49,14 @@ function applyTheme(theme: Theme) {
     root.classList.add("cyberpunk");
   }
 
+  const bg = theme === "dark" ? "#0a0a0a" : theme === "cyberpunk" ? "#090014" : "#ffffff";
+  const fg = theme === "dark" ? "#ededed" : theme === "cyberpunk" ? "#f4f4ff" : "#171717";
+
   root.style.colorScheme = theme === "light" ? "light" : "dark";
-  root.style.backgroundColor =
-    theme === "dark" ? "#0a0a0a" : theme === "cyberpunk" ? "#090014" : "#ffffff";
-  root.style.color =
-    theme === "dark" ? "#ededed" : theme === "cyberpunk" ? "#f4f4ff" : "#171717";
+  root.style.backgroundColor = bg;
+  root.style.color = fg;
+  root.style.setProperty("--background", bg);
+  root.style.setProperty("--foreground", fg);
 }
 
 function applyHighContrast(enabled: boolean) {

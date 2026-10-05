@@ -30,10 +30,14 @@ export const THEME_INIT_SCRIPT = `
 
   root.setAttribute("data-theme", theme);
   root.style.colorScheme = theme === "light" ? "light" : "dark";
-  root.style.backgroundColor =
-    theme === "dark" ? "#0a0a0a" : theme === "cyberpunk" ? "#090014" : "#ffffff";
-  root.style.color =
-    theme === "dark" ? "#ededed" : theme === "cyberpunk" ? "#f4f4ff" : "#171717";
+  var bg = theme === "dark" ? "#0a0a0a" : theme === "cyberpunk" ? "#090014" : "#ffffff";
+  var fg = theme === "dark" ? "#ededed" : theme === "cyberpunk" ? "#f4f4ff" : "#171717";
+
+  root.style.backgroundColor = bg;
+  root.style.color = fg;
+  root.style.setProperty("--background", bg);
+  root.style.setProperty("--foreground", fg);
+
   try {
     document.cookie =
       "worksphere-theme=" + theme + "; path=/; max-age=31536000; SameSite=Lax";
