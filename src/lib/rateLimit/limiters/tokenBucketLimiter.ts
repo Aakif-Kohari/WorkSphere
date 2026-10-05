@@ -1,6 +1,11 @@
 import type { IRateLimiter, RateLimitResult, RateTier } from "../types";
 import { defaultMemoryStore, MemoryRateLimitStore } from "../stores/memoryStore";
-import { getCachedLimiter, setCachedLimiter } from "../stores/redisStore";
+import {
+  getRedisClient,
+  getCachedLimiter,
+  setCachedLimiter,
+  executeAtomicTokenBucket,
+} from "../stores/redisStore";
 
 export interface TokenBucketOptions {
   limit: number;
@@ -37,6 +42,21 @@ export class TokenBucketLimiter implements IRateLimiter {
     identifier: string,
     points = 1,
   ): Promise<RateLimitResult | null> {
+    const redis = getRedisClient();
+    if (redis) {
+      const redisKey = `worksphere:ratelimit:${this.name}:${identifier}`;
+      const atomicResult = await executeAtomicTokenBucket(
+        redis,
+        redisKey,
+        this.limit,
+        this.windowMs,
+        points
+      );
+      if (atomicResult !== null) {
+        return atomicResult;
+      }
+    }
+
     const url = process.env.UPSTASH_REDIS_REST_URL;
     const token = process.env.UPSTASH_REDIS_REST_TOKEN;
     if (!url || !token) return null;

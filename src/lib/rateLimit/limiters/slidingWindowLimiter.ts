@@ -1,6 +1,12 @@
 import type { IRateLimiter, RateLimitResult, TierConfig } from "../types";
 import { defaultMemoryStore, MemoryRateLimitStore } from "../stores/memoryStore";
-import { getRedisClient, getCachedLimiter, setCachedLimiter, microTimestampMember } from "../stores/redisStore";
+import {
+  getRedisClient,
+  getCachedLimiter,
+  setCachedLimiter,
+  microTimestampMember,
+  executeAtomicSlidingWindow,
+} from "../stores/redisStore";
 
 export interface SlidingWindowOptions {
   limit: number;
@@ -25,48 +31,15 @@ export class SlidingWindowLimiter implements IRateLimiter {
   async consume(key: string, points = 1): Promise<RateLimitResult> {
     const redis = getRedisClient();
     if (redis) {
-      try {
-        const now = Date.now();
-        const windowStart = now - this.windowMs;
-        const windowSeconds = Math.ceil(this.windowMs / 1000);
-        const redisKey = `worksphere:ratelimit:${this.namespace}:${key}`;
-        const member = microTimestampMember(
-          Math.floor(now / 1000),
-          (now % 1000) * 1000,
-          Math.random().toString(36).slice(2, 10),
-        );
-
-        const tx = redis.multi();
-        tx.zremrangebyscore(redisKey, 0, windowStart);
-        tx.zadd(redisKey, { score: now, member });
-        tx.zcard(redisKey);
-        tx.expire(redisKey, windowSeconds);
-        const result = await tx.exec();
-
-        const count = Number(result?.[2] ?? 0);
-        if (count > this.limit) {
-          await redis.zrem(redisKey, member);
-          const retryAfter = Math.max(1, Math.ceil(this.windowMs / 1000));
-          return {
-            success: false,
-            limit: this.limit,
-            remaining: 0,
-            reset: now + this.windowMs,
-            retryAfter,
-            identity: key,
-          };
-        }
-
-        return {
-          success: true,
-          limit: this.limit,
-          remaining: Math.max(0, this.limit - count),
-          reset: now + this.windowMs,
-          retryAfter: 0,
-          identity: key,
-        };
-      } catch (err) {
-        // Fall back to in-memory on Redis failure
+      const redisKey = `worksphere:ratelimit:${this.namespace}:${key}`;
+      const atomicResult = await executeAtomicSlidingWindow(
+        redis,
+        redisKey,
+        this.limit,
+        this.windowMs
+      );
+      if (atomicResult !== null) {
+        return atomicResult;
       }
     }
 
