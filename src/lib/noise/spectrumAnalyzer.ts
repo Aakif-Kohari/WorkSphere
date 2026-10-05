@@ -251,3 +251,56 @@ export function analyzeTimeDomainBands(
     badgeColor: profile.badgeColor,
   };
 }
+
+export interface AudioContextAutoplayState {
+  isBlockedByAutoplay: boolean;
+  state: AudioContextState | "unknown";
+  error: Error | null;
+}
+
+/**
+ * Safely attempts to resume an AudioContext instance, gracefully catching promise rejections
+ * when autoplay is blocked by browser policy without user gesture (#4374).
+ */
+export async function safeResumeAudioContext(
+  audioContext: AudioContext,
+): Promise<AudioContextAutoplayState> {
+  if (!audioContext) {
+    return {
+      isBlockedByAutoplay: false,
+      state: "unknown",
+      error: new Error("AudioContext is undefined"),
+    };
+  }
+
+  if (audioContext.state === "running") {
+    return {
+      isBlockedByAutoplay: false,
+      state: "running",
+      error: null,
+    };
+  }
+
+  try {
+    const resumePromise = audioContext.resume();
+    if (resumePromise && typeof resumePromise.catch === "function") {
+      await resumePromise.catch((err) => {
+        throw err;
+      });
+    }
+
+    const isBlocked = audioContext.state === "suspended";
+    return {
+      isBlockedByAutoplay: isBlocked,
+      state: audioContext.state,
+      error: null,
+    };
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    return {
+      isBlockedByAutoplay: true,
+      state: audioContext.state || "suspended",
+      error,
+    };
+  }
+}
