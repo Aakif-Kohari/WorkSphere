@@ -38,6 +38,7 @@ export async function getCachedHnswIndex(
   key: string,
   serverVersion: string,
 ): Promise<HNSWIndex | null> {
+  if (!key || typeof key !== "string") return null;
   const database = await getDatabase();
   const cached = await database.get(INDEX_STORE, key);
   if (!cached || cached.version !== serverVersion) return null;
