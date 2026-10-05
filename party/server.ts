@@ -1014,6 +1014,13 @@ export default class WorkspaceServer implements Party.Server {
       version,
     };
 
+    // Ownership may move to a different connection (the same user reconnecting
+    // or using a second tab, or a new user taking over an expired hold). The
+    // previous owner's connection must stop tracking this hold, otherwise its
+    // later disconnect would release a hold it no longer owns.
+    if (existing && existing.connId !== conn.id) {
+      this.untrackConnHold(existing.connId, holdKey);
+    }
     this.seatHolds.set(holdKey, newHold);
 
     let connSet = this.connHolds.get(conn.id);
@@ -1057,14 +1064,7 @@ export default class WorkspaceServer implements Party.Server {
     if (!existing) return;
 
     if (existing.userId === userId || existing.connId === conn.id) {
-      this.seatHolds.delete(holdKey);
-      const connSet = this.connHolds.get(conn.id);
-      if (connSet) {
-        connSet.delete(holdKey);
-        if (connSet.size === 0) {
-          this.connHolds.delete(conn.id);
-        }
-      }
+      this.dropSeatHold(holdKey);
 
       this.recordAndBroadcast(null, "seat_unlocked", {
         seatId,
@@ -1135,15 +1135,36 @@ export default class WorkspaceServer implements Party.Server {
     );
   }
 
+  /** Stop a connection tracking a hold; drops its entry once it tracks none. */
+  private untrackConnHold(connId: string, holdKey: string): void {
+    const keys = this.connHolds.get(connId);
+    if (!keys) return;
+    keys.delete(holdKey);
+    if (keys.size === 0) {
+      this.connHolds.delete(connId);
+    }
+  }
+
+  /** Remove a hold from both indexes, via the connection that owns it. */
+  private dropSeatHold(holdKey: string): SeatHold | undefined {
+    const hold = this.seatHolds.get(holdKey);
+    if (!hold) return undefined;
+    this.seatHolds.delete(holdKey);
+    this.untrackConnHold(hold.connId, holdKey);
+    return hold;
+  }
+
   private handleConnectionSeatHoldsCleanup(connId: string) {
     const heldKeys = this.connHolds.get(connId);
     if (!heldKeys || heldKeys.size === 0) return;
 
     const now = Date.now();
-    for (const holdKey of heldKeys) {
+    for (const holdKey of [...heldKeys]) {
       const hold = this.seatHolds.get(holdKey);
-      if (hold) {
-        this.seatHolds.delete(holdKey);
+      // Only release holds this connection still owns; ownership may have
+      // moved to another connection since the hold was first acquired.
+      if (hold && hold.connId === connId) {
+        this.dropSeatHold(holdKey);
         this.recordAndBroadcast(null, "seat_unlocked", {
           seatId: hold.seatId,
           venueId: hold.venueId,
