@@ -78,7 +78,7 @@ export async function generateTaxExportPdf(
   let overallTax = 0;
   let overallTotal = 0;
   for (const booking of bookings) {
-    const hours = booking.duration || 1;
+    const hours = (booking.duration || 60) / 60;
     const price = hours * 15;
     const tax = Number((price * 0.08).toFixed(2));
     const total = Number((price + tax).toFixed(2));
@@ -103,7 +103,7 @@ export async function generateTaxExportPdf(
       currentPage = pdfDoc.addPage([595, 842]);
       y = height - 50;
     }
-    const hours = booking.duration || 1;
+    const hours = (booking.duration || 60) / 60;
     const price = hours * 15;
     const tax = Number((price * 0.08).toFixed(2));
     const total = Number((price + tax).toFixed(2));
@@ -216,7 +216,7 @@ export async function generateTaxExportPdf(
     );
     py -= 30;
 
-    const hours = booking.duration || 1;
+    const hours = (booking.duration || 60) / 60;
     const price = hours * 15;
     const tax = Number((price * 0.08).toFixed(2));
     const total = Number((price + tax).toFixed(2));
@@ -433,8 +433,8 @@ export async function generateReceiptPdf(booking: any): Promise<Uint8Array> {
     userEmail: booking.customerEmail || booking.user?.email || undefined,
     date: String(booking.date),
     time: String(booking.time),
-    durationHours: booking.duration || 1,
-    totalAmount: Number(booking.totalPrice || (booking.duration || 1) * 15 * 1.08),
+    durationHours: (booking.duration || 60) / 60,
+    totalAmount: Number(booking.totalPrice || ((booking.duration || 60) / 60) * 15 * 1.08),
     currency: booking.currency || "USD",
     issuedAt: booking.createdAt ? new Date(booking.createdAt).toISOString() : new Date().toISOString(),
     status: String(booking.status || "CONFIRMED"),
