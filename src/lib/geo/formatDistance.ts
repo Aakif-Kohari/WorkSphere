@@ -143,7 +143,7 @@ export function formatWalkingBadgeWithUnit(
   if (!Number.isFinite(distanceKm) || distanceKm < 0) return "--";
 
   // 4.8 km/h = 0.08 km/min
-  const mins = Math.max(1, Math.ceil(distanceKm / 0.08));
+  const mins = distanceKm <= 0 ? 0 : Math.ceil(distanceKm / 0.08);
   const formattedDist = formatDistance(distanceKm, unit);
   return `${mins} min walk · ${formattedDist}`;
 }
