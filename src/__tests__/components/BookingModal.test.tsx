@@ -237,5 +237,47 @@ describe("BookingModal", () => {
         screen.queryByText("End time must be after start time."),
       ).not.toBeInTheDocument();
     });
+
+    it("prevents double-click submission and does not issue duplicate booking POST requests (#4368)", async () => {
+      const originalFetch = global.fetch;
+      const mockFetch = jest.fn().mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  ok: true,
+                  json: async () => ({ confirmationId: "conf-123" }),
+                }),
+              100,
+            ),
+          ),
+      );
+      global.fetch = mockFetch;
+
+      render(
+        <BookingModal
+          isOpen={true}
+          onClose={mockOnClose}
+          venue={mockVenue}
+          mode="booking"
+        />,
+      );
+
+      const dateInput = screen.getByLabelText("Date");
+      const startTimeInput = screen.getByTestId("booking-start-time");
+      const emailInput = screen.getByLabelText("Confirmation email");
+      const submitBtn = screen.getByRole("button", { name: /confirm booking/i });
+
+      fireEvent.change(dateInput, { target: { value: "2026-10-10" } });
+      fireEvent.change(startTimeInput, { target: { value: "10:00" } });
+      fireEvent.change(emailInput, { target: { value: "user@example.com" } });
+
+      fireEvent.click(submitBtn);
+      fireEvent.click(submitBtn);
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      global.fetch = originalFetch;
+    });
   });
 });

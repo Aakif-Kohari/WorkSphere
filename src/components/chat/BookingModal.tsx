@@ -146,6 +146,7 @@ export function BookingModal({
 
   const modalRef = useRef<HTMLDivElement>(null);
   const pointerDownStartedOnBackdrop = useRef(false);
+  const isSubmittingRef = useRef(false);
 
   // Prefill the confirmation email with the signed-in user's address.
   const accountEmail = user?.primaryEmailAddress?.emailAddress ?? "";
@@ -271,12 +272,13 @@ export function BookingModal({
   };
 
   const handleBooking = async () => {
-    if (!venue) return;
+    if (!venue || isSubmitting || isSubmittingRef.current) return;
     if (bookingDate && bookingDate < today) {
       setBookingError("Please choose today or a future date.");
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     setBookingError(null);
     setStep("processing");
@@ -353,6 +355,7 @@ export function BookingModal({
       setStep("details");
     } finally {
       setIsSubmitting(false);
+      isSubmittingRef.current = false;
     }
   };
 

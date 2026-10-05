@@ -17,6 +17,7 @@ export function BookingModal({ venueId, venueName, onClose, onSuccess }: Booking
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showWaitlist, setShowWaitlist] = useState(false);
+  const isSubmittingRef = React.useRef(false);
 
   if (showWaitlist) {
     return (
@@ -33,6 +34,9 @@ export function BookingModal({ venueId, venueName, onClose, onSuccess }: Booking
 
   const handleReserve = async () => {
     if (!date || !time) return setError('Please select both a date and time');
+    if (loading || isSubmittingRef.current) return;
+
+    isSubmittingRef.current = true;
     setLoading(true);
     setError('');
 
@@ -50,9 +54,10 @@ export function BookingModal({ venueId, venueName, onClose, onSuccess }: Booking
       
       onSuccess(json.data.confirmationId);
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Failed to book');
     } finally {
       setLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 
