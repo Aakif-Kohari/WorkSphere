@@ -107,8 +107,12 @@ export function timeZoneOffsetMs(instant: Date, timeZone: string): number {
     minute: "2-digit",
     second: "2-digit",
   }).formatToParts(instant);
-  const get = (type: string) =>
-    Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const get = (type: string) => {
+    const val = parts.find((p) => p.type === type)?.value ?? "0";
+    const num = Number(val);
+    if (type === "hour" && num === 24) return 0;
+    return num;
+  };
   const asUtc = Date.UTC(
     get("year"),
     get("month") - 1,
@@ -117,13 +121,15 @@ export function timeZoneOffsetMs(instant: Date, timeZone: string): number {
     get("minute"),
     get("second"),
   );
-  return asUtc - instant.getTime();
+  // Compare at second precision to prevent sub-second jitter
+  const instantSecondsMs = Math.floor(instant.getTime() / 1000) * 1000;
+  return asUtc - instantSecondsMs;
 }
 
 /**
  * Parses a booking's date and time as wall-clock time in `timeZone` and
  * returns the corresponding instant, or null when either part is invalid.
- * Uses a two-pass algorithm to accurately handle Daylight Saving Time (DST) boundaries.
+ * Uses iterative offset convergence to accurately account for Daylight Saving Time (DST) shifts.
  */
 export function parseBookingDateTime(
   dateStr: string,
@@ -136,13 +142,19 @@ export function parseBookingDateTime(
 
   const [y, m, d] = dateStr.split("-").map(Number);
   const [hh, mm] = time.split(":").map(Number);
-  const wallClockAsUtc = Date.UTC(y, m - 1, d, hh, mm);
+  const wallClockAsUtc = Date.UTC(y, m - 1, d, hh, mm, 0, 0);
   const zone = isValidTimeZone(timeZone) ? timeZone : "UTC";
 
-  // Two-pass offset adjustment for DST boundaries
+  // Iterative offset convergence for exact DST transition shift handling
   let instant =
     wallClockAsUtc - timeZoneOffsetMs(new Date(wallClockAsUtc), zone);
-  instant = wallClockAsUtc - timeZoneOffsetMs(new Date(instant), zone);
+  for (let i = 0; i < 4; i++) {
+    const offset = timeZoneOffsetMs(new Date(instant), zone);
+    const nextInstant = wallClockAsUtc - offset;
+    if (nextInstant === instant) break;
+    instant = nextInstant;
+  }
+
   const result = new Date(instant);
   return isNaN(result.getTime()) ? null : result;
 }
@@ -180,8 +192,14 @@ export function formatToWallClock(
   });
   const parts = formatter.formatToParts(instant);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  const date = `${get("year")}-${get("month")}-${get("day")}`;
-  const time = `${get("hour")}:${get("minute")}`;
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+  let hour = get("hour");
+  if (hour === "24") hour = "00";
+  const minute = get("minute");
+  const date = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  const time = `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
   return { date, time };
 }
 
