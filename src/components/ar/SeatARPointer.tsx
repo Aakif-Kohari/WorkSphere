@@ -5,20 +5,28 @@ import * as THREE from "three";
 import { useWebXR } from "@/hooks/useWebXR";
 import { useDeviceOrientation } from "@/hooks/useDeviceOrientation";
 import { normalizeAngle } from "@/lib/geometry/bearing";
+import {
+  calculate3DDistance,
+  applyDistanceSmoothing,
+  formatElevationIndicator,
+  Vector3,
+} from "@/types/ar";
 import CompassFallback from "./CompassFallback";
-import { Eye } from "lucide-react";
+import { Eye, Layers, Navigation } from "lucide-react";
 
 export interface SeatARPointerProps {
   /** Target reserved seat information */
   seatNumber?: string;
   seatId?: string;
   venueName?: string;
+  /** Floor level (e.g., 2 for Floor 2) */
+  floorLevel?: number;
+  /** Smoothing factor alpha for low-pass distance filter (0.01 to 1.0, default 0.2) */
+  smoothingAlpha?: number;
   /** Spatial target anchor coordinates in local AR metric space */
-  targetAnchor?: {
-    x: number;
-    y: number;
-    z: number;
-  };
+  targetAnchor?: Vector3;
+  /** Spatial user camera initial position */
+  userAnchor?: Vector3;
   /** Target seat GPS coordinates (if outdoors/large campus) */
   targetGps?: {
     latitude: number;
@@ -28,16 +36,20 @@ export interface SeatARPointerProps {
 }
 
 /**
- * SeatARPointer (#3956):
+ * SeatARPointer (#3956, #4413):
  * For supported mobile devices with WebXR camera access, projects a floating
  * 3D directional arrow pointing towards the user's reserved seat anchor in AR space.
+ * Calculates 3D Euclidean distance, low-pass smoothed metrics, and floor elevation indicators.
  * Gracefully falls back to CompassFallback if WebXR is unsupported or denied.
  */
 export function SeatARPointer({
   seatNumber = "1A",
   seatId: _seatId,
   venueName = "WorkSphere Venue",
+  floorLevel,
+  smoothingAlpha = 0.2,
   targetAnchor = { x: 0, y: 0.8, z: -3 }, // default 3 meters ahead
+  userAnchor = { x: 0, y: 1.2, z: 0 },
   targetGps,
   onClose,
 }: SeatARPointerProps) {
@@ -48,7 +60,11 @@ export function SeatARPointer({
   const [_xrSession, setXrSession] = useState<XRSession | null>(null);
   const [sessionActive, setSessionActive] = useState(false);
   const [distanceToSeat, setDistanceToSeat] = useState<number>(3.0);
+  const [elevationDelta, setElevationDelta] = useState<number>(0);
+  const [elevationText, setElevationText] = useState<string>("Same Level (+0.0m)");
   const [bearingAngle, setBearingAngle] = useState<number>(0);
+
+  const prevDistanceRef = useRef<number | null>(null);
 
   // Fallback to CompassFallback if WebXR is explicitly unsupported
   const isWebXRUnavailable = isSupported === false;
@@ -151,14 +167,35 @@ export function SeatARPointer({
       // Floating bobbing effect
       arrowGroup.position.y = 1.0 + Math.sin(elapsedTime * 2.5) * 0.08;
 
-      // Compute heading transform matrix towards seat anchor
+      // Compute heading transform matrix & 3D Euclidean distance towards seat anchor
       const currentCameraPos = camera.position;
+      const userPosVec: Vector3 = {
+        x: currentCameraPos.x,
+        y: currentCameraPos.y,
+        z: currentCameraPos.z,
+      };
+      const targetPosVec: Vector3 = {
+        x: targetVector.x,
+        y: targetVector.y,
+        z: targetVector.z,
+      };
+
+      const metrics = calculate3DDistance(userPosVec, targetPosVec);
+      const smoothed = applyDistanceSmoothing(
+        metrics.distance3D,
+        prevDistanceRef.current,
+        smoothingAlpha
+      );
+      prevDistanceRef.current = smoothed;
+
+      setDistanceToSeat(smoothed);
+      setElevationDelta(Math.round(metrics.elevationDelta * 10) / 10);
+      setElevationText(formatElevationIndicator(metrics.elevationDelta, floorLevel));
+
       const dirToTarget = new THREE.Vector3().subVectors(
         targetVector,
         currentCameraPos,
       );
-      const distance = dirToTarget.length();
-      setDistanceToSeat(Math.round(distance * 10) / 10);
 
       // Compute normalized bearing angle
       const rad = Math.atan2(dirToTarget.x, -dirToTarget.z);
@@ -204,7 +241,7 @@ export function SeatARPointer({
       arrowMaterial.dispose();
       ringMaterial.dispose();
     };
-  }, [targetAnchor]);
+  }, [targetAnchor, floorLevel, smoothingAlpha]);
 
   if (isWebXRUnavailable) {
     return (
@@ -224,18 +261,31 @@ export function SeatARPointer({
       {/* 3D WebXR Camera View Canvas Container */}
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
 
-      {/* AR HUD Overlay */}
+      {/* AR Floating Distance & Elevation HUD Overlay */}
       <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between pointer-events-none">
-        <div className="bg-slate-900/80 backdrop-blur-md border border-slate-700/60 px-3.5 py-2 rounded-xl text-white shadow-lg pointer-events-auto">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-            <span className="text-xs font-bold text-slate-200">
-              Seat Anchor: {seatNumber}
+        <div className="bg-slate-900/85 backdrop-blur-md border border-slate-700/70 p-3 rounded-xl text-white shadow-xl pointer-events-auto flex flex-col gap-1.5 min-w-[220px]">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+              <span className="text-xs font-bold text-slate-100">
+                Seat {seatNumber}
+              </span>
+            </div>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+              {bearingAngle}°
             </span>
           </div>
-          <p className="text-[11px] text-blue-400 font-medium mt-0.5">
-            {distanceToSeat}m away • Bearing {bearingAngle}° • Follow 3D Arrow
-          </p>
+
+          <div className="flex items-center justify-between gap-2 text-xs font-semibold text-blue-400 border-t border-slate-800 pt-1.5">
+            <div className="flex items-center gap-1.5">
+              <Navigation className="w-3.5 h-3.5 text-blue-400" />
+              <span>{distanceToSeat.toFixed(1)}m away</span>
+            </div>
+            <div className="flex items-center gap-1 text-[11px] text-emerald-400 font-mono">
+              <Layers className="w-3 h-3 text-emerald-400" />
+              <span>{elevationText}</span>
+            </div>
+          </div>
         </div>
 
         {onClose && (
