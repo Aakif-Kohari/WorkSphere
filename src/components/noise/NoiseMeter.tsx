@@ -115,6 +115,9 @@ export function NoiseMeter({ onMeasured }: Props) {
       }
 
       const audioContext = new AudioContextClass();
+      if (audioContext.state === "suspended") {
+        await audioContext.resume();
+      }
       let source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
 

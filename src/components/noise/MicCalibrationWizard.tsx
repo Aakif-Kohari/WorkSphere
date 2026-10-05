@@ -125,6 +125,9 @@ export function MicCalibrationWizard({
         (window as typeof window & { webkitAudioContext?: typeof AudioContext })
           .webkitAudioContext;
       const ctx = new AudioCtx();
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
       audioContextRef.current = ctx;
 
       const source = ctx.createMediaStreamSource(stream);
