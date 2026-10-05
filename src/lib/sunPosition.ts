@@ -159,7 +159,7 @@ export function calculateSunPosition(
   const utcMinutes = date.getUTCHours() * 60 + date.getUTCMinutes();
   const eot = equationOfTimeMinutes(t);
   const trueSolarTime =
-    ((utcMinutes + eot + 4 * longitude) % 1440) + (utcMinutes < 0 ? 1440 : 0);
+    (((utcMinutes + eot + 4 * longitude) % 1440) + 1440) % 1440;
 
   // Hour angle
   const hourAngleDeg =
