@@ -19,6 +19,7 @@ import { KeyboardShortcutsModal } from "../components/KeyboardShortcutsModal";
 import { CommandPalette } from "../components/CommandPalette";
 import { IdleSessionDialog } from "../components/auth/IdleSessionDialog";
 import { StorageQuotaWarningBanner } from "../components/ui/StorageQuotaWarningBanner";
+import { OfflineBanner } from "../components/ui/OfflineBanner";
 import { THEME_INIT_SCRIPT } from "../lib/theme-init-script";
 
 const geistSans = Geist({
@@ -98,6 +99,7 @@ export default async function RootLayout({
       <SoundProvider>
         <ToastProvider>
           <CurrencyProvider>
+            <OfflineBanner />
             <PWAUpdateListener />
             <KeyboardShortcutsModal />
             <CommandPalette />
