@@ -331,16 +331,62 @@ This will:
 
 End-to-end tests simulate actual user interactions inside the browser. These tests are configured in `playwright.config.ts` and reside in the `e2e/` folder.
 
+### Installing Playwright Browsers
+
+Before running E2E tests for the first time, install the required browser binaries (Chromium, Firefox, WebKit):
+
+```bash
+npx playwright install
+```
+
+To install browser system dependencies on Linux/CI environments:
+
+```bash
+npx playwright install-deps
+```
+
 ### Running Playwright Tests
 
 - **Run all E2E tests in headless mode** (runs behind the scenes):
-    `bash
-  npm run test:e2e
-  `
-- **Run E2E tests with Playwright UI** (highly recommended for debugging):
-    `bash
-  npm run test:e2e:ui
-  `
+  ```bash
+  npm run test:e2e
+  ```
+- **Run E2E tests with Playwright Interactive UI Mode** (recommended for debugging and stepping through tests):
+  ```bash
+  npm run test:e2e:ui
+  ```
+- **Run E2E tests in Debug Mode** (launches Playwright Inspector step-by-step):
+  ```bash
+  npx playwright test --debug
+  ```
+
+### Playwright Command Cheat Sheet
+
+| Command | Description |
+| :--- | :--- |
+| `npx playwright install` | Download required browser binaries (Chromium, Firefox, WebKit) |
+| `npm run test:e2e` | Run all E2E test suites in headless mode |
+| `npm run test:e2e:ui` | Open interactive Playwright UI mode with time-travel inspection |
+| `npx playwright test e2e/search.spec.ts` | Run a specific E2E test file |
+| `npx playwright test -g "filter query"` | Run tests matching a specific title or pattern |
+| `npx playwright test --project=chromium` | Run E2E tests using only the Chromium browser |
+| `npx playwright test --headed` | Run tests in visible browser window mode |
+| `npx playwright test --debug` | Step through test execution using Playwright Inspector |
+| `npx playwright show-trace <path-to-trace.zip>` | Open Playwright Trace Viewer for failed test runs |
+
+### Viewing Failure Traces with Playwright Trace Viewer
+
+Playwright automatically records execution traces, DOM snapshots, network logs, and screenshots when a test fails.
+
+1. **Locate the trace archive**: Failed test artifacts are saved in the `test-results/` directory (e.g., `test-results/e2e-search-chromium/trace.zip`).
+2. **Open the Trace Viewer**:
+   ```bash
+   npx playwright show-trace test-results/e2e-search-chromium/trace.zip
+   ```
+3. **Inspect Execution**: The Trace Viewer interface displays:
+   - **Actions Timeline**: Hover over each user action (click, fill, navigate) to view DOM state before and after.
+   - **Console & Network**: Inspect browser console logs and HTTP request/response payloads.
+   - **Source Code**: Step directly into the line of code that triggered the failure.
 
 ### Dev Server Integration
 
@@ -351,10 +397,10 @@ Our E2E suite is configured to automatically launch the Next.js dev server (`npm
 By default, Playwright runs tests in headless mode (no browser window opens).
 
 - To run tests in **headed mode** via command line, pass the `--headed` flag:
-    `bash
-  npx playwright test --headed
-  `
-- To customize browser options or add multiple browsers (e.g., Firefox, WebKit), edit the `projects` section inside [playwright.config.ts](file:///C:/Users/Rajasekar/.gemini/antigravity/scratch/WorkSphere/playwright.config.ts).
+  ```bash
+  npx playwright test --headed
+  ```
+- To customize browser options or add multiple browsers (e.g., Firefox, WebKit), edit the `projects` section inside `playwright.config.ts`.
 
 ---
 
