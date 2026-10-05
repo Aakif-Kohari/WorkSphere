@@ -844,7 +844,7 @@ const Map = ({
     Object.keys(groups).forEach((key) => {
       const groupItems = groups[key];
       const n = groupItems.length;
-      if (n === 1 || isZooming) {
+      if (n === 1) {
         result.push({
           ...groupItems[0],
           renderedLat: Number(groupItems[0].position.lat),
@@ -878,7 +878,7 @@ const Map = ({
       }
     });
     return result;
-  }, [markers, settledZoom, isZooming]);
+  }, [markers, settledZoom]);
 
   // Derive iconUrl directly from clerkUser state
   const iconUrl = useMemo(() => {
@@ -1247,15 +1247,27 @@ const Map = ({
         .map-forecast-controls input[type="range"] {
           width: 120px;
         }
-  .leaflet-control-scale {
-  background: transparent;
-}
+        .leaflet-control-scale {
+          background: transparent;
+        }
 
-.leaflet-control-scale-line {
-  border: 1px solid #3f3f46;
-  background: rgba(24, 24, 27, 0.9);
-  color: #f4f4f5;
-}
+        .leaflet-control-scale-line {
+          border: 1px solid #3f3f46;
+          background: rgba(24, 24, 27, 0.9);
+          color: #f4f4f5;
+        }
+
+        .leaflet-zoom-anim .leaflet-zoom-animated {
+          will-change: transform;
+        }
+
+        .venue-marker {
+          transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+        }
+
+        .interactive-map-pin {
+          will-change: transform;
+        }
       `,
         }}
       />
