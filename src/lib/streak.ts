@@ -103,10 +103,10 @@ export function calculateStreak(
   const newLongest = Math.max(longestStreak, newStreak);
 
   // ── Milestone detection ─────────────────────────────────────────────────
-  // A milestone is "newly unlocked" if the streak just crossed the threshold
-  // from below (previous streak < milestone, new streak >= milestone).
+  // A milestone is "newly unlocked" if the streak has never reached this threshold
+  // before (longestStreak < milestone, newStreak >= milestone).
   const newMilestones = STREAK_MILESTONES.filter(
-    (m) => newStreak >= m && currentStreak < m,
+    (m) => newStreak >= m && longestStreak < m,
   );
 
   return {

@@ -166,6 +166,14 @@ describe("calculateStreak", () => {
       expect(result.newMilestones).not.toContain(5);
     });
 
+    it("does not re-award previously unlocked milestone on streak recovery", () => {
+      // User previously reached a 10-day streak, broke it, and recovered back to 5 days
+      const result = calculateStreak(yesterdayUTC(), 4, 10);
+      expect(result.currentStreak).toBe(5);
+      expect(result.newMilestones).toHaveLength(0);
+      expect(result.newMilestones).not.toContain(5);
+    });
+
     it("does not unlock a milestone on same-day duplicate", () => {
       const result = calculateStreak(todayUTC(), 4, 4);
       expect(result.newMilestones).toHaveLength(0);
