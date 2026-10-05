@@ -1,7 +1,6 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import {
   runMiddlewarePipeline,
-  middlewareMatcher,
   isCsrfExemptRoute,
 } from "./lib/middleware";
 import { generateCryptographicNonce, generateCsp } from "./lib/security/csp";
@@ -27,5 +26,12 @@ export {
 };
 
 export const config = {
-  matcher: middlewareMatcher,
+  matcher: [
+    // Skip static assets (including manifest/service worker) so they aren't gated by auth
+    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|otf|eot|css|js|json|txt|xml|webmanifest)|manifest\\.json|sw\\.js|service-worker\\.js|robots\\.txt).*)",
+    // Always run for API routes
+    "/(api|trpc)(.*)",
+    // Clerk internal proxy routes
+    "/__clerk/:path*",
+  ],
 };

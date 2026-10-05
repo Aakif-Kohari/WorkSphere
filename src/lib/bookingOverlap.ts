@@ -8,8 +8,6 @@ export {
   type BookingSlot,
   type StoredBookingSlot,
   type BookingInterval,
-  DEFAULT_BOOKING_DURATION_MINUTES,
-  CONFLICT_DATE_WINDOW_DAYS,
   bookingInterval,
   intervalsOverlap,
   conflictDateWindow,

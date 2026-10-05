@@ -16,7 +16,7 @@ import {
   savePasskeyChallengeToSession,
   clearPasskeyChallengeFromSession,
   setupPasskeyUnloadCleanup,
-} from "@/lib/passkey";
+} from "@/lib/auth/passkeys/client";
 
 export interface StepUpReAuthModalProps {
   isOpen: boolean;

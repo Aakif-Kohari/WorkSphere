@@ -1,5 +1,6 @@
 /**
- * Compatibility bridge: Re-export from consolidated @/lib/telemetry module.
+ * Compatibility bridge: Re-export from performanceCollector and telemetry types.
  */
 
-export * from "./telemetry/index";
+export * from "./telemetry/collectors/performanceCollector";
+export type * from "./telemetry/types";

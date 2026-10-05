@@ -1,4 +1,4 @@
-import { formatDateTimeForCalendar, generateICSContent } from "@/lib/calendar";
+import { downloadICS, formatDateTimeForCalendar, generateICSContent } from "@/lib/calendar";
 
 describe("formatDateTimeForCalendar", () => {
   it("returns empty strings when date or time is missing", () => {
@@ -123,7 +123,6 @@ describe("downloadICS", () => {
       return el;
     });
 
-    const { downloadICS } = require("@/lib/calendar");
     downloadICS(
       "Indie Desk Hub",
       "42 Market Street",

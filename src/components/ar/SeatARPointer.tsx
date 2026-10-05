@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { useWebXR } from "@/hooks/useWebXR";
 import { useDeviceOrientation } from "@/hooks/useDeviceOrientation";
 import CompassFallback from "./CompassFallback";
-import { Navigation, AlertTriangle, Eye, Compass } from "lucide-react";
+import { Eye } from "lucide-react";
 
 export interface SeatARPointerProps {
   /** Target reserved seat information */
@@ -34,20 +34,20 @@ export interface SeatARPointerProps {
  */
 export function SeatARPointer({
   seatNumber = "1A",
-  seatId,
+  seatId: _seatId,
   venueName = "WorkSphere Venue",
   targetAnchor = { x: 0, y: 0.8, z: -3 }, // default 3 meters ahead
   targetGps,
   onClose,
 }: SeatARPointerProps) {
   const { isSupported, requestSession } = useWebXR();
-  const { heading } = useDeviceOrientation();
+  const { heading: _heading } = useDeviceOrientation();
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const [xrSession, setXrSession] = useState<XRSession | null>(null);
+  const [_xrSession, setXrSession] = useState<XRSession | null>(null);
   const [sessionActive, setSessionActive] = useState(false);
   const [distanceToSeat, setDistanceToSeat] = useState<number>(3.0);
-  const [bearingAngle, setBearingAngle] = useState<number>(0);
+  const [_bearingAngle, _setBearingAngle] = useState<number>(0);
 
   // Fallback to CompassFallback if WebXR is explicitly unsupported
   const isWebXRUnavailable = isSupported === false;
@@ -135,7 +135,7 @@ export function SeatARPointer({
     const targetVector = new THREE.Vector3(targetAnchor.x, targetAnchor.y, targetAnchor.z);
 
     let animationFrameId: number;
-    let clock = new THREE.Clock();
+    const clock = new THREE.Clock();
 
     const animate = () => {
       const elapsedTime = clock.getElapsedTime();

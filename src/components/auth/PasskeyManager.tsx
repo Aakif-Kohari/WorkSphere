@@ -33,7 +33,7 @@ import {
   savePasskeyChallengeToSession,
   clearPasskeyChallengeFromSession,
   setupPasskeyUnloadCleanup,
-} from "@/lib/passkey";
+} from "@/lib/auth/passkeys/client";
 
 export interface PasskeyItem {
   id: string;
@@ -90,7 +90,7 @@ export function PasskeyManager() {
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [showStepUpModal, setShowStepUpModal] = useState(false);
   const [stepUpAction, setStepUpAction] = useState("passkey_management");
-  const [stepUpVerifiedToken, setStepUpVerifiedToken] = useState<string | null>(null);
+  const [_stepUpVerifiedToken, setStepUpVerifiedToken] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const handleCopyId = async (credentialId: string) => {

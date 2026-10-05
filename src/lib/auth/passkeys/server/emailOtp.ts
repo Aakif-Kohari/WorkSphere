@@ -1,5 +1,5 @@
 import { createHmac, randomInt, timingSafeEqual } from "crypto";
-import nodemailer, { type Transporter } from "nodemailer";
+
 import { prisma } from "@/lib/prisma";
 import { escapeHtml } from "@/lib/html";
 import {
@@ -74,9 +74,10 @@ const ACTION_LABELS: Record<PasskeyOtpAction, string> = {
   revoke: "remove",
 };
 
-function createMailer(): Transporter | null {
+async function createMailer() {
   const { SMTP_USER, SMTP_PASS } = process.env;
   if (!SMTP_USER || !SMTP_PASS) return null;
+  const nodemailer = (await import("nodemailer")).default;
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST || "smtp.gmail.com",
     port: parseInt(process.env.SMTP_PORT || "587"),
@@ -93,7 +94,7 @@ async function sendOtpEmail(
   action: PasskeyOtpAction,
   passkeyName: string,
 ): Promise<void> {
-  const mailer = createMailer();
+  const mailer = await createMailer();
   const verb = ACTION_LABELS[action];
   const minutes = Math.round(OTP_TTL_MS / 60000);
 
