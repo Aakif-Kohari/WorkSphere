@@ -377,9 +377,32 @@ export function usePartySocket(options: PartySocketOptions) {
       });
     };
 
+    const maxRetries =
+      options.maxRetries ?? PARTY_SOCKET_RECONNECT_OPTIONS.maxRetries ?? 5;
+
     const handleLeaderClose = (ev: any) => {
       reconnectAttemptRef.current += 1;
-      setReconnectAttempt(reconnectAttemptRef.current);
+      const currentAttempt = reconnectAttemptRef.current;
+      setReconnectAttempt(currentAttempt);
+
+      if (currentAttempt > maxRetries) {
+        setConnectionStatus("offline");
+        onConnectionStatusChangeRef.current?.("offline");
+
+        channelRef.current?.postMessage({
+          type: "RELAY_STATE",
+          room,
+          event: "close",
+          details: {
+            code: ev?.code,
+            reason: ev?.reason,
+            status: "offline",
+            attempt: currentAttempt,
+          },
+        });
+        return;
+      }
+
       setConnectionStatus("reconnecting");
       onConnectionStatusChangeRef.current?.("reconnecting");
 
@@ -387,7 +410,12 @@ export function usePartySocket(options: PartySocketOptions) {
         type: "RELAY_STATE",
         room,
         event: "close",
-        details: { code: ev?.code, reason: ev?.reason },
+        details: {
+          code: ev?.code,
+          reason: ev?.reason,
+          status: "reconnecting",
+          attempt: currentAttempt,
+        },
       });
     };
 
