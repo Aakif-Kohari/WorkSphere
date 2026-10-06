@@ -61,7 +61,7 @@ export function recordApiLatency(
 ): void {
   const sample: PerfSample = {
     route,
-    durationMs,
+    durationMs: isNaN(durationMs) || !isFinite(durationMs) || durationMs < 0 ? 0 : durationMs,
     region,
     timestamp: Date.now(),
   };
@@ -89,6 +89,128 @@ export function recordApiLatency(
   });
 }
 
+// ─── Frame Render Time & Metric Guards (#4382) ─────────────────────────────
+
+export interface FrameRenderMetrics {
+  totalFrames: number;
+  totalDurationMs: number;
+  avgFrameTimeMs: number;
+  fps: number;
+  minFrameTimeMs: number;
+  maxFrameTimeMs: number;
+  p95FrameTimeMs: number;
+}
+
+/**
+ * Validates telemetry metrics payload before dispatching to endpoint (#4382).
+ * Sanitizes any potential NaN, Infinity, or negative values to 0.
+ */
+export function validateTelemetryMetricsPayload<T extends Record<string, any>>(
+  payload: T,
+): T {
+  if (!payload || typeof payload !== "object") return payload;
+
+  const sanitized = { ...payload } as any;
+
+  for (const key of Object.keys(sanitized)) {
+    const val = sanitized[key];
+    if (typeof val === "number") {
+      if (isNaN(val) || !isFinite(val) || val < 0) {
+        sanitized[key] = 0;
+      }
+    }
+  }
+
+  return sanitized;
+}
+
+/**
+ * Computes average frame render time safely, guarding against zero frame counts,
+ * empty sample buffers, and 0ms total duration (#4382).
+ */
+export function calculateAverageFrameTime(
+  frameDurationsMs: number[] = [],
+  totalDurationMs = 0,
+): number {
+  if (!frameDurationsMs || frameDurationsMs.length === 0) {
+    return 0;
+  }
+
+  const valid = frameDurationsMs.filter(
+    (d) => typeof d === "number" && !isNaN(d) && isFinite(d) && d >= 0,
+  );
+
+  if (valid.length === 0) {
+    return 0;
+  }
+
+  const sum = valid.reduce((acc, curr) => acc + curr, 0);
+  const totalTime = sum > 0 ? sum : totalDurationMs;
+
+  if (totalTime <= 0 || valid.length === 0) {
+    return 0;
+  }
+
+  const avg = sum / valid.length;
+  return isNaN(avg) || !isFinite(avg) ? 0 : Math.round(avg * 100) / 100;
+}
+
+/**
+ * Calculates complete frame render metrics payload with zero-frame guards and metric payload validation.
+ */
+export function calculateFrameMetrics(
+  frameDurationsMs: number[] = [],
+  totalDurationMs = 0,
+): FrameRenderMetrics {
+  if (!frameDurationsMs || frameDurationsMs.length === 0) {
+    return {
+      totalFrames: 0,
+      totalDurationMs: 0,
+      avgFrameTimeMs: 0,
+      fps: 0,
+      minFrameTimeMs: 0,
+      maxFrameTimeMs: 0,
+      p95FrameTimeMs: 0,
+    };
+  }
+
+  const valid = frameDurationsMs.filter(
+    (d) => typeof d === "number" && !isNaN(d) && isFinite(d) && d >= 0,
+  );
+
+  if (valid.length === 0) {
+    return {
+      totalFrames: 0,
+      totalDurationMs: 0,
+      avgFrameTimeMs: 0,
+      fps: 0,
+      minFrameTimeMs: 0,
+      maxFrameTimeMs: 0,
+      p95FrameTimeMs: 0,
+    };
+  }
+
+  const sorted = [...valid].sort((a, b) => a - b);
+  const sum = sorted.reduce((a, b) => a + b, 0);
+  const duration = totalDurationMs > 0 ? totalDurationMs : sum;
+
+  const avgFrameTimeMs = calculateAverageFrameTime(valid, duration);
+  const fps =
+    duration > 0 && valid.length > 0
+      ? Math.round((valid.length / (duration / 1000)) * 10) / 10
+      : 0;
+
+  return validateTelemetryMetricsPayload({
+    totalFrames: valid.length,
+    totalDurationMs: Math.max(0, duration),
+    avgFrameTimeMs,
+    fps: isNaN(fps) || !isFinite(fps) ? 0 : fps,
+    minFrameTimeMs: sorted[0] || 0,
+    maxFrameTimeMs: sorted[sorted.length - 1] || 0,
+    p95FrameTimeMs: Math.round(percentile(sorted, 95)),
+  });
+}
+
 // ─── Stats helpers ────────────────────────────────────────────────────────────
 
 function percentile(sorted: number[], p: number): number {
@@ -101,8 +223,14 @@ function percentile(sorted: number[], p: number): number {
 }
 
 function average(values: number[]): number {
-  if (values.length === 0) return 0;
-  return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+  if (!values || values.length === 0) return 0;
+  const valid = values.filter(
+    (v) => typeof v === "number" && !isNaN(v) && isFinite(v),
+  );
+  if (valid.length === 0) return 0;
+  const sum = valid.reduce((a, b) => a + b, 0);
+  const avg = sum / valid.length;
+  return isNaN(avg) || !isFinite(avg) ? 0 : Math.round(avg);
 }
 
 function buildHourlyTrend(
@@ -136,8 +264,6 @@ function buildHourlyTrend(
 }
 
 function buildSummaryFromSamples(samples: PerfSample[]): PerformanceSummary {
-  // Callers hand samples oldest-first (memory) or newest-first (Redis LRANGE
-  // after LPUSH). Normalize to newest-first so recentSamples is correct either way.
   const byTimeDesc = [...samples].sort((a, b) => b.timestamp - a.timestamp);
   const allDurations = samples.map((s) => s.durationMs).sort((a, b) => a - b);
   const slowCount = allDurations.filter((d) => d >= SLOW_THRESHOLD_MS).length;
@@ -154,7 +280,7 @@ function buildSummaryFromSamples(samples: PerfSample[]): PerformanceSummary {
     .map(([region, { total, count }]) => ({
       region,
       count,
-      avgMs: Math.round(total / count),
+      avgMs: count > 0 ? Math.round(total / count) : 0,
     }))
     .sort((a, b) => b.count - a.count);
 
@@ -247,16 +373,18 @@ export async function getPerformanceSummary(): Promise<PerformanceSummary> {
 }
 
 export function logFpsTelemetry(data: FpsTelemetryData) {
+  const validated = validateTelemetryMetricsPayload(data);
+
   if (process.env.NODE_ENV === "development") {
     console.debug(
-      `[Telemetry] FPS: ${data.fps.toFixed(1)} | Frame Time: ${data.frameTimeMs.toFixed(2)}ms | Steps: ${data.raymarchSteps}`,
+      `[Telemetry] FPS: ${validated.fps.toFixed(1)} | Frame Time: ${validated.frameTimeMs.toFixed(2)}ms | Steps: ${validated.raymarchSteps}`,
     );
   }
 
   if (typeof window !== "undefined" && (window as any).WorkSphereTelemetry) {
     (window as any).WorkSphereTelemetry.track(
       "cloud_renderer_performance",
-      data,
+      validated,
     );
   }
 }
