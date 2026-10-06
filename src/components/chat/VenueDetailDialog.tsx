@@ -56,6 +56,7 @@ import { Venue } from "./ChatMessages";
 import { RatingDistribution } from "./RatingDistribution";
 import { AmenityVoteBreakdownModal } from "./AmenityVoteBreakdownModal";
 import { NoiseReportingWidget } from "@/components/noise/NoiseReportingWidget";
+import { AmbientNoiseSpectrumVisualizer } from "@/components/noise/AmbientNoiseSpectrumVisualizer";
 import { AudioEqualizer } from "@/components/audio/AudioEqualizer";
 import {
   NoiseTimelineChart,
@@ -1551,6 +1552,15 @@ export function VenueDetailDialog({
                   />
                 </div>
               )}
+
+              {/* Ambient Noise Spectrum Frequency Visualization */}
+              <div className="mb-6">
+                <AmbientNoiseSpectrumVisualizer
+                  venueId={venue.id}
+                  venueName={venue.name}
+                  noiseLevel={venue.noiseLevel}
+                />
+              </div>
 
               <div className="mb-6">
                 <NoiseReportingWidget
