@@ -293,6 +293,8 @@ export default async function VenuePage({ params }: PageProps) {
 
             <AmenityStatusIncidentTracker venueId={venue.id} venueName={venue.name} />
 
+            <FavoriteDesksDrawer venueId={venue.id} venueName={venue.name} />
+
             <div className="pt-2">
               <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-3 flex items-center gap-2">
                 <span>Expected Noise Levels</span>
