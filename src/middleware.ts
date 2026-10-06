@@ -2,6 +2,8 @@ import { clerkMiddleware } from "@clerk/nextjs/server";
 import {
   runMiddlewarePipeline,
   isCsrfExemptRoute,
+  ROUTE_PERMISSIONS,
+  type RoutePermissionRule,
 } from "./lib/middleware";
 import { generateCryptographicNonce, generateCsp } from "./lib/security/csp";
 import { matchRateTier, getClientIp } from "./lib/tokenBucketRateLimit";
@@ -23,6 +25,8 @@ export {
   isCsrfExemptRoute,
   matchRateTier,
   getClientIp,
+  ROUTE_PERMISSIONS,
+  type RoutePermissionRule,
 };
 
 export const config = {
