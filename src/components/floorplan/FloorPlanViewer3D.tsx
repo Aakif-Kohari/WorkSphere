@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { FloorplanRenderer } from "@/lib/floorplan/floorplanRenderer";
+import {
+  calculateNavigationPath,
+  type NavigationRoute,
+} from "@/lib/floorplan/accessibleNavigation";
 
 export type SeatProps = {
   id: string;
@@ -44,6 +48,8 @@ export default function FloorPlanViewer3D({
 }: FloorPlanViewer3DProps) {
   const [hoveredSeat, setHoveredSeat] = useState<string | null>(null);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
+  const [accessibleNav, setAccessibleNav] = useState(false);
+  const [activeRoute, setActiveRoute] = useState<NavigationRoute | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<FloorplanRenderer | null>(null);
 
@@ -106,6 +112,23 @@ export default function FloorPlanViewer3D({
   useEffect(() => {
     rendererRef.current?.setSelectedSeat(selectedSeat);
   }, [selectedSeat]);
+
+  useEffect(() => {
+    rendererRef.current?.setAccessibleNavigation(accessibleNav);
+
+    if (selectedSeat) {
+      const route = calculateNavigationPath({
+        seats,
+        targetSeatId: selectedSeat,
+        accessibleOnly: accessibleNav,
+      });
+      setActiveRoute(route);
+      rendererRef.current?.setNavigationRoute(route);
+    } else {
+      setActiveRoute(null);
+      rendererRef.current?.setNavigationRoute(null);
+    }
+  }, [selectedSeat, accessibleNav, seats]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (
@@ -172,13 +195,15 @@ export default function FloorPlanViewer3D({
     (hoveredHold.remainingSeconds === undefined ||
       hoveredHold.remainingSeconds > 0);
 
+  const selectedSeatData = seats.find((seat) => seat.id === selectedSeat);
+
   return (
     <div
       tabIndex={0}
       role="region"
       aria-label="Interactive floorplan viewer. Use arrow keys to pan, plus and minus keys to zoom, and Escape to deselect."
       onKeyDown={handleKeyDown}
-      className="relative flex h-[450px] w-full select-none flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#111821] focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-950"
+      className="relative flex h-[480px] w-full select-none flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#111821] focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-950"
     >
       <canvas
         ref={canvasRef}
@@ -186,6 +211,7 @@ export default function FloorPlanViewer3D({
         className="absolute inset-0 h-full w-full"
       />
 
+      {/* Top Left: Legend */}
       <div className="pointer-events-none absolute left-4 top-4 z-10 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-white/10 bg-black/60 px-3 py-2 text-xs text-zinc-200 backdrop-blur-md">
         <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-sm bg-[#3b82f6]" /> Desk
@@ -202,18 +228,81 @@ export default function FloorPlanViewer3D({
         <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-sm bg-[#ef4444]" /> Occupied
         </span>
+        {accessibleNav && (
+          <span className="flex items-center gap-1.5 text-emerald-400">
+            <span className="h-2.5 w-2.5 rounded-sm bg-[#10b981]" /> Step-free (Ramp / Elevator)
+          </span>
+        )}
       </div>
 
-      <div className="pointer-events-none absolute bottom-4 left-4 z-10 max-w-[min(75%,24rem)] rounded-md border border-white/10 bg-black/60 px-3 py-2 text-sm text-white backdrop-blur-md">
-        {hoveredSeatData
-          ? hoveredSeatHeldByOther
-            ? `${hoveredSeatData.seatNumber} · Held by ${hoveredHold.heldByName || "someone else"} (${hoveredHold.remainingSeconds ?? 300}s)`
-            : hoveredHold?.isSelf
-              ? `${hoveredSeatData.seatNumber} · Held by you`
-              : `${hoveredSeatData.seatNumber} · ${hoveredSeatData.available ? "Available" : "Occupied"}`
-          : selectedSeat
-            ? `Selected ${seats.find((seat) => seat.id === selectedSeat)?.seatNumber ?? "seat"}`
-            : "Select a desk to focus"}
+      {/* Top Right: Accessible Navigation Toggle */}
+      <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setAccessibleNav((prev) => !prev)}
+          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all backdrop-blur-md shadow-sm ${
+            accessibleNav
+              ? "border-emerald-500/50 bg-emerald-950/80 text-emerald-300 ring-1 ring-emerald-500/30"
+              : "border-white/10 bg-black/60 text-zinc-300 hover:bg-white/10 hover:text-white"
+          }`}
+          aria-pressed={accessibleNav}
+          title="Toggle step-free accessible navigation path avoiding stairs and turnstiles"
+        >
+          <span className="text-sm">♿</span>
+          <span>Accessible Navigation</span>
+          <span
+            className={`h-2 w-2 rounded-full ${
+              accessibleNav ? "bg-emerald-400 animate-pulse" : "bg-zinc-600"
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Bottom Overlay: Seat Status & Accessible Route Details */}
+      <div className="pointer-events-none absolute bottom-4 left-4 right-4 z-10 flex flex-col gap-2 sm:max-w-[min(85%,30rem)]">
+        <div className="rounded-md border border-white/10 bg-black/75 px-3.5 py-2.5 text-sm text-white backdrop-blur-md shadow-lg">
+          {hoveredSeatData ? (
+            hoveredSeatHeldByOther ? (
+              `${hoveredSeatData.seatNumber} · Held by ${hoveredHold.heldByName || "someone else"} (${hoveredHold.remainingSeconds ?? 300}s)`
+            ) : hoveredHold?.isSelf ? (
+              `${hoveredSeatData.seatNumber} · Held by you`
+            ) : (
+              `${hoveredSeatData.seatNumber} · ${hoveredSeatData.available ? "Available" : "Occupied"}`
+            )
+          ) : selectedSeatData ? (
+            <div>
+              <div className="font-medium text-indigo-300">
+                Selected {selectedSeatData.seatNumber} · {selectedSeatData.type.replace(/_/g, " ").toLowerCase()}
+              </div>
+              {activeRoute && (
+                <div className="mt-1 flex flex-col gap-1 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-semibold ${
+                        activeRoute.isAccessible
+                          ? "bg-emerald-500/20 text-emerald-300"
+                          : "bg-amber-500/20 text-amber-300"
+                      }`}
+                    >
+                      {activeRoute.isAccessible ? "♿ Step-Free Route" : "Standard Route"}
+                    </span>
+                    <span className="text-zinc-300">{activeRoute.totalDistanceMeters}m from Entrance</span>
+                    {activeRoute.isAccessible && (
+                      <span className="text-emerald-400 font-medium">· 0 Stairs</span>
+                    )}
+                  </div>
+                  {activeRoute.accessibleFeatures.length > 0 && (
+                    <p className="text-zinc-400 leading-tight">
+                      Via: {activeRoute.accessibleFeatures.join(" · ")}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            "Select a desk to preview navigation route"
+          )}
+        </div>
       </div>
 
       {webglUnavailable && (
@@ -262,4 +351,4 @@ export default function FloorPlanViewer3D({
       )}
     </div>
   );
-}
+}

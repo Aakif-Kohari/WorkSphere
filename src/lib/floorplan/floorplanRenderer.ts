@@ -11,6 +11,7 @@ import {
   type FloorplanRenderTargets,
 } from "@/lib/floorplan/floorplanShaders";
 import type { SeatProps } from "@/components/floorplan/FloorPlanViewer3D";
+import type { NavigationRoute } from "@/lib/floorplan/accessibleNavigation";
 
 type ShaderMaterials = ReturnType<typeof createFloorplanShaderMaterials>;
 
@@ -43,6 +44,8 @@ export class FloorplanRenderer {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(43, 1, 0.1, 100);
   private readonly seatGroup = new THREE.Group();
+  private readonly navigationGroup = new THREE.Group();
+  private readonly architecturalGroup = new THREE.Group();
   private readonly normalMaterial = new THREE.MeshNormalMaterial({
     side: THREE.DoubleSide,
   });
@@ -62,6 +65,9 @@ export class FloorplanRenderer {
   private callbacks: FloorplanRendererCallbacks;
   private selectedSeat: string | null = null;
   private hoveredSeat: string | null = null;
+  private accessibleNavigationEnabled = false;
+  private currentRoute: NavigationRoute | null = null;
+  private routeLineMesh: THREE.Mesh | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private animationFrame = 0;
   private destroyed = false;
@@ -113,6 +119,46 @@ export class FloorplanRenderer {
 
   setCallbacks(callbacks: FloorplanRendererCallbacks) {
     this.callbacks = callbacks;
+  }
+
+  setAccessibleNavigation(enabled: boolean) {
+    this.accessibleNavigationEnabled = enabled;
+    this.updateArchitecturalHighlights();
+    if (this.currentRoute) {
+      this.setNavigationRoute(this.currentRoute);
+    }
+  }
+
+  setNavigationRoute(route: NavigationRoute | null) {
+    this.currentRoute = route;
+
+    if (this.routeLineMesh) {
+      this.navigationGroup.remove(this.routeLineMesh);
+      disposeObject(this.routeLineMesh);
+      this.routeLineMesh = null;
+    }
+
+    if (!route || route.points3D.length < 2) {
+      return;
+    }
+
+    const vectors = route.points3D.map(([x, y, z]) => new THREE.Vector3(x, y + 0.08, z));
+    const curve = new THREE.CatmullRomCurve3(vectors);
+    const tubeGeometry = new THREE.TubeGeometry(curve, vectors.length * 8, 0.12, 8, false);
+
+    const isEmerald = this.accessibleNavigationEnabled && route.isAccessible;
+    const material = new THREE.MeshStandardMaterial({
+      color: isEmerald ? "#10b981" : "#818cf8",
+      emissive: isEmerald ? "#059669" : "#4f46e5",
+      emissiveIntensity: 0.6,
+      roughness: 0.2,
+      metalness: 0.1,
+    });
+
+    const tubeMesh = new THREE.Mesh(tubeGeometry, material);
+    tubeMesh.userData = { accessibleRoute: route.isAccessible };
+    this.routeLineMesh = tubeMesh;
+    this.navigationGroup.add(tubeMesh);
   }
 
   setSeats(seats: SeatProps[]) {
@@ -238,6 +284,8 @@ export class FloorplanRenderer {
     keyLight.position.set(-8, 18, 9);
     this.scene.add(keyLight);
     this.scene.add(this.seatGroup);
+    this.scene.add(this.architecturalGroup);
+    this.scene.add(this.navigationGroup);
 
     const floorWidth = SVG_WIDTH * SCENE_SCALE;
     const floorDepth = SVG_HEIGHT * SCENE_SCALE;
@@ -296,6 +344,128 @@ export class FloorplanRenderer {
       mesh.position.set(wall.x, shellHeight / 2, wall.z);
       this.scene.add(mesh);
     }
+
+    this.setupArchitecturalMeshes();
+  }
+
+  /**
+   * Sets up 3D architectural nodes: Flat Ramps, Elevator Corridors, Stairs, and Gates
+   * tagged with metadata property accessibleRoute: boolean.
+   */
+  private setupArchitecturalMeshes() {
+    this.architecturalGroup.children.forEach(disposeObject);
+    this.architecturalGroup.clear();
+
+    // 1. Flat Access Ramp (South-West) - accessibleRoute: true
+    const rampGeom = new THREE.BoxGeometry(1.8, 0.08, 3.2);
+    const rampMat = new THREE.MeshStandardMaterial({
+      color: "#10b981",
+      roughness: 0.4,
+      metalness: 0.1,
+    });
+    const rampMesh = new THREE.Mesh(rampGeom, rampMat);
+    rampMesh.position.set(-3, 0.04, 7.5);
+    rampMesh.userData = {
+      accessibleRoute: true,
+      name: "Wide Access Gate & Flat Ramp",
+      type: "ramp",
+    };
+    this.architecturalGroup.add(rampMesh);
+
+    // 2. Elevator Concourse (West) - accessibleRoute: true
+    const elevGeom = new THREE.BoxGeometry(2.4, 0.06, 3.5);
+    const elevMat = new THREE.MeshStandardMaterial({
+      color: "#059669",
+      roughness: 0.3,
+      metalness: 0.2,
+    });
+    const elevMesh = new THREE.Mesh(elevGeom, elevMat);
+    elevMesh.position.set(-4.5, 0.03, 1);
+    elevMesh.userData = {
+      accessibleRoute: true,
+      name: "Elevator Lobby & Wide Corridor",
+      type: "elevator",
+    };
+    this.architecturalGroup.add(elevMesh);
+
+    // 3. North Flat Ramp - accessibleRoute: true
+    const northRampGeom = new THREE.BoxGeometry(1.6, 0.08, 2.8);
+    const northRampMat = new THREE.MeshStandardMaterial({
+      color: "#10b981",
+      roughness: 0.4,
+    });
+    const northRampMesh = new THREE.Mesh(northRampGeom, northRampMat);
+    northRampMesh.position.set(-4, 0.04, -3);
+    northRampMesh.userData = {
+      accessibleRoute: true,
+      name: "North Deck Flat Ramp",
+      type: "ramp",
+    };
+    this.architecturalGroup.add(northRampMesh);
+
+    // 4. East Mezzanine Stairs - accessibleRoute: false
+    const stairsGeom = new THREE.BoxGeometry(1.4, 0.4, 3.0);
+    const stairsMat = new THREE.MeshStandardMaterial({
+      color: "#64748b",
+      roughness: 0.8,
+    });
+    const stairsMesh = new THREE.Mesh(stairsGeom, stairsMat);
+    stairsMesh.position.set(5, 0.2, 1);
+    stairsMesh.userData = {
+      accessibleRoute: false,
+      name: "East Mezzanine Stairs",
+      type: "stairs",
+    };
+    this.architecturalGroup.add(stairsMesh);
+
+    // 5. Turnstiles - accessibleRoute: false
+    const turnstileGeom = new THREE.BoxGeometry(1.2, 0.6, 0.8);
+    const turnstileMat = new THREE.MeshStandardMaterial({
+      color: "#94a3b8",
+      roughness: 0.5,
+    });
+    const turnstileMesh = new THREE.Mesh(turnstileGeom, turnstileMat);
+    turnstileMesh.position.set(3, 0.3, 7.5);
+    turnstileMesh.userData = {
+      accessibleRoute: false,
+      name: "Turnstile Security Gate",
+      type: "turnstile",
+    };
+    this.architecturalGroup.add(turnstileMesh);
+
+    this.updateArchitecturalHighlights();
+  }
+
+  private updateArchitecturalHighlights() {
+    this.architecturalGroup.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.userData) return;
+
+      const isAccessible = mesh.userData.accessibleRoute === true;
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+
+      if (isAccessible) {
+        if (this.accessibleNavigationEnabled) {
+          mat.color.set("#10b981");
+          mat.emissive.set("#059669");
+          mat.emissiveIntensity = 0.4;
+        } else {
+          mat.color.set("#2dd4bf");
+          mat.emissive.set("#000000");
+          mat.emissiveIntensity = 0;
+        }
+      } else {
+        if (this.accessibleNavigationEnabled) {
+          mat.color.set("#475569");
+          mat.opacity = 0.4;
+          mat.transparent = true;
+        } else {
+          mat.color.set("#94a3b8");
+          mat.opacity = 1.0;
+          mat.transparent = false;
+        }
+      }
+    });
   }
 
   private setupCamera() {
