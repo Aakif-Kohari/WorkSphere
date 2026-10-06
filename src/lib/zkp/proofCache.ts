@@ -17,6 +17,7 @@
  *    replacement is generated in the background; expired ones are deleted.
  *  - Storing a proof for a new credential evicts the previous credential's
  *    proof in the same scope, and server rejections evict the entry.
+ *  - Enforces a configurable byte budget (default 50MB) with LRU eviction.
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
@@ -37,6 +38,10 @@ export interface ProofCacheEntry extends CachedProof {
   refreshAt: number;
   /** After this, the entry is never served. */
   expiresAt: number;
+  /** Approximate serialized memory/storage byte size */
+  byteSize: number;
+  /** Timestamp of most recent read/write for LRU tracking */
+  lastAccessedAt: number;
 }
 
 export type ProofSource = "cache" | "stale-cache" | "generated";
@@ -46,10 +51,13 @@ export interface ProofCacheOptions {
   freshMs?: number;
   /** Hard limit on how long a proof may sit in storage. Default 24 h. */
   maxAgeMs?: number;
+  /** Maximum aggregate byte size allowed in the proof cache before LRU eviction. Default 50 MB. */
+  maxByteSize?: number;
 }
 
 export const DEFAULT_FRESH_MS = 12 * 60 * 60 * 1000;
 export const DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_MAX_CACHE_BYTES = 50 * 1024 * 1024; // 50 MB
 
 const DB_NAME = "worksphere-zkp-proofs";
 const STORE = "proofs";
@@ -81,6 +89,22 @@ function getDb(): Promise<IDBPDatabase<ProofCacheDB>> {
 
 export function isProofCacheAvailable(): boolean {
   return typeof indexedDB !== "undefined";
+}
+
+/**
+ * Calculates the approximate serialized memory footprint of a cached proof in bytes.
+ */
+export function calculateProofEntryBytes(
+  proof: CachedProof | ProofCacheEntry | unknown,
+): number {
+  try {
+    const json = JSON.stringify(proof);
+    return typeof Buffer !== "undefined"
+      ? Buffer.byteLength(json, "utf8")
+      : new TextEncoder().encode(json).length;
+  } catch {
+    return 1024;
+  }
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -135,7 +159,12 @@ export async function getCachedProof(scope: string, commit: string): Promise<Pro
   try {
     const db = await getDb();
     const entry = await db.get(STORE, entryKey(scope, commit));
-    if (entry && isUsable(entry, commit, epoch, Date.now())) return entry;
+    if (entry && isUsable(entry, commit, epoch, Date.now())) {
+      // Refresh lastAccessedAt for LRU accuracy
+      entry.lastAccessedAt = Date.now();
+      void db.put(STORE, entry).catch(() => {});
+      return entry;
+    }
     if (entry) await db.delete(STORE, entry.key);
   } catch {
     // IndexedDB blocked (private mode, quota): behave as a miss
@@ -145,7 +174,7 @@ export async function getCachedProof(scope: string, commit: string): Promise<Pro
 
 /**
  * Store a proof for `commit`, replacing any other credential's proof in the
- * same scope (one active identity per scope).
+ * same scope (one active identity per scope) and enforcing byte budget LRU eviction.
  */
 export async function storeProof(
   scope: string,
@@ -160,6 +189,9 @@ export async function storeProof(
   const now = Date.now();
   const maxAge = options.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
   const fresh = Math.min(options.freshMs ?? DEFAULT_FRESH_MS, maxAge);
+  const maxByteSize = options.maxByteSize ?? DEFAULT_MAX_CACHE_BYTES;
+  const entryBytes = calculateProofEntryBytes(proof);
+
   const entry: ProofCacheEntry = {
     key: entryKey(scope, commit),
     scope,
@@ -170,12 +202,32 @@ export async function storeProof(
     createdAt: now,
     refreshAt: now + fresh,
     expiresAt: now + maxAge,
+    byteSize: entryBytes,
+    lastAccessedAt: now,
   };
 
   const attemptWrite = async (database: any) => {
     const tx = database.transaction(STORE, "readwrite");
     const others = await tx.store.index("scope").getAllKeys(scope);
     await Promise.all(others.filter((k: string) => k !== entry.key).map((k: string) => tx.store.delete(k)));
+
+    // Byte budget eviction
+    const allEntries: ProofCacheEntry[] = await tx.store.getAll();
+    let totalBytes = allEntries.reduce((acc, e) => acc + (e.byteSize || calculateProofEntryBytes(e)), 0);
+
+    // Evict oldest (least recently accessed) entries until new entry fits within maxByteSize
+    if (totalBytes + entryBytes > maxByteSize) {
+      const sorted = allEntries
+        .filter((e) => e.key !== entry.key)
+        .sort((a, b) => (a.lastAccessedAt || a.createdAt) - (b.lastAccessedAt || b.createdAt));
+
+      for (const oldest of sorted) {
+        if (totalBytes + entryBytes <= maxByteSize) break;
+        await tx.store.delete(oldest.key);
+        totalBytes -= oldest.byteSize || calculateProofEntryBytes(oldest);
+      }
+    }
+
     await tx.store.put(entry);
     await tx.done;
   };
