@@ -112,8 +112,7 @@ export default function GuestsInput({
       e.preventDefault();
       addGuest();
     }
-    if (e.key === "," || e.key === " ") {
-      // Only add on comma or space if there's content
+    if (e.key === ",") {
       if (emailInput.trim()) {
         e.preventDefault();
         addGuest();
