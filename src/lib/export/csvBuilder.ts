@@ -21,7 +21,7 @@ export function escapeCSVField(
 
   let str: string;
   if (val instanceof Date) {
-    str = val.toISOString();
+    str = isNaN(val.getTime()) ? "" : val.toISOString();
   } else {
     str = String(val);
   }
