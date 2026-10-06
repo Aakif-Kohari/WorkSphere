@@ -143,7 +143,15 @@ export function formatWalkingBadgeWithUnit(
   distanceKm: number,
   unit?: DistanceUnit,
 ): string {
-  if (!Number.isFinite(distanceKm) || distanceKm < 0) return "--";
+  if (
+    distanceKm == null ||
+    typeof distanceKm !== "number" ||
+    !Number.isFinite(distanceKm) ||
+    isNaN(distanceKm) ||
+    distanceKm < 0
+  ) {
+    return "--";
+  }
 
   // 4.8 km/h = 0.08 km/min
   const mins = distanceKm <= 0 ? 0 : Math.ceil(distanceKm / 0.08);
