@@ -82,9 +82,12 @@ export async function GET(req: NextRequest) {
       include: {
         venue: {
           select: {
+            id: true,
             name: true,
             category: true,
             address: true,
+            latitude: true,
+            longitude: true,
           },
         },
       },

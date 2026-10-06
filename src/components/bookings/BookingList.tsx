@@ -15,6 +15,7 @@ import { getCalendarUrls, downloadICS } from "@/lib/calendar";
 import { BookingHistoryList } from "@/app/dashboard/BookingHistoryList";
 import { ExportBookingsCSVButton } from "@/components/bookings/ExportBookingsCSVButton";
 import { RescheduleModal } from "@/components/bookings/RescheduleModal";
+import { GeoCheckInReminderBanner } from "@/components/bookings/GeoCheckInReminderBanner";
 
 export interface BookingSummary {
   id: string;
@@ -25,10 +26,14 @@ export interface BookingSummary {
   seatNumber?: string | null;
   duration?: number | null;
   createdAt: string;
+  venueId?: string;
   venue: {
+    id?: string;
     name: string;
     category: string;
     address: string | null;
+    latitude?: number;
+    longitude?: number;
   } | null;
 }
 
@@ -338,6 +343,8 @@ export function BookingList({
 
   return (
     <div className="space-y-5">
+      <GeoCheckInReminderBanner bookings={bookings} onCheckInSuccess={load} />
+
       {message && (
         <p
           role="status"
