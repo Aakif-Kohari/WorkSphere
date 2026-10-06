@@ -2,6 +2,36 @@ import crypto from "crypto";
 
 export type SignatureAlgorithm = "RSA-SHA256" | "ECDSA-P256" | "ECDSA-P384";
 
+export interface AlgorithmConfig {
+  type: "rsa" | "ec";
+  hash: "SHA256" | "SHA384";
+  curve?: string;
+  modulusLength?: number;
+  dsaEncoding?: "der";
+  padding?: number;
+}
+
+export const ALGORITHM_CONFIGS: Record<SignatureAlgorithm, AlgorithmConfig> = {
+  "RSA-SHA256": {
+    type: "rsa",
+    hash: "SHA256",
+    modulusLength: 2048,
+    padding: crypto.constants.RSA_PKCS1_PADDING,
+  },
+  "ECDSA-P256": {
+    type: "ec",
+    hash: "SHA256",
+    curve: "prime256v1",
+    dsaEncoding: "der",
+  },
+  "ECDSA-P384": {
+    type: "ec",
+    hash: "SHA384",
+    curve: "secp384r1",
+    dsaEncoding: "der",
+  },
+};
+
 export interface ReservationReceiptPayload {
   bookingId: string;
   confirmationId: string;
@@ -38,7 +68,8 @@ export interface ReceiptVerificationResult {
 }
 
 /**
- * Deterministically creates a canonical JSON string for signing by sorting keys.
+ * Deterministically creates a canonical JSON string for signing by sorting keys
+ * and omitting undefined values.
  */
 export function canonicalizeReceiptPayload(payload: ReservationReceiptPayload): string {
   const sortedKeys = Object.keys(payload).sort() as (keyof ReservationReceiptPayload)[];
@@ -69,24 +100,24 @@ export function generateReceiptKeyPair(
   publicKeyPem: string;
   privateKeyPem: string;
 } {
-  if (type === "RSA" || type === "RSA-SHA256") {
+  const normType: SignatureAlgorithm =
+    type === "RSA" || type === "RSA-SHA256"
+      ? "RSA-SHA256"
+      : type === "ECDSA-P384"
+        ? "ECDSA-P384"
+        : "ECDSA-P256";
+
+  const config = ALGORITHM_CONFIGS[normType];
+  if (config.type === "rsa") {
     const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
-      modulusLength: 2048,
-      publicKeyEncoding: { type: "spki", format: "pem" },
-      privateKeyEncoding: { type: "pkcs8", format: "pem" },
-    });
-    return { publicKeyPem: publicKey, privateKeyPem: privateKey };
-  } else if (type === "ECDSA-P384") {
-    const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", {
-      namedCurve: "secp384r1", // P-384 / prime384v1 (384-bit curve)
+      modulusLength: config.modulusLength || 2048,
       publicKeyEncoding: { type: "spki", format: "pem" },
       privateKeyEncoding: { type: "pkcs8", format: "pem" },
     });
     return { publicKeyPem: publicKey, privateKeyPem: privateKey };
   } else {
-    // ECDSA / ECDSA-P256 default
     const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", {
-      namedCurve: "prime256v1", // P-256 (256-bit curve)
+      namedCurve: config.curve || "prime256v1",
       publicKeyEncoding: { type: "spki", format: "pem" },
       privateKeyEncoding: { type: "pkcs8", format: "pem" },
     });
@@ -100,7 +131,7 @@ function getDefaultKeyPair(algorithm: SignatureAlgorithm): {
 } {
   if (algorithm === "RSA-SHA256") {
     if (!defaultRsaKeyPair) {
-      const generated = generateReceiptKeyPair("RSA");
+      const generated = generateReceiptKeyPair("RSA-SHA256");
       defaultRsaKeyPair = {
         publicKey: generated.publicKeyPem,
         privateKey: generated.privateKeyPem,
@@ -150,6 +181,7 @@ export function signReservationReceipt(
   } = {}
 ): CryptographicReceiptSignature {
   const algorithm = options.algorithm || "RSA-SHA256";
+  const config = ALGORITHM_CONFIGS[algorithm] || ALGORITHM_CONFIGS["RSA-SHA256"];
   const keys =
     options.privateKeyPem && options.publicKeyPem
       ? { privateKeyPem: options.privateKeyPem, publicKeyPem: options.publicKeyPem }
@@ -158,33 +190,17 @@ export function signReservationReceipt(
   const canonicalPayload = canonicalizeReceiptPayload(payload);
   const digest = computeReceiptDigest(canonicalPayload);
 
-  let signatureBase64: string;
+  const signer = crypto.createSign(config.hash);
+  signer.update(canonicalPayload, "utf8");
+  signer.end();
 
-  if (algorithm === "RSA-SHA256") {
-    const signer = crypto.createSign("SHA256");
-    signer.update(canonicalPayload, "utf8");
-    signer.end();
-    signatureBase64 = signer.sign(
-      {
-        key: keys.privateKeyPem,
-        padding: crypto.constants.RSA_PKCS1_PADDING,
-      },
-      "base64"
-    );
-  } else {
-    // ECDSA
-    const hashType = algorithm === "ECDSA-P384" ? "SHA384" : "SHA256";
-    const signer = crypto.createSign(hashType);
-    signer.update(canonicalPayload, "utf8");
-    signer.end();
-    signatureBase64 = signer.sign(
-      {
-        key: keys.privateKeyPem,
-        dsaEncoding: "der",
-      },
-      "base64"
-    );
-  }
+  const signOptions: crypto.SignPrivateKeyInput = {
+    key: keys.privateKeyPem,
+    ...(config.padding ? { padding: config.padding } : {}),
+    ...(config.dsaEncoding ? { dsaEncoding: config.dsaEncoding } : {}),
+  };
+
+  const signatureBase64 = signer.sign(signOptions, "base64");
 
   return {
     signature: signatureBase64,
@@ -207,43 +223,32 @@ export function verifyReservationReceipt(
   algorithm: SignatureAlgorithm = "RSA-SHA256"
 ): ReceiptVerificationResult {
   try {
+    const config = ALGORITHM_CONFIGS[algorithm] || ALGORITHM_CONFIGS["RSA-SHA256"];
     const canonicalPayload = canonicalizeReceiptPayload(payload);
     const expectedDigest = computeReceiptDigest(canonicalPayload);
 
-    let isValid = false;
+    const verifier = crypto.createVerify(config.hash);
+    verifier.update(canonicalPayload, "utf8");
+    verifier.end();
 
-    if (algorithm === "RSA-SHA256") {
-      const verifier = crypto.createVerify("SHA256");
-      verifier.update(canonicalPayload, "utf8");
-      verifier.end();
-      isValid = verifier.verify(
-        {
-          key: publicKeyPem,
-          padding: crypto.constants.RSA_PKCS1_PADDING,
-        },
-        Buffer.from(signatureBase64, "base64")
-      );
-    } else {
-      // ECDSA
-      const hashType = algorithm === "ECDSA-P384" ? "SHA384" : "SHA256";
-      const verifier = crypto.createVerify(hashType);
-      verifier.update(canonicalPayload, "utf8");
-      verifier.end();
-      isValid = verifier.verify(
-        {
-          key: publicKeyPem,
-          dsaEncoding: "der",
-        },
-        Buffer.from(signatureBase64, "base64")
-      );
-    }
+    const verifyOptions: crypto.VerifyPublicKeyInput = {
+      key: publicKeyPem,
+      ...(config.padding ? { padding: config.padding } : {}),
+      ...(config.dsaEncoding ? { dsaEncoding: config.dsaEncoding } : {}),
+    };
+
+    const isValid = verifier.verify(
+      verifyOptions,
+      Buffer.from(signatureBase64, "base64")
+    );
 
     return {
       valid: isValid,
       algorithm,
-      digestMatches: true,
-      signerIdentity: "WorkSphere Cryptographic Authority",
+      digestMatches: isValid,
+      signerIdentity: isValid ? "WorkSphere Cryptographic Authority" : undefined,
       timestamp: new Date().toISOString(),
+      ...(isValid ? {} : { error: "Signature verification failed" }),
     };
   } catch (err: unknown) {
     return {
@@ -265,28 +270,21 @@ export function verifyRawBufferSignature(
   algorithm: SignatureAlgorithm = "RSA-SHA256"
 ): boolean {
   try {
-    const hashType = algorithm === "ECDSA-P384" ? "SHA384" : "SHA256";
-    const verifier = crypto.createVerify(hashType);
+    const config = ALGORITHM_CONFIGS[algorithm] || ALGORITHM_CONFIGS["RSA-SHA256"];
+    const verifier = crypto.createVerify(config.hash);
     verifier.update(dataBuffer);
     verifier.end();
 
-    if (algorithm === "RSA-SHA256") {
-      return verifier.verify(
-        {
-          key: publicKeyPem,
-          padding: crypto.constants.RSA_PKCS1_PADDING,
-        },
-        Buffer.from(signatureBase64, "base64")
-      );
-    } else {
-      return verifier.verify(
-        {
-          key: publicKeyPem,
-          dsaEncoding: "der",
-        },
-        Buffer.from(signatureBase64, "base64")
-      );
-    }
+    const verifyOptions: crypto.VerifyPublicKeyInput = {
+      key: publicKeyPem,
+      ...(config.padding ? { padding: config.padding } : {}),
+      ...(config.dsaEncoding ? { dsaEncoding: config.dsaEncoding } : {}),
+    };
+
+    return verifier.verify(
+      verifyOptions,
+      Buffer.from(signatureBase64, "base64")
+    );
   } catch {
     return false;
   }

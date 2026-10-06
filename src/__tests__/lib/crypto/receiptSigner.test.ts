@@ -4,7 +4,9 @@ import {
   generateReceiptKeyPair,
   canonicalizeReceiptPayload,
   computeReceiptDigest,
+  verifyRawBufferSignature,
   ReservationReceiptPayload,
+  ALGORITHM_CONFIGS,
 } from "@/lib/crypto/receiptSigner";
 
 describe("Cryptographic Receipt Signing and Verification", () => {
@@ -24,7 +26,14 @@ describe("Cryptographic Receipt Signing and Verification", () => {
     status: "CONFIRMED",
   };
 
-  it("canonicalizes receipt payload consistently regardless of key order", () => {
+  it("exposes algorithm configuration map with proper curve and hash mappings", () => {
+    expect(ALGORITHM_CONFIGS["RSA-SHA256"].hash).toBe("SHA256");
+    expect(ALGORITHM_CONFIGS["ECDSA-P256"].curve).toBe("prime256v1");
+    expect(ALGORITHM_CONFIGS["ECDSA-P384"].curve).toBe("secp384r1");
+    expect(ALGORITHM_CONFIGS["ECDSA-P384"].hash).toBe("SHA384");
+  });
+
+  it("canonicalizes receipt payload consistently regardless of key order and excludes undefined fields", () => {
     const permutedPayload = {
       status: "CONFIRMED",
       time: "14:00",
@@ -39,11 +48,15 @@ describe("Cryptographic Receipt Signing and Verification", () => {
       issuedAt: "2026-10-04T10:00:00.000Z",
       userEmail: "developer@worksphere.app",
       durationHours: 2,
-    };
+      optionalUndefinedField: undefined,
+    } as unknown as ReservationReceiptPayload;
 
     const canonical1 = canonicalizeReceiptPayload(samplePayload);
     const canonical2 = canonicalizeReceiptPayload(permutedPayload);
     expect(canonical1).toEqual(canonical2);
+
+    // Ensure undefined fields are stripped completely from the canonical string
+    expect(canonical2).not.toContain("optionalUndefinedField");
 
     const digest1 = computeReceiptDigest(canonical1);
     const digest2 = computeReceiptDigest(canonical2);
@@ -72,6 +85,7 @@ describe("Cryptographic Receipt Signing and Verification", () => {
 
     expect(verification.valid).toBe(true);
     expect(verification.digestMatches).toBe(true);
+    expect(verification.signerIdentity).toBe("WorkSphere Cryptographic Authority");
   });
 
   it("signs and verifies receipt using ECDSA-P256 digital signature", () => {
@@ -120,7 +134,7 @@ describe("Cryptographic Receipt Signing and Verification", () => {
     expect(verification.digestMatches).toBe(true);
   });
 
-  it("rejects verification when receipt payload is tampered with", () => {
+  it("rejects verification when receipt totalAmount is modified after signing", () => {
     const { publicKeyPem, privateKeyPem } = generateReceiptKeyPair("RSA");
 
     const signature = signReservationReceipt(samplePayload, {
@@ -131,7 +145,7 @@ describe("Cryptographic Receipt Signing and Verification", () => {
 
     const tamperedPayload: ReservationReceiptPayload = {
       ...samplePayload,
-      totalAmount: 1000.0, // Tampered price
+      totalAmount: 1000.0, // Tampered amount
     };
 
     const verification = verifyReservationReceipt(
@@ -142,6 +156,32 @@ describe("Cryptographic Receipt Signing and Verification", () => {
     );
 
     expect(verification.valid).toBe(false);
+    expect(verification.digestMatches).toBe(false);
+  });
+
+  it("rejects verification when receipt currency is modified after signing", () => {
+    const { publicKeyPem, privateKeyPem } = generateReceiptKeyPair("ECDSA-P256");
+
+    const signature = signReservationReceipt(samplePayload, {
+      algorithm: "ECDSA-P256",
+      privateKeyPem,
+      publicKeyPem,
+    });
+
+    const tamperedPayload: ReservationReceiptPayload = {
+      ...samplePayload,
+      currency: "EUR", // Tampered currency
+    };
+
+    const verification = verifyReservationReceipt(
+      tamperedPayload,
+      signature.signature,
+      publicKeyPem,
+      "ECDSA-P256"
+    );
+
+    expect(verification.valid).toBe(false);
+    expect(verification.digestMatches).toBe(false);
   });
 
   it("rejects verification when verified against an invalid/wrong public key", () => {
@@ -162,5 +202,59 @@ describe("Cryptographic Receipt Signing and Verification", () => {
     );
 
     expect(verification.valid).toBe(false);
+  });
+
+  describe("Raw Buffer Digital Signature Verification (PDF bytes)", () => {
+    it("verifies valid raw PDF buffer signature using RSA-SHA256", () => {
+      const pdfBytes = Buffer.from("%PDF-1.4 sample reservation receipt bytes");
+      const { publicKeyPem, privateKeyPem } = generateReceiptKeyPair("RSA");
+
+      // Sign raw buffer
+      const signer = require("crypto").createSign("SHA256");
+      signer.update(pdfBytes);
+      signer.end();
+      const signatureBase64 = signer.sign(
+        {
+          key: privateKeyPem,
+          padding: require("crypto").constants.RSA_PKCS1_PADDING,
+        },
+        "base64"
+      );
+
+      const isValid = verifyRawBufferSignature(pdfBytes, signatureBase64, publicKeyPem, "RSA-SHA256");
+      expect(isValid).toBe(true);
+
+      // Corrupted buffer verification
+      const corruptedBytes = Buffer.from("%PDF-1.4 tampered bytes");
+      const isCorruptedValid = verifyRawBufferSignature(corruptedBytes, signatureBase64, publicKeyPem, "RSA-SHA256");
+      expect(isCorruptedValid).toBe(false);
+    });
+
+    it("verifies valid raw PDF buffer signature using ECDSA-P384", () => {
+      const pdfBytes = Buffer.from("%PDF-1.4 high security receipt");
+      const { publicKeyPem, privateKeyPem } = generateReceiptKeyPair("ECDSA-P384");
+
+      const signer = require("crypto").createSign("SHA384");
+      signer.update(pdfBytes);
+      signer.end();
+      const signatureBase64 = signer.sign(
+        {
+          key: privateKeyPem,
+          dsaEncoding: "der",
+        },
+        "base64"
+      );
+
+      const isValid = verifyRawBufferSignature(pdfBytes, signatureBase64, publicKeyPem, "ECDSA-P384");
+      expect(isValid).toBe(true);
+
+      const isCorruptedValid = verifyRawBufferSignature(
+        Buffer.from("invalid content"),
+        signatureBase64,
+        publicKeyPem,
+        "ECDSA-P384"
+      );
+      expect(isCorruptedValid).toBe(false);
+    });
   });
 });
