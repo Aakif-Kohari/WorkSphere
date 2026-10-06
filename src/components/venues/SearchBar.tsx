@@ -32,11 +32,30 @@ export function SearchBar({
   const [shortcutKey, setShortcutKey] = useState("Ctrl+K");
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cursorRef = useRef<{ start: number | null; end: number | null }>({
+    start: null,
+    end: null,
+  });
 
   const { query, setQuery, venues, isLoading, clear } = useVenueSearch({
     initialQuery,
     debounceMs,
   });
+
+  // Preserve cursor selection range across debounced controlled re-renders
+  useEffect(() => {
+    if (
+      inputRef.current &&
+      document.activeElement === inputRef.current &&
+      cursorRef.current.start !== null &&
+      cursorRef.current.end !== null
+    ) {
+      inputRef.current.setSelectionRange(
+        cursorRef.current.start,
+        cursorRef.current.end,
+      );
+    }
+  }, [query]);
 
   // Detect OS for shortcut display badge (⌘K on macOS, Ctrl+K elsewhere)
   useEffect(() => {
@@ -81,6 +100,7 @@ export function SearchBar({
   }, []);
 
   const handleSelectVenue = (venue: VenueSearchResult) => {
+    cursorRef.current = { start: null, end: null };
     setQuery(venue.name);
     setIsOpen(false);
     onSelect?.(venue);
@@ -91,6 +111,7 @@ export function SearchBar({
       e.preventDefault();
       e.stopPropagation();
     }
+    cursorRef.current = { start: null, end: null };
     clear();
     setIsOpen(true);
     inputRef.current?.focus();
@@ -117,6 +138,10 @@ export function SearchBar({
           data-testid="search-bar-input"
           value={query}
           onChange={(e) => {
+            cursorRef.current = {
+              start: e.target.selectionStart,
+              end: e.target.selectionEnd,
+            };
             setQuery(e.target.value);
             setIsOpen(true);
           }}
