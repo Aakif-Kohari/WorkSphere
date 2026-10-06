@@ -27,7 +27,7 @@ jobs:
               }
 
               const prAuthor = (pr.user?.login || '').toLowerCase();
-              const BLOCKED_USERS = ['jasonjose007'];
+              const BLOCKED_USERS = ['jasonjose007', 'Senthil455'];
               if (BLOCKED_USERS.some(u => u.toLowerCase() === prAuthor)) {
                 console.log(`Aborting auto-merge for blocked user: ${prAuthor}`);
                 return;
