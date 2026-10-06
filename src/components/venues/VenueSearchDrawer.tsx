@@ -226,8 +226,13 @@ export function VenueSearchDrawer({
   };
 
   const handleSavePreset = () => {
-    if (!newPresetName.trim()) return;
-    const updated = saveFilterPreset(newPresetName, {
+    const trimmedName = newPresetName.trim();
+    if (!trimmedName) return;
+    if (presets.some((p) => p.name.toLowerCase() === trimmedName.toLowerCase())) {
+      alert("A preset with this name already exists.");
+      return;
+    }
+    const updated = saveFilterPreset(trimmedName, {
       searchText: search,
       amenities,
       noiseLevel: noise,
