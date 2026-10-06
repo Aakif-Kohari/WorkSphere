@@ -209,13 +209,17 @@ export async function getSeatWebLock(
     try {
       const raw = await redis.get<string | SeatLockData>(key);
       if (!raw) return null;
-      let lock: SeatLockData;
+      let lock: SeatLockData | null = null;
       if (typeof raw === "string") {
-        lock = JSON.parse(raw);
-      } else {
+        try {
+          lock = JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      } else if (raw && typeof raw === "object") {
         lock = raw as SeatLockData;
       }
-      if (now < lock.expiresAt) {
+      if (lock && typeof lock.expiresAt === "number" && now < lock.expiresAt) {
         return lock;
       }
       return null;
