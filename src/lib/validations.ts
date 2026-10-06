@@ -1,6 +1,9 @@
-import { z } from "zod";
-import { buildVenueSearchSchema } from "@/lib/filters";
-import { sanitizeDisplayName } from "@/lib/profileSanitizer";
+import {
+  sanitizeDisplayName,
+  sanitizeUsername,
+  MIN_USERNAME_LENGTH,
+  MAX_USERNAME_LENGTH,
+} from "@/lib/profileSanitizer";
 
 // =========================================================================
 // RESERVATION SCHEMAS
@@ -71,6 +74,18 @@ export type RecurringBookingInput = z.infer<typeof recurringBookingSchema>;
 // =========================================================================
 
 export const userSettingsSchema = z.object({
+  username: z
+    .string()
+    .transform((val) => sanitizeUsername(val))
+    .refine(
+      (val) => val.length >= MIN_USERNAME_LENGTH,
+      `Username must be at least ${MIN_USERNAME_LENGTH} characters long`,
+    )
+    .refine(
+      (val) => val.length <= MAX_USERNAME_LENGTH,
+      `Username cannot exceed ${MAX_USERNAME_LENGTH} characters`,
+    )
+    .optional(),
   displayName: z
     .string()
     .transform((val) => sanitizeDisplayName(val))
