@@ -92,13 +92,61 @@ export function isProofCacheAvailable(): boolean {
 }
 
 /**
+ * Recursively converts any BigInt values inside an object, array, or primitive into decimal strings.
+ */
+export function serializeBigInts<T>(value: T): T {
+  if (typeof value === "bigint") {
+    return (value as bigint).toString() as unknown as T;
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => serializeBigInts(item)) as unknown as T;
+  }
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    result[k] = serializeBigInts(v);
+  }
+  return result as unknown as T;
+}
+
+/**
+ * Safely serializes an object to JSON without throwing TypeError on BigInt values.
+ */
+export function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, (_, v) =>
+      typeof v === "bigint" ? v.toString() : v,
+    );
+  } catch {
+    return "{}";
+  }
+}
+
+/**
+ * Normalizes a proof and its public signals, converting any BigInt witness outputs into strings.
+ */
+export function sanitizeProofForStorage(proof: CachedProof): CachedProof {
+  return {
+    proof: serializeBigInts(proof.proof),
+    publicSignals: Array.isArray(proof.publicSignals)
+      ? proof.publicSignals.map((s) =>
+          typeof s === "bigint" ? (s as bigint).toString() : String(s),
+        )
+      : [],
+  };
+}
+
+/**
  * Calculates the approximate serialized memory footprint of a cached proof in bytes.
+ * Safely handles BigInt values in witness outputs.
  */
 export function calculateProofEntryBytes(
   proof: CachedProof | ProofCacheEntry | unknown,
 ): number {
   try {
-    const json = JSON.stringify(proof);
+    const json = safeJsonStringify(proof);
     return typeof Buffer !== "undefined"
       ? Buffer.byteLength(json, "utf8")
       : new TextEncoder().encode(json).length;
@@ -182,7 +230,11 @@ export async function storeProof(
   proof: CachedProof,
   options: ProofCacheOptions = {},
 ): Promise<void> {
-  if (!isProofCacheAvailable() || proof.publicSignals[0] !== commit) return;
+  const sanitizedProof = sanitizeProofForStorage(proof);
+  const normalizedCommit =
+    typeof commit === "bigint" ? (commit as bigint).toString() : String(commit);
+
+  if (!isProofCacheAvailable() || sanitizedProof.publicSignals[0] !== normalizedCommit) return;
   const epoch = await getCircuitEpoch();
   if (!epoch) return;
 
@@ -190,15 +242,15 @@ export async function storeProof(
   const maxAge = options.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
   const fresh = Math.min(options.freshMs ?? DEFAULT_FRESH_MS, maxAge);
   const maxByteSize = options.maxByteSize ?? DEFAULT_MAX_CACHE_BYTES;
-  const entryBytes = calculateProofEntryBytes(proof);
+  const entryBytes = calculateProofEntryBytes(sanitizedProof);
 
   const entry: ProofCacheEntry = {
-    key: entryKey(scope, commit),
+    key: entryKey(scope, normalizedCommit),
     scope,
-    commit,
+    commit: normalizedCommit,
     epoch,
-    proof: proof.proof,
-    publicSignals: proof.publicSignals,
+    proof: sanitizedProof.proof,
+    publicSignals: sanitizedProof.publicSignals,
     createdAt: now,
     refreshAt: now + fresh,
     expiresAt: now + maxAge,

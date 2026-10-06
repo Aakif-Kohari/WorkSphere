@@ -6,6 +6,7 @@ import {
   getOrCreateProof,
   invalidateProof,
   storeProof,
+  safeJsonStringify,
   type CachedProof,
   type ProofSource,
 } from "@/lib/zkp/proofCache";
@@ -111,7 +112,7 @@ async function submitProof(
   const res = await fetch(`/api/venues/${venueId}/zkp-access`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ proof: proof.proof, publicSignals: proof.publicSignals }),
+    body: safeJsonStringify({ proof: proof.proof, publicSignals: proof.publicSignals }),
   });
   const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
