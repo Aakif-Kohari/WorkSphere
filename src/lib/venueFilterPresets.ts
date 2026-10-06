@@ -124,8 +124,16 @@ export function saveFilterPreset(name: string, filters: VenueFilterValues): Filt
 
   try {
     const raw = window.localStorage.getItem(FILTER_PRESETS_STORAGE_KEY);
-    const existing: FilterPreset[] = raw ? JSON.parse(raw) : [];
-    const updatedCustom = Array.isArray(existing) ? [...existing, newPreset] : [newPreset];
+    let existing: FilterPreset[] = [];
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) existing = parsed;
+      } catch {
+        existing = [];
+      }
+    }
+    const updatedCustom = [...existing, newPreset];
     window.localStorage.setItem(FILTER_PRESETS_STORAGE_KEY, JSON.stringify(updatedCustom));
     return [...DEFAULT_FILTER_PRESETS, ...updatedCustom];
   } catch (error) {
@@ -145,10 +153,15 @@ export function deleteFilterPreset(presetId: string): FilterPreset[] {
   try {
     const raw = window.localStorage.getItem(FILTER_PRESETS_STORAGE_KEY);
     if (!raw) return [...DEFAULT_FILTER_PRESETS];
-    const existing: FilterPreset[] = JSON.parse(raw);
-    if (!Array.isArray(existing)) return [...DEFAULT_FILTER_PRESETS];
+    let existing: FilterPreset[] = [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) existing = parsed;
+    } catch {
+      return [...DEFAULT_FILTER_PRESETS];
+    }
 
-    const filtered = existing.filter((p) => p.id !== presetId);
+    const filtered = existing.filter((p) => p && p.id !== presetId);
     window.localStorage.setItem(FILTER_PRESETS_STORAGE_KEY, JSON.stringify(filtered));
     return [...DEFAULT_FILTER_PRESETS, ...filtered];
   } catch (error) {
