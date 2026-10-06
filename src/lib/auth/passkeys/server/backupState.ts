@@ -1,6 +1,16 @@
 import type { AuthenticatorFlags } from "../types";
 
 /**
+ * Standard WebAuthn Authenticator Data Flags Bitmasks (W3C WebAuthn Level 3)
+ */
+export const FLAG_UP = 0x01; // User Present
+export const FLAG_UV = 0x04; // User Verified
+export const FLAG_BE = 0x08; // Backup Eligibility (Multi-device sync capable)
+export const FLAG_BS = 0x10; // Backup State (Currently backed up to cloud keychain)
+export const FLAG_AT = 0x40; // Attested Credential Data Present
+export const FLAG_ED = 0x80; // Extension Data Present
+
+/**
  * Extracts and parses authenticator flags from a raw WebAuthn flags byte or authData buffer.
  */
 export function parseAuthenticatorFlags(
@@ -19,12 +29,12 @@ export function parseAuthenticatorFlags(
     flagsByte = 0;
   }
 
-  const userPresent = (flagsByte & 0x01) !== 0;
-  const userVerified = (flagsByte & 0x04) !== 0;
-  const backupEligible = (flagsByte & 0x08) !== 0;
-  const backedUp = (flagsByte & 0x10) !== 0;
-  const attestedCredentialData = (flagsByte & 0x40) !== 0;
-  const extensionData = (flagsByte & 0x80) !== 0;
+  const userPresent = (flagsByte & FLAG_UP) !== 0;
+  const userVerified = (flagsByte & FLAG_UV) !== 0;
+  const backupEligible = (flagsByte & FLAG_BE) !== 0;
+  const backedUp = (flagsByte & FLAG_BS) !== 0;
+  const attestedCredentialData = (flagsByte & FLAG_AT) !== 0;
+  const extensionData = (flagsByte & FLAG_ED) !== 0;
 
   const deviceType: "single_device" | "multi_device" = backupEligible
     ? "multi_device"
