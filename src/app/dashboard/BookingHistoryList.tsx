@@ -1,14 +1,16 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { Search, Filter, Calendar, MapPin, Download, CalendarPlus, Ban } from "lucide-react";
+import { Search, Filter, Calendar, MapPin, Download, CalendarPlus, Ban, RefreshCw } from "lucide-react";
 import { BookingSummary } from "@/components/bookings/BookingList";
 import { getCalendarUrls, downloadICS } from "@/lib/calendar";
 import { ExportBookingsCSVButton } from "@/components/bookings/ExportBookingsCSVButton";
+import { RescheduleModal } from "@/components/bookings/RescheduleModal";
 
 export interface BookingHistoryListProps {
   bookings: BookingSummary[];
   onCancelBooking?: (booking: BookingSummary) => Promise<void>;
+  onRescheduleBooking?: (booking: BookingSummary) => void;
   selectedIds?: Set<string>;
   onToggleSelected?: (id: string) => void;
   cancellingId?: string | null;
@@ -33,6 +35,7 @@ export function BookingHistoryList({
 }: BookingHistoryListProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "UPCOMING" | "COMPLETED" | "CANCELLED">("ALL");
+  const [reschedulingBooking, setReschedulingBooking] = useState<BookingSummary | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -337,6 +340,21 @@ export function BookingHistoryList({
                             <Calendar className="w-3.5 h-3.5" />
                             Add to Calendar (.ics)
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onRescheduleBooking) {
+                                onRescheduleBooking(booking);
+                              } else {
+                                setReschedulingBooking(booking);
+                              }
+                            }}
+                            className={chipClass}
+                            aria-label={`Reschedule or extend booking ${booking.confirmationId}`}
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            Reschedule / Extend
+                          </button>
                           {onCancelBooking && (
                             <button
                               type="button"
@@ -358,6 +376,23 @@ export function BookingHistoryList({
           </div>
         </div>
       )}
+
+      <RescheduleModal
+        booking={reschedulingBooking}
+        isOpen={Boolean(reschedulingBooking)}
+        onClose={() => setReschedulingBooking(null)}
+        onSuccess={(updated) => {
+          const target = bookings.find(
+            (b) => b.id === updated.id || b.confirmationId === updated.confirmationId,
+          );
+          if (target) {
+            target.date = updated.date;
+            target.time = updated.time;
+            target.duration = updated.duration;
+            target.seatNumber = updated.seatNumber;
+          }
+        }}
+      />
     </div>
   );
 }

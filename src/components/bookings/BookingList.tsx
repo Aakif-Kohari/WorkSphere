@@ -9,10 +9,12 @@ import {
   Inbox,
   Loader2,
   MapPin,
+  RefreshCw,
 } from "lucide-react";
 import { getCalendarUrls, downloadICS } from "@/lib/calendar";
 import { BookingHistoryList } from "@/app/dashboard/BookingHistoryList";
 import { ExportBookingsCSVButton } from "@/components/bookings/ExportBookingsCSVButton";
+import { RescheduleModal } from "@/components/bookings/RescheduleModal";
 
 export interface BookingSummary {
   id: string;
@@ -61,6 +63,7 @@ export function BookingList({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [reschedulingBooking, setReschedulingBooking] = useState<BookingSummary | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -268,6 +271,15 @@ export function BookingList({
                 Add to Calendar (.ics)
               </button>
               <button
+                type="button"
+                onClick={() => setReschedulingBooking(booking)}
+                className={chipClass}
+                aria-label={`Reschedule or extend booking ${booking.confirmationId}`}
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Reschedule / Extend
+              </button>
+              <button
                 onClick={() => cancelBooking(booking)}
                 disabled={cancellingId === booking.id}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
@@ -397,6 +409,31 @@ export function BookingList({
           </div>
         </div>
       )}
+
+      <RescheduleModal
+        booking={reschedulingBooking}
+        isOpen={Boolean(reschedulingBooking)}
+        onClose={() => setReschedulingBooking(null)}
+        onSuccess={(updated) => {
+          setBookings((prev) =>
+            prev.map((b) =>
+              b.id === updated.id || b.confirmationId === updated.confirmationId
+                ? {
+                    ...b,
+                    date: updated.date,
+                    time: updated.time,
+                    duration: updated.duration,
+                    seatNumber: updated.seatNumber,
+                  }
+                : b,
+            ),
+          );
+          setMessage({
+            kind: "ok",
+            text: `Booking ${updated.confirmationId} rescheduled to ${updated.date} at ${updated.time}.`,
+          });
+        }}
+      />
     </div>
   );
 }

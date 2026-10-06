@@ -24,6 +24,7 @@ import { useRateLimit } from "@/hooks/useRateLimit";
 import { SeatOccupancyHeatmap } from "@/components/venue/SeatOccupancyHeatmap";
 import { useSeatHoldLock } from "@/hooks/useSeatHoldLock";
 import { CopyToClipboardButton } from "@/components/ui/CopyToClipboardButton";
+import { RescheduleModal } from "@/components/bookings/RescheduleModal";
 
 type Seat = {
   id: string;
@@ -67,6 +68,7 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
   const [booking, setBooking] = useState(false);
   const [message, setMessage] = useState("");
   const [confirmationId, setConfirmationId] = useState<string | null>(null);
+  const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const [guests, setGuests] = useState<GuestEntry[]>([]);
   const [recurringEnabled, setRecurringEnabled] = useState(false);
   const [frequency, setFrequency] = useState<"daily" | "weekly" | "monthly">(
@@ -386,6 +388,14 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
                   aria-label="Add to Calendar (.ics)"
                 >
                   <Download className="h-4 w-4" /> Add to Calendar (.ics)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsRescheduleOpen(true)}
+                  className="flex items-center gap-2 rounded-xl bg-violet-600/20 border border-violet-500/30 px-4 py-2 hover:bg-violet-600/40 transition-colors text-violet-200"
+                  aria-label="Reschedule or extend booking"
+                >
+                  <RefreshCw className="h-4 w-4" /> Reschedule / Extend
                 </button>
               </div>
             )}
@@ -747,6 +757,34 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
           box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12);
         }
       `}</style>
+
+      <RescheduleModal
+        booking={
+          confirmationId
+            ? {
+                id: confirmationId,
+                confirmationId,
+                date,
+                time,
+                duration,
+                seatNumber: seats.find((s) => s.id === selectedSeat)?.seatNumber,
+                seatId: selectedSeat,
+                venue,
+              }
+            : null
+        }
+        isOpen={isRescheduleOpen}
+        onClose={() => setIsRescheduleOpen(false)}
+        onSuccess={(updated) => {
+          setDate(updated.date);
+          setTime(updated.time);
+          setDuration(updated.duration);
+          setMessage(
+            `Booking updated! Rescheduled to ${updated.date} at ${updated.time} (${updated.duration} min).`,
+          );
+          loadAvailability();
+        }}
+      />
     </main>
   );
 }
