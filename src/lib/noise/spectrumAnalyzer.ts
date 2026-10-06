@@ -304,3 +304,110 @@ export async function safeResumeAudioContext(
     };
   }
 }
+
+export interface SpectrumAnalyzerOptions {
+  fftSize?: number;
+  smoothingTimeConstant?: number;
+  minDecibels?: number;
+  maxDecibels?: number;
+}
+
+export interface SpectrumAnalyzerInstance {
+  analyser: AnalyserNode;
+  buffer: Float32Array;
+  byteBuffer: Uint8Array;
+  sampleRate: number;
+  fftSize: number;
+  getFrequencySpectrum: () => FrequencyBandSpectrum;
+  dispose: () => void;
+}
+
+/**
+ * Creates and wraps an AnalyserNode with pre-allocated Float32Array and Uint8Array buffers,
+ * providing safe teardown via .dispose().
+ */
+export function createSpectrumAnalyzer(
+  audioContext: AudioContext,
+  sourceNode?: AudioNode,
+  options: SpectrumAnalyzerOptions = {},
+): SpectrumAnalyzerInstance {
+  const fftSize = options.fftSize ?? 512;
+  const analyser = audioContext.createAnalyser();
+  analyser.fftSize = fftSize;
+  if (options.smoothingTimeConstant !== undefined) {
+    analyser.smoothingTimeConstant = options.smoothingTimeConstant;
+  }
+  if (options.minDecibels !== undefined) {
+    analyser.minDecibels = options.minDecibels;
+  }
+  if (options.maxDecibels !== undefined) {
+    analyser.maxDecibels = options.maxDecibels;
+  }
+
+  if (sourceNode) {
+    try {
+      sourceNode.connect(analyser);
+    } catch {
+      // Ignore if node connection fails
+    }
+  }
+
+  let buffer: Float32Array | null = new Float32Array(analyser.frequencyBinCount);
+  let byteBuffer: Uint8Array | null = new Uint8Array(analyser.frequencyBinCount);
+  let isDisposed = false;
+
+  const getFrequencySpectrum = (): FrequencyBandSpectrum => {
+    if (isDisposed || !buffer) {
+      return analyzeFrequencyBands([], audioContext.sampleRate, fftSize);
+    }
+    analyser.getFloatFrequencyData(buffer);
+    return analyzeFrequencyBands(buffer, audioContext.sampleRate, fftSize);
+  };
+
+  const dispose = () => {
+    if (isDisposed) return;
+    isDisposed = true;
+    disposeSpectrumAnalyzer(analyser, sourceNode);
+    buffer = null;
+    byteBuffer = null;
+  };
+
+  return {
+    analyser,
+    get buffer() {
+      return buffer ?? new Float32Array(0);
+    },
+    get byteBuffer() {
+      return byteBuffer ?? new Uint8Array(0);
+    },
+    sampleRate: audioContext.sampleRate,
+    fftSize,
+    getFrequencySpectrum,
+    dispose,
+  };
+}
+
+/**
+ * Safely disconnects and tears down an AnalyserNode and optional upstream source node,
+ * releasing all internal WebAudio node graph references.
+ */
+export function disposeSpectrumAnalyzer(
+  analyser?: AnalyserNode | null,
+  sourceNode?: AudioNode | null,
+): void {
+  if (sourceNode) {
+    try {
+      sourceNode.disconnect(analyser ?? undefined);
+    } catch {
+      // Disconnect might throw if node is already disconnected
+    }
+  }
+
+  if (analyser) {
+    try {
+      analyser.disconnect();
+    } catch {
+      // Handle disconnected analyser safely
+    }
+  }
+}
