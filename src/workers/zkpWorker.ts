@@ -48,9 +48,12 @@ export const DEFAULT_VERIFICATION_TIMEOUT_MS = 15_000;
 
 type WorkerErrorType = "oom" | "internal" | "timeout" | "generic";
 
-function classifyError(error: unknown): WorkerErrorType {
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
+export function classifyError(error: unknown): WorkerErrorType {
+  if (error instanceof Error || (typeof error === "object" && error !== null)) {
+    const errObj = error as any;
+    const msg = String(errObj.message || errObj.name || error).toLowerCase();
+    const isRangeError =
+      error instanceof RangeError || errObj.name === "RangeError";
 
     if (
       msg.includes("verification_timeout") ||
@@ -65,7 +68,10 @@ function classifyError(error: unknown): WorkerErrorType {
       msg.includes("memory access out of bounds") ||
       msg.includes("allocation failed") ||
       msg.includes("cannot allocate") ||
-      (error instanceof RangeError && msg.includes("memory"))
+      msg.includes("could not allocate memory") ||
+      msg.includes("webassembly.memory") ||
+      msg.includes("rangeerror") ||
+      isRangeError
     ) {
       return "oom";
     }
