@@ -23,6 +23,7 @@ import { VenueShareModal } from "@/components/venue/VenueShareModal";
 import { generateVenueJsonLd } from "@/lib/seo/venueJsonLd";
 import { getVenueCoverTransitionName } from "@/lib/viewTransitions";
 import { VenueLiveVibeWidget } from "@/components/venue/VenueLiveVibeWidget";
+import { CommuteCarbonEstimator } from "@/components/venue/CommuteCarbonEstimator";
 
 interface PageProps {
   params: Promise<{ id: string }>;
