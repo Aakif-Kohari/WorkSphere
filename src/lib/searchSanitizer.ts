@@ -21,7 +21,10 @@ const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g;
  * The function is intentionally pure so it can be unit tested without a request
  * or database connection.
  */
-export function sanitizeSearchQuery(value: string): string {
+export function sanitizeSearchQuery(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
   return value.replace(CONTROL_CHARACTERS, "").trim().slice(0, MAX_SEARCH_QUERY_LENGTH);
 }
 
