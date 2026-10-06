@@ -84,6 +84,7 @@ export function VenueSeatWaitlistModal({
   // Handle joining waitlist
   const handleJoinWaitlist = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     if (!date || !time) {
       setError('Please specify both a target date and time.');
       return;
@@ -123,7 +124,7 @@ export function VenueSeatWaitlistModal({
 
   // Handle claiming an offered seat
   const handleClaimSeat = async () => {
-    if (!activeEntry) return;
+    if (!activeEntry || claiming) return;
 
     setClaiming(true);
     setError(null);
