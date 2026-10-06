@@ -64,6 +64,7 @@ model User {
   accurateVotes      Int                @default(0)
   badges             UserBadge[]
   seatWaitlists      VenueSeatWaitlist[]
+  liveFeedbacks      VenueLiveFeedback[]
 }
 
 model UserBadge {
@@ -153,9 +154,27 @@ model Venue {
   photos              VenuePhoto[]
   openingHours        String?
   seatWaitlists       VenueSeatWaitlist[]
+  liveFeedbacks       VenueLiveFeedback[]
 
   @@index([latitude, longitude])
   @@index([category])
+}
+
+model VenueLiveFeedback {
+  id                String   @id @default(cuid())
+  venueId           String
+  venue             Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  userId            String?
+  user              User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  vibe              String   // "silent_focus" | "moderate_buzz" | "lively"
+  noiseLevel        String?  // "quiet" | "moderate" | "loud"
+  isVerifiedCheckIn Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  expiresAt         DateTime
+
+  @@index([venueId, expiresAt])
+  @@index([venueId, createdAt])
+  @@index([userId])
 }
 
 model VenuePhoto {

@@ -403,6 +403,8 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
         )}
 
         <div className="space-y-6">
+          <VenueLiveVibeWidget venueId={venue.id} />
+
           <SeatOccupancyHeatmap
             venueId={venue.id}
             selectedDate={date}

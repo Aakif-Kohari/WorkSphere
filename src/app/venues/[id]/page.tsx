@@ -21,6 +21,7 @@ import { CopyToClipboardButton } from "@/components/ui/CopyToClipboardButton";
 import { VenueShareModal } from "@/components/venue/VenueShareModal";
 import { generateVenueJsonLd } from "@/lib/seo/venueJsonLd";
 import { getVenueCoverTransitionName } from "@/lib/viewTransitions";
+import { VenueLiveVibeWidget } from "@/components/venue/VenueLiveVibeWidget";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -219,6 +220,8 @@ export default async function VenuePage({ params }: PageProps) {
           </div>
 
           <div className="p-6 sm:p-8 space-y-8">
+            <VenueLiveVibeWidget venueId={venue.id} />
+
             {venue.address && (
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
