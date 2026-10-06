@@ -17,6 +17,7 @@ import { RecentlyViewedTracker } from "@/components/venues/RecentlyViewedTracker
 import { CollaborativeNotes } from "@/components/bookings/CollaborativeNotes"; // <-- 1. Imported your new component here!
 import { Breadcrumb } from "@/components/ui/Breadcrumb";
 import { VenueSummary } from "@/components/venue/VenueSummary";
+import { VenueAccordion } from "@/components/venue/VenueAccordion";
 import { CopyToClipboardButton } from "@/components/ui/CopyToClipboardButton";
 import { VenueShareModal } from "@/components/venue/VenueShareModal";
 import { generateVenueJsonLd } from "@/lib/seo/venueJsonLd";
@@ -270,6 +271,19 @@ export default async function VenuePage({ params }: PageProps) {
             </div>
 
             <VenueSummary venueId={venue.id} />
+
+            <VenueAccordion
+              amenities={[
+                venue.wifiQuality ? "High-Speed Wi-Fi" : null,
+                venue.hasOutlets ? "Power Outlets Available" : null,
+                venue.hasQuietZone ? "Dedicated Quiet Zone" : null,
+                venue.hasPhoneBooths ? "Soundproof Phone Booths" : null,
+                venue.hasErgonomic ? "Ergonomic Office Chairs" : null,
+                venue.hasAncHeadsetRental ? "ANC Headset Rental" : null,
+                venue.dogFriendly ? "Pet Friendly / Dogs Allowed" : null,
+              ].filter(Boolean) as string[]}
+              openingHours={venue.openingHours}
+            />
 
             <div className="pt-2">
               <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-3 flex items-center gap-2">
