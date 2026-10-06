@@ -11,18 +11,17 @@ export function getKeyExpiryDate(createdAt: Date = new Date()): Date {
   return expiry;
 }
 
-export function isKeyExpired(expiresAt: Date): boolean {
-  return new Date() > expiresAt;
+export function isKeyExpired(expiresAt: Date, referenceDate: Date = new Date()): boolean {
+  return referenceDate.getTime() > expiresAt.getTime();
 }
 
-export function daysUntilExpiry(expiresAt: Date): number {
-  const now = new Date();
-  const diff = expiresAt.getTime() - now.getTime();
+export function daysUntilExpiry(expiresAt: Date, referenceDate: Date = new Date()): number {
+  const diff = expiresAt.getTime() - referenceDate.getTime();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
-export function shouldPromptRotation(expiresAt: Date): boolean {
-  const days = daysUntilExpiry(expiresAt);
+export function shouldPromptRotation(expiresAt: Date, referenceDate: Date = new Date()): boolean {
+  const days = daysUntilExpiry(expiresAt, referenceDate);
   return days > 0 && days <= 14;
 }
 
