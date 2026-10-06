@@ -98,12 +98,40 @@ const inputClass =
 const labelClass =
   "block text-xs font-semibold text-zinc-600 dark:text-zinc-400 mb-1.5";
 
-function addOneHour(timeStr: string): string {
+const DURATION_PRESETS = [
+  { label: "30m", minutes: 30 },
+  { label: "1h", minutes: 60 },
+  { label: "2h", minutes: 120 },
+  { label: "4h", minutes: 240 },
+  { label: "Full Day", minutes: 480 },
+] as const;
+
+function addMinutesToTime(timeStr: string, minutesToAdd: number): string {
   if (!timeStr) return "";
   const [h, m] = timeStr.split(":").map(Number);
   if (isNaN(h) || isNaN(m)) return "";
-  const nextHour = (h + 1) % 24;
-  return `${String(nextHour).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const totalMinutes = h * 60 + m + minutesToAdd;
+  const nextHour = Math.floor(totalMinutes / 60) % 24;
+  const nextMinute = totalMinutes % 60;
+  return `${String(nextHour).padStart(2, "0")}:${String(nextMinute).padStart(2, "0")}`;
+}
+
+function addOneHour(timeStr: string): string {
+  return addMinutesToTime(timeStr, 60);
+}
+
+function calculateDurationMinutes(
+  startTime: string,
+  endTime: string,
+): number | null {
+  if (!startTime || !endTime) return null;
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) return null;
+  const startMins = sh * 60 + sm;
+  const endMins = eh * 60 + em;
+  if (endMins <= startMins) return null;
+  return endMins - startMins;
 }
 
 export function BookingModal({
@@ -250,6 +278,11 @@ export function BookingModal({
           : [bookingDate]
         : [],
     [bookingDate, isRecurring, recurringOccurrences, recurringFrequency],
+  );
+
+  const activeDurationMinutes = useMemo(
+    () => calculateDurationMinutes(bookingTime, bookingEndTime),
+    [bookingTime, bookingEndTime],
   );
 
   if (!isOpen) return null;
@@ -520,6 +553,38 @@ export function BookingModal({
                       onChange={(e) => handleEndTimeChange(e.target.value)}
                     />
                   </div>
+                </div>
+              </div>
+
+              <div>
+                <span className={labelClass}>Quick duration</span>
+                <div
+                  className="flex flex-wrap gap-2 mt-1.5"
+                  data-testid="duration-presets"
+                >
+                  {DURATION_PRESETS.map((preset) => {
+                    const isActive = activeDurationMinutes === preset.minutes;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        data-testid={`duration-preset-${preset.label.toLowerCase().replace(/\s+/g, "-")}`}
+                        onClick={() => {
+                          const start = bookingTime || "09:00";
+                          if (!bookingTime) setBookingTime(start);
+                          const newEnd = addMinutesToTime(start, preset.minutes);
+                          handleEndTimeChange(newEnd);
+                        }}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                          isActive
+                            ? "bg-[var(--primary-accent)] text-white shadow-sm ring-2 ring-[var(--primary-accent)]/30 font-semibold"
+                            : "bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700"
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 

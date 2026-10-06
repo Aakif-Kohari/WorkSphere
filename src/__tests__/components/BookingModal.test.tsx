@@ -280,4 +280,52 @@ describe("BookingModal", () => {
       global.fetch = originalFetch;
     });
   });
+
+  describe("Quick Duration Selector (#4406)", () => {
+    it("renders quick duration preset chips (30m, 1h, 2h, 4h, Full Day)", () => {
+      render(
+        <BookingModal
+          isOpen={true}
+          onClose={mockOnClose}
+          venue={mockVenue}
+          mode="booking"
+        />,
+      );
+
+      expect(screen.getByText("Quick duration")).toBeInTheDocument();
+      expect(screen.getByTestId("duration-preset-30m")).toBeInTheDocument();
+      expect(screen.getByTestId("duration-preset-1h")).toBeInTheDocument();
+      expect(screen.getByTestId("duration-preset-2h")).toBeInTheDocument();
+      expect(screen.getByTestId("duration-preset-4h")).toBeInTheDocument();
+      expect(screen.getByTestId("duration-preset-full-day")).toBeInTheDocument();
+    });
+
+    it("updates end time dynamically when a duration chip is clicked", () => {
+      render(
+        <BookingModal
+          isOpen={true}
+          onClose={mockOnClose}
+          venue={mockVenue}
+          mode="booking"
+        />,
+      );
+
+      const startTimeInput = screen.getByTestId("booking-start-time");
+      const endTimeInput = screen.getByTestId("booking-end-time");
+
+      fireEvent.change(startTimeInput, { target: { value: "10:00" } });
+
+      // Click 2h preset
+      fireEvent.click(screen.getByTestId("duration-preset-2h"));
+      expect(endTimeInput).toHaveValue("12:00");
+
+      // Click 4h preset
+      fireEvent.click(screen.getByTestId("duration-preset-4h"));
+      expect(endTimeInput).toHaveValue("14:00");
+
+      // Click Full Day preset (8h)
+      fireEvent.click(screen.getByTestId("duration-preset-full-day"));
+      expect(endTimeInput).toHaveValue("18:00");
+    });
+  });
 });
