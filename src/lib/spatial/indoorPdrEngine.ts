@@ -73,6 +73,7 @@ export interface PdrConfig {
   weinbergK?: number; // Calibrated step coefficient (default 0.42)
   stepMinIntervalMs?: number; // Minimum time between consecutive steps (default 280 ms)
   stepAccelThreshold?: number; // Minimum peak-valley acceleration swing (default 1.2 m/s^2)
+  minStationaryVariance?: number; // Minimum acceleration variance in g^2 to trigger steps (default 0.05 g^2)
   gyroAlpha?: number; // Complementary filter gyro weight (default 0.96)
   processNoisePosition?: number; // EKF Q diagonal for position (m^2)
   processNoiseVelocity?: number; // EKF Q diagonal for velocity ((m/s)^2)
@@ -86,6 +87,7 @@ const DEFAULT_CONFIG: Required<PdrConfig> = {
   weinbergK: 0.42,
   stepMinIntervalMs: 280,
   stepAccelThreshold: 1.2,
+  minStationaryVariance: 0.05, // 0.05 g^2 threshold for rejecting desk/handheld jitter
   gyroAlpha: 0.96,
   processNoisePosition: 0.05,
   processNoiseVelocity: 0.1,
@@ -607,6 +609,8 @@ export class StepDetector {
   private config: Required<PdrConfig>;
   private lastStepTimestamp = 0;
   private accelWindow: number[] = [];
+  private rawNormWindow: number[] = [];
+  private varianceWindowSize = 10;
   private windowSize = 7;
   private isArmed = false;
   private currentPeak = -Infinity;
@@ -615,6 +619,19 @@ export class StepDetector {
 
   constructor(config?: Partial<PdrConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+  }
+
+  /**
+   * Calculates sample variance in g^2 over the sliding window.
+   */
+  public getAccelerationVarianceG2(): number {
+    if (this.rawNormWindow.length < 3) return 0;
+    const n = this.rawNormWindow.length;
+    const mean = this.rawNormWindow.reduce((sum, v) => sum + v, 0) / n;
+    const varianceM2 =
+      this.rawNormWindow.reduce((sum, v) => sum + (v - mean) ** 2, 0) / n;
+    const g = 9.80665;
+    return varianceM2 / (g * g);
   }
 
   /**
@@ -628,6 +645,12 @@ export class StepDetector {
     norm: number,
     timestamp: number,
   ): { stepDetected: boolean; aMax: number; aMin: number } {
+    // Maintain 10-sample sliding window for dynamic variance calculation
+    this.rawNormWindow.push(norm);
+    if (this.rawNormWindow.length > this.varianceWindowSize) {
+      this.rawNormWindow.shift();
+    }
+
     // Smooth sample with moving average window
     this.accelWindow.push(norm);
     if (this.accelWindow.length > this.windowSize) {
@@ -636,6 +659,19 @@ export class StepDetector {
 
     const smoothed =
       this.accelWindow.reduce((sum, v) => sum + v, 0) / this.accelWindow.length;
+
+    // Check dynamic variance threshold: reject false steps if variance < minStationaryVariance
+    const varianceG2 = this.getAccelerationVarianceG2();
+    const isStationaryJitter =
+      this.rawNormWindow.length >= this.varianceWindowSize &&
+      varianceG2 < this.config.minStationaryVariance;
+
+    if (isStationaryJitter) {
+      this.isArmed = false;
+      this.currentPeak = smoothed;
+      this.currentValley = smoothed;
+      return { stepDetected: false, aMax: 0, aMin: 0 };
+    }
 
     // Track local extrema
     if (smoothed > this.currentPeak) this.currentPeak = smoothed;
@@ -679,6 +715,7 @@ export class StepDetector {
   reset(): void {
     this.lastStepTimestamp = 0;
     this.accelWindow = [];
+    this.rawNormWindow = [];
     this.isArmed = false;
     this.currentPeak = -Infinity;
     this.currentValley = Infinity;
