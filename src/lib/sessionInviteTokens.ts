@@ -18,28 +18,44 @@ export interface ValidationResult {
   payload?: InviteTokenPayload;
 }
 
+const CHUNK_SIZE = 8192;
+
 /**
- * Encodes string to URL-safe base64 format.
+ * Encodes string to URL-safe base64 format supporting full UTF-8 strings.
  */
 export function encodeBase64Url(str: string): string {
-  if (typeof btoa === "function") {
-    return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(str, "utf-8").toString("base64url");
   }
-  return Buffer.from(str).toString("base64url");
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    const chunk = bytes.subarray(i, i + CHUNK_SIZE);
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 /**
- * Decodes URL-safe base64 string back to raw text.
+ * Decodes URL-safe base64 string back to raw UTF-8 text.
  */
 export function decodeBase64Url(base64Url: string): string {
   let base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
   while (base64.length % 4 !== 0) {
     base64 += "=";
   }
-  if (typeof atob === "function") {
-    return atob(base64);
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(base64, "base64").toString("utf-8");
   }
-  return Buffer.from(base64, "base64").toString("utf-8");
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 /**
