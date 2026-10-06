@@ -99,6 +99,7 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  timestamp?: number | string;
   name?: string;
   venues?: Venue[];
   agentSteps?: Array<{

@@ -14,6 +14,7 @@ import { NotificationSettings } from "@/app/dashboard/NotificationSettings";
 import { MemoryManager } from "@/app/dashboard/MemoryManager";
 import { DistanceUnitToggle } from "@/components/settings/DistanceUnitToggle";
 import { ChatSoundToggle } from "@/components/settings/ChatSoundToggle";
+import { ChatTimestampFormatToggle } from "@/components/settings/ChatTimestampFormatToggle";
 import { TimezoneBadge } from "@/components/TimezoneBadge";
 
 import { VisitedVenuesCard } from "@/components/profile/VisitedVenuesCard";
@@ -128,6 +129,7 @@ export default function SettingsPage() {
             <WorkStyleProfile />
             <DistanceUnitToggle />
             <ChatSoundToggle />
+            <ChatTimestampFormatToggle />
             <UserPreferenceToggle
               enabled={personalizationEnabled}
               onToggle={handleToggle}

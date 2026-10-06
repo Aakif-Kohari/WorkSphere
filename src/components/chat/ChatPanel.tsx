@@ -4,6 +4,12 @@ import { estimateTokens } from "@/lib/context-compression/tokens";
 export { estimateTokens };
 import type { Message } from "./ChatMessages";
 import { playChatMessageSound, isChatSoundEnabled } from "@/lib/chatSound";
+import {
+  CHAT_TIMESTAMP_FORMAT_CHANGE_EVENT,
+  formatChatTimestamp,
+  getChatTimestampFormat,
+  type ChatTimestampFormat,
+} from "@/lib/chatTimestamps";
 
 /**
  * Default context capacity in tokens for the WorkSphere AI discovery assistant.
@@ -583,6 +589,22 @@ export function ChatPanel({
   );
 
   const prevMessageCountRef = useRef(combinedMessages.length);
+  const [timestampFormat, setTimestampFormat] =
+    useState<ChatTimestampFormat>("relative");
+
+  useEffect(() => {
+    setTimestampFormat(getChatTimestampFormat());
+    const handleFormatChange = (event: Event) => {
+      const changedFormat = (event as CustomEvent<ChatTimestampFormat>).detail;
+      if (changedFormat === "relative" || changedFormat === "exact") {
+        setTimestampFormat(changedFormat);
+      }
+    };
+
+    window.addEventListener(CHAT_TIMESTAMP_FORMAT_CHANGE_EVENT, handleFormatChange);
+    return () =>
+      window.removeEventListener(CHAT_TIMESTAMP_FORMAT_CHANGE_EVENT, handleFormatChange);
+  }, []);
 
   useEffect(() => {
     if (combinedMessages.length > prevMessageCountRef.current) {
@@ -641,20 +663,35 @@ export function ChatPanel({
                 }`}
               >
                 <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm relative transition-opacity ${
+                  className={`flex max-w-[85%] flex-col ${
+                    m.role === "user" ? "items-end" : "items-start"
+                  }`}
+                >
+                  <div
+                    className={`rounded-2xl px-4 py-2.5 text-sm relative transition-opacity ${
                     m.role === "user"
                       ? "bg-zinc-950 dark:bg-zinc-100 text-white dark:text-zinc-900"
                       : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white"
-                  } ${isPending ? "opacity-75" : "opacity-100"}`}
-                >
-                  {m.content}
-                  {isPending && (
-                    <span
-                      data-testid="pending-indicator"
-                      className="ml-2 text-[10px] opacity-60 inline-block font-mono"
+                    } ${isPending ? "opacity-75" : "opacity-100"}`}
+                  >
+                    {m.content}
+                    {isPending && (
+                      <span
+                        data-testid="pending-indicator"
+                        className="ml-2 text-[10px] opacity-60 inline-block font-mono"
+                      >
+                        (sending...)
+                      </span>
+                    )}
+                  </div>
+                  {m.timestamp !== undefined && m.timestamp !== null && (
+                    <time
+                      dateTime={new Date(m.timestamp).toISOString()}
+                      title={new Date(m.timestamp).toLocaleString()}
+                      className="mt-1 block text-[11px] text-zinc-500 dark:text-zinc-400"
                     >
-                      (sending...)
-                    </span>
+                      {formatChatTimestamp(m.timestamp, timestampFormat)}
+                    </time>
                   )}
                 </div>
               </div>
