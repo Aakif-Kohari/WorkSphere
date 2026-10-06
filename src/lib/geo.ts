@@ -100,8 +100,15 @@ export {
  * @param heading Heading in degrees (0 - 360)
  * @returns Cardinal direction string (e.g. "N", "NE", "E", "SW")
  */
-export function getCompassDirection(heading: number | null): string {
-  if (heading === null || !Number.isFinite(heading)) return "--";
+export function getCompassDirection(heading: number | null | undefined): string {
+  if (
+    heading == null ||
+    typeof heading !== "number" ||
+    !Number.isFinite(heading) ||
+    isNaN(heading)
+  ) {
+    return "--";
+  }
   const directions = [
     "N", "NNE", "NE", "ENE",
     "E", "ESE", "SE", "SSE",
