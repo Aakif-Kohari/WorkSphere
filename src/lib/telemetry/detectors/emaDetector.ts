@@ -49,8 +49,11 @@ export function calculateEMA(
   prevEMA: number | null,
   alpha = 0.25,
 ): number {
+  if (!Number.isFinite(currentVal) || Number.isNaN(currentVal)) {
+    return prevEMA ?? 0;
+  }
   const clampedAlpha = Math.min(0.4, Math.max(0.1, alpha));
-  if (prevEMA === null || Number.isNaN(prevEMA)) {
+  if (prevEMA === null || Number.isNaN(prevEMA) || !Number.isFinite(prevEMA)) {
     return currentVal;
   }
   return clampedAlpha * currentVal + (1.0 - clampedAlpha) * prevEMA;
@@ -75,7 +78,7 @@ export class TelemetrySmoother {
   }
 
   public update(rawValue: number): SmoothedTelemetryResult {
-    if (typeof rawValue !== "number" || Number.isNaN(rawValue)) {
+    if (typeof rawValue !== "number" || !Number.isFinite(rawValue) || Number.isNaN(rawValue)) {
       return {
         smoothed: this.currentEMA ?? 0,
         raw: rawValue,
