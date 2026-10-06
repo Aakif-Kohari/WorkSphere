@@ -19,11 +19,13 @@ export async function getPasskeyRotationStatus(
     const diffMs = expiresAt.getTime() - now.getTime();
     const daysUntilExpiry = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
+    const isExpired = isKeyExpired(expiresAt);
+
     return {
       credentialId: cred.id,
       name: cred.name,
       expiresAt,
-      isExpired: isKeyExpired(expiresAt),
+      isExpired,
       daysUntilExpiry,
       needsRotation: daysUntilExpiry > 0 && daysUntilExpiry <= 14,
       lastUsedAt: cred.lastUsedAt,
