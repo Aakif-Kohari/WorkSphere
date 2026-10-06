@@ -16,6 +16,7 @@ import {
   Star,
 } from "lucide-react";
 import { WebVitalsWidget } from "@/components/admin/WebVitalsWidget";
+import { RouteLatencyHeatmap } from "@/components/admin/RouteLatencyHeatmap";
 import {
   Area,
   AreaChart,
@@ -364,6 +365,8 @@ export default function AdminSystemDashboard() {
         </section>
 
         <WebVitalsWidget className="mt-6" initialRange={range} />
+
+        <RouteLatencyHeatmap className="mt-6" initialRange="1h" />
 
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-5">
           <div className="mb-6">

@@ -148,3 +148,50 @@ export interface TelemetryPipelineOptions<T> {
   maxBufferSize?: number;
   batchHandler?: TelemetryBatchHandler<T>;
 }
+
+// ─── Route Latency Heatmap Types ──────────────────────────────────────────────
+
+export type LatencySeverity = "optimal" | "normal" | "amber" | "red" | "idle";
+
+export interface RouteHeatmapCell {
+  bucketIndex: number;
+  timeLabel: string;
+  timestamp: number;
+  route: string;
+  count: number;
+  avgMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  minMs: number;
+  maxMs: number;
+  status: LatencySeverity;
+}
+
+export interface RouteHeatmapRow {
+  route: string;
+  displayName: string;
+  category: "api" | "auth" | "admin" | "db" | "ai" | "telemetry" | "wallet" | "service";
+  totalRequests: number;
+  overallAvgMs: number;
+  overallP95Ms: number;
+  isSlowPath: boolean;
+  severity: "optimal" | "normal" | "amber" | "red";
+  cells: RouteHeatmapCell[];
+}
+
+export interface RouteLatencyHeatmapData {
+  generatedAt: string;
+  range: "1h" | "24h" | "7d";
+  bucketIntervalMinutes: number;
+  timeBuckets: Array<{ index: number; label: string; timestamp: number }>;
+  routes: RouteHeatmapRow[];
+  summary: {
+    totalEndpoints: number;
+    slowEndpointsCount: number;
+    criticalEndpointsCount: number;
+    systemP95Ms: number;
+    systemAvgMs: number;
+    totalRequests: number;
+  };
+}
+
