@@ -231,22 +231,23 @@ export async function notifyNextInWaitlist(
   }
 
   // Filter candidates matching seat preferences if freedSeatId is provided
-  let candidate = candidates[0];
+  let candidate: typeof candidates[0] | undefined = candidates[0];
   if (freedSeatId) {
     const seat = await prisma.venueSeat.findUnique({
       where: { id: freedSeatId },
     });
-    if (seat) {
-      const match = candidates.find((c) => {
-        if (c.seatId && c.seatId !== freedSeatId) return false;
-        if (c.seatType && c.seatType !== seat.type) return false;
-        if (c.requiresQuiet && !seat.isQuietZone) return false;
-        if (c.requiresOutlets && !seat.amenities.includes("outlets")) return false;
-        return true;
-      });
-      if (match) {
-        candidate = match;
-      }
+    if (!seat) {
+      return { notified: false };
+    }
+    candidate = candidates.find((c) => {
+      if (c.seatId && c.seatId !== freedSeatId) return false;
+      if (c.seatType && c.seatType !== seat.type) return false;
+      if (c.requiresQuiet && !seat.isQuietZone) return false;
+      if (c.requiresOutlets && !seat.amenities.includes("outlets")) return false;
+      return true;
+    });
+    if (!candidate) {
+      return { notified: false };
     }
   }
 
