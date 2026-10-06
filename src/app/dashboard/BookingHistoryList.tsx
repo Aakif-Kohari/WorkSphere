@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { Search, Filter, Calendar, MapPin, Download, CalendarPlus, Ban, RefreshCw } from "lucide-react";
+import { Search, Filter, Calendar, MapPin, Download, CalendarPlus, Ban, RefreshCw, Smartphone } from "lucide-react";
 import { BookingSummary } from "@/components/bookings/BookingList";
 import { getCalendarUrls, downloadICS } from "@/lib/calendar";
 import { ExportBookingsCSVButton } from "@/components/bookings/ExportBookingsCSVButton";
 import { RescheduleModal } from "@/components/bookings/RescheduleModal";
+import { MobileWalletPassModal } from "@/components/bookings/MobileWalletPassModal";
 
 export interface BookingHistoryListProps {
   bookings: BookingSummary[];
@@ -36,6 +37,7 @@ export function BookingHistoryList({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "UPCOMING" | "COMPLETED" | "CANCELLED">("ALL");
   const [reschedulingBooking, setReschedulingBooking] = useState<BookingSummary | null>(null);
+  const [walletBooking, setWalletBooking] = useState<BookingSummary | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -342,18 +344,12 @@ export function BookingHistoryList({
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              if (onRescheduleBooking) {
-                                onRescheduleBooking(booking);
-                              } else {
-                                setReschedulingBooking(booking);
-                              }
-                            }}
+                            onClick={() => setWalletBooking(booking)}
                             className={chipClass}
-                            aria-label={`Reschedule or extend booking ${booking.confirmationId}`}
+                            aria-label={`Add booking ${booking.confirmationId} to Apple or Google Wallet`}
                           >
-                            <RefreshCw className="w-3.5 h-3.5" />
-                            Reschedule / Extend
+                            <Smartphone className="w-3.5 h-3.5 text-blue-500" />
+                            Apple / Google Pass
                           </button>
                           {onCancelBooking && (
                             <button
@@ -393,6 +389,14 @@ export function BookingHistoryList({
           }
         }}
       />
+
+      {walletBooking && (
+        <MobileWalletPassModal
+          booking={walletBooking}
+          isOpen={Boolean(walletBooking)}
+          onClose={() => setWalletBooking(null)}
+        />
+      )}
     </div>
   );
 }

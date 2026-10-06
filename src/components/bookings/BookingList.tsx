@@ -10,12 +10,15 @@ import {
   Loader2,
   MapPin,
   RefreshCw,
+  Smartphone,
 } from "lucide-react";
 import { getCalendarUrls, downloadICS } from "@/lib/calendar";
 import { BookingHistoryList } from "@/app/dashboard/BookingHistoryList";
 import { ExportBookingsCSVButton } from "@/components/bookings/ExportBookingsCSVButton";
 import { RescheduleModal } from "@/components/bookings/RescheduleModal";
+import { SplitBillModal } from "@/components/bookings/SplitBillModal";
 import { GeoCheckInReminderBanner } from "@/components/bookings/GeoCheckInReminderBanner";
+import { MobileWalletPassModal } from "@/components/bookings/MobileWalletPassModal";
 
 export interface BookingSummary {
   id: string;
@@ -70,6 +73,7 @@ export function BookingList({
   const [isExporting, setIsExporting] = useState(false);
   const [reschedulingBooking, setReschedulingBooking] = useState<BookingSummary | null>(null);
   const [splitBillBooking, setSplitBillBooking] = useState<BookingSummary | null>(null);
+  const [walletBooking, setWalletBooking] = useState<BookingSummary | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -295,6 +299,15 @@ export function BookingList({
                 Split Bill &amp; Passes
               </button>
               <button
+                type="button"
+                onClick={() => setWalletBooking(booking)}
+                className={chipClass}
+                aria-label={`Add booking ${booking.confirmationId} to Apple or Google Wallet`}
+              >
+                <Smartphone className="w-3.5 h-3.5 text-blue-500" />
+                Apple / Google Pass
+              </button>
+              <button
                 onClick={() => cancelBooking(booking)}
                 disabled={cancellingId === booking.id}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
@@ -457,6 +470,14 @@ export function BookingList({
           booking={splitBillBooking}
           isOpen={Boolean(splitBillBooking)}
           onClose={() => setSplitBillBooking(null)}
+        />
+      )}
+
+      {walletBooking && (
+        <MobileWalletPassModal
+          booking={walletBooking}
+          isOpen={Boolean(walletBooking)}
+          onClose={() => setWalletBooking(null)}
         />
       )}
     </div>
