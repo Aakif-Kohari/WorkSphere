@@ -55,7 +55,7 @@ export function jitteredReconnectDelay(
   opts: Partial<BackoffOptions> | PartyReconnectOptions = PARTY_SOCKET_RECONNECT_OPTIONS,
   random: () => number = Math.random,
 ): number {
-  if (retryCount <= 0) return 0;
+  if (isNaN(retryCount) || !Number.isFinite(retryCount) || retryCount <= 0) return 0;
 
   const min =
     opts.minReconnectionDelay ??
@@ -88,7 +88,7 @@ export function calculateJitteredBackoff(
   attempt: number,
   options: CalculateJitteredBackoffOptions = {},
 ): number {
-  if (attempt <= 0) return 0;
+  if (isNaN(attempt) || !Number.isFinite(attempt) || attempt <= 0) return 0;
 
   const baseDelay =
     options.baseDelay ?? PARTY_SOCKET_RECONNECT_OPTIONS.minReconnectionDelay;
@@ -116,7 +116,7 @@ export function calculateBackoff(
   } = {},
   random: () => number = Math.random,
 ): number {
-  if (attempt <= 0) return 0;
+  if (isNaN(attempt) || !Number.isFinite(attempt) || attempt <= 0) return 0;
 
   const base = options.baseDelayMs ?? 1000;
   const max = options.maxDelayMs ?? 30000;
