@@ -339,7 +339,8 @@ export function getStoredWebVitals(): WebVitalEntry[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as WebVitalEntry[]) : [];
   } catch {
     return [];
   }
