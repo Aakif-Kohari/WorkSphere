@@ -32,6 +32,10 @@ class StoreAddRequest(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
+class StoreDeleteRequest(BaseModel):
+    node_id: Optional[int] = None
+
+
 class DeduplicateRequest(BaseModel):
     threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 

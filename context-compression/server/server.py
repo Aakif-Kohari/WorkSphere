@@ -48,6 +48,7 @@ try:
         MetricsResponse,
         SearchRequest,
         StoreAddRequest,
+        StoreDeleteRequest,
     )
 except (ImportError, ValueError):
     from compression.compressor import ContextCompressor
@@ -62,6 +63,7 @@ except (ImportError, ValueError):
             MetricsResponse,
             SearchRequest,
             StoreAddRequest,
+            StoreDeleteRequest,
         )
     except (ImportError, ValueError):
         from schemas import (
@@ -73,6 +75,7 @@ except (ImportError, ValueError):
             MetricsResponse,
             SearchRequest,
             StoreAddRequest,
+            StoreDeleteRequest,
         )
 
 logger = logging.getLogger(__name__)
@@ -390,6 +393,23 @@ def create_app(
     async def store_search(request: SearchRequest):
         results = store.search(request.query, request.k)
         return {"results": results}
+
+    @app.delete("/api/store/delete")
+    async def store_delete(request: Optional[StoreDeleteRequest] = None, node_id: Optional[int] = None):
+        target_id = node_id if node_id is not None else (request.node_id if request else None)
+        if target_id is not None:
+            removed = store.remove(target_id)
+            return {"success": removed, "node_id": target_id}
+        store.clear()
+        return {"status": "cleared"}
+
+    @app.get("/api/store/stats")
+    async def store_stats():
+        return {
+            "size": store.size(),
+            "dimension": getattr(store, "dimension", 128),
+            **(store.get_cache_metrics() if hasattr(store, "get_cache_metrics") and callable(store.get_cache_metrics) else {}),
+        }
 
     @app.delete("/api/clear")
     async def clear():
