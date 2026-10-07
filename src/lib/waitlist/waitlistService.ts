@@ -251,91 +251,130 @@ export async function notifyNextInWaitlist(
   // First expire any stale notified entries whose claim window lapsed
   await expireStaleWaitlistOffers();
 
-  // Find eligible candidate in FIFO order
-  const candidates = await prisma.venueSeatWaitlist.findMany({
-    where: {
-      venueId,
-      date: { in: conflictDateWindow(date) },
-      time,
-      status: "ACTIVE",
-    },
-    include: {
-      venue: { select: { name: true } },
-      user: { select: { email: true, firstName: true } },
-    },
-    orderBy: { createdAt: "asc" },
-  });
+  const dates = conflictDateWindow(date);
 
-  if (candidates.length === 0) {
-    return { notified: false };
-  }
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const selected = await prisma.$transaction(
+        async (tx) => {
+          // Row-level lock candidate waitlist rows (FOR UPDATE) in a serializable transaction
+          // so simultaneous seat releases do not pick the same entry.
+          await tx.$queryRaw`
+            SELECT id FROM "VenueSeatWaitlist"
+            WHERE "venueId" = ${venueId}
+              AND "date" IN (${Prisma.join(dates)})
+              AND "time" = ${time}
+              AND "status" = 'ACTIVE'
+            ORDER BY "createdAt" ASC
+            FOR UPDATE
+          `;
 
-  // Filter candidates matching seat preferences if freedSeatId is provided
-  let candidate: typeof candidates[0] | undefined = candidates[0];
-  if (freedSeatId) {
-    const seat = await prisma.venueSeat.findUnique({
-      where: { id: freedSeatId },
-    });
-    if (!seat) {
-      return { notified: false };
-    }
-    candidate = candidates.find((c) => {
-      if (c.seatId && c.seatId !== freedSeatId) return false;
-      if (c.seatType && c.seatType !== seat.type) return false;
-      if (c.requiresQuiet && !seat.isQuietZone) return false;
-      if (c.requiresOutlets && !seat.amenities.includes("outlets")) return false;
-      return true;
-    });
-    if (!candidate) {
-      return { notified: false };
-    }
-  }
+          // Find eligible candidates within the venue and time slot in FIFO order
+          const candidates = await tx.venueSeatWaitlist.findMany({
+            where: {
+              venueId,
+              date: { in: dates },
+              time,
+              status: "ACTIVE",
+            },
+            include: {
+              venue: { select: { name: true } },
+              user: { select: { email: true, firstName: true } },
+            },
+            orderBy: { createdAt: "asc" },
+          });
 
-  const claimExpiresAt = new Date(Date.now() + CLAIM_WINDOW_MINUTES * 60 * 1000);
+          if (candidates.length === 0) {
+            return null;
+          }
 
-  // Transition candidate to NOTIFIED status with expiration window.
-  // This is a compare-and-set on the status: if a concurrent worker already
-  // notified (or the user cancelled) this entry, we must not offer the same
-  // person a second seat or resurrect a cancelled entry.
-  const transitioned = await prisma.venueSeatWaitlist.updateMany({
-    where: { id: candidate.id, status: "ACTIVE" },
-    data: {
-      status: "NOTIFIED",
-      notifiedAt: new Date(),
-      claimExpiresAt,
-      seatId: freedSeatId || candidate.seatId,
-    },
-  });
-  if (transitioned.count !== 1) {
-    return { notified: false };
-  }
+          // Filter candidates matching seat preferences if freedSeatId is provided
+          let candidate: typeof candidates[0] | undefined = candidates[0];
+          if (freedSeatId) {
+            const seat = await tx.venueSeat.findUnique({
+              where: { id: freedSeatId },
+            });
+            if (!seat) {
+              return null;
+            }
+            candidate = candidates.find((c) => {
+              if (c.seatId && c.seatId !== freedSeatId) return false;
+              if (c.seatType && c.seatType !== seat.type) return false;
+              if (c.requiresQuiet && !seat.isQuietZone) return false;
+              if (c.requiresOutlets && !seat.amenities.includes("outlets")) return false;
+              return true;
+            });
+            if (!candidate) {
+              return null;
+            }
+          }
 
-  // Dispatch WebPush / Push Notification
-  try {
-    await dispatcher.dispatch("webpush", {
-      recipient: candidate.userId,
-      title: "Workspace Seat Available!",
-      body: `A seat opened up at ${candidate.venue.name} for ${candidate.date} at ${candidate.time}. You have ${CLAIM_WINDOW_MINUTES} minutes to claim your reservation.`,
-      url: `/venues/${venueId}?claimWaitlist=${candidate.id}`,
-      data: {
-        type: "WAITLIST_SEAT_AVAILABLE",
+          const claimExpiresAt = new Date(Date.now() + CLAIM_WINDOW_MINUTES * 60 * 1000);
+
+          // Transition candidate to NOTIFIED status with expiration window
+          const transitioned = await tx.venueSeatWaitlist.updateMany({
+            where: { id: candidate.id, status: "ACTIVE" },
+            data: {
+              status: "NOTIFIED",
+              notifiedAt: new Date(),
+              claimExpiresAt,
+              seatId: freedSeatId || candidate.seatId,
+            },
+          });
+
+          if (transitioned.count !== 1) {
+            return null;
+          }
+
+          return {
+            candidate,
+            claimExpiresAt,
+          };
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+
+      if (!selected) {
+        return { notified: false };
+      }
+
+      const { candidate, claimExpiresAt } = selected;
+
+      // Dispatch WebPush / Push Notification outside transaction
+      try {
+        await dispatcher.dispatch("webpush", {
+          recipient: candidate.userId,
+          title: "Workspace Seat Available!",
+          body: `A seat opened up at ${candidate.venue.name} for ${candidate.date} at ${candidate.time}. You have ${CLAIM_WINDOW_MINUTES} minutes to claim your reservation.`,
+          url: `/venues/${venueId}?claimWaitlist=${candidate.id}`,
+          data: {
+            type: "WAITLIST_SEAT_AVAILABLE",
+            waitlistId: candidate.id,
+            venueId,
+            expiresAt: claimExpiresAt.toISOString(),
+          },
+          options: {
+            isCritical: true,
+          },
+        });
+      } catch (err) {
+        console.error("Failed to send waitlist notification:", err);
+      }
+
+      return {
+        notified: true,
         waitlistId: candidate.id,
-        venueId,
-        expiresAt: claimExpiresAt.toISOString(),
-      },
-      options: {
-        isCritical: true,
-      },
-    });
-  } catch (err) {
-    console.error("Failed to send waitlist notification:", err);
+        userId: candidate.userId,
+      };
+    } catch (err: any) {
+      if (isTransientTransactionError(err) && attempt < CLAIM_MAX_RETRIES) {
+        const backoff = Math.min(2 ** (attempt + 1) * 100 + Math.random() * 50, 2000);
+        await new Promise((resolve) => setTimeout(resolve, backoff));
+        continue;
+      }
+      throw err;
+    }
   }
-
-  return {
-    notified: true,
-    waitlistId: candidate.id,
-    userId: candidate.userId,
-  };
 }
 
 /**

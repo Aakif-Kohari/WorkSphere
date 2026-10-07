@@ -106,7 +106,11 @@ jest.mock("@/lib/notifications/dispatcher", () => {
   };
 });
 
-import { claimWaitlistSeat, expireStaleWaitlistOffers } from "@/lib/waitlist";
+import {
+  claimWaitlistSeat,
+  expireStaleWaitlistOffers,
+  notifyNextInWaitlist,
+} from "@/lib/waitlist";
 
 const { __db: db } = jest.requireMock("@/lib/prisma") as { __db: any };
 const { __sent: sentNotifications } = jest.requireMock(
@@ -296,6 +300,63 @@ describe("expireStaleWaitlistOffers", () => {
 
     expect(counts.reduce((a, b) => a + b, 0)).toBe(1);
     expect(db.waitlist.filter((w: any) => w.status === "NOTIFIED").map((w: any) => w.id)).toEqual(["w2"]);
+    expect(sentNotifications).toHaveLength(1);
+  });
+});
+
+describe("notifyNextInWaitlist concurrency (#4796)", () => {
+  beforeEach(() => {
+    db.waitlist.length = 0;
+    db.bookings.length = 0;
+    db.seats.length = 0;
+    sentNotifications.length = 0;
+    db.seats.push(
+      seat("seat_1", "A1"),
+      seat("seat_2", "A2"),
+    );
+  });
+
+  it("handles simultaneous seat releases without notifying the same waitlist entry twice", async () => {
+    // Two users are active in the queue
+    db.waitlist.push(
+      waitlistEntry("w1", "u1", { status: "ACTIVE", claimExpiresAt: null, createdAt: new Date(1) }),
+      waitlistEntry("w2", "u2", { status: "ACTIVE", claimExpiresAt: null, createdAt: new Date(2) }),
+    );
+
+    // Two seats are released simultaneously (e.g. concurrent cancellations)
+    const [res1, res2] = await Promise.all([
+      notifyNextInWaitlist("venue_1", DATE, "10:00", 60, "seat_1"),
+      notifyNextInWaitlist("venue_1", DATE, "10:00", 60, "seat_2"),
+    ]);
+
+    expect(res1.notified).toBe(true);
+    expect(res2.notified).toBe(true);
+    // Each release must pick a distinct waitlist claimant
+    expect(res1.waitlistId).not.toEqual(res2.waitlistId);
+    expect(res1.userId).not.toEqual(res2.userId);
+
+    const notifiedEntries = db.waitlist.filter((w: any) => w.status === "NOTIFIED");
+    expect(notifiedEntries).toHaveLength(2);
+    expect(new Set(notifiedEntries.map((w: any) => w.id))).toEqual(new Set(["w1", "w2"]));
+    expect(sentNotifications).toHaveLength(2);
+  });
+
+  it("notifies strictly one user when only one seat is released among concurrent triggers", async () => {
+    db.waitlist.push(
+      waitlistEntry("w1", "u1", { status: "ACTIVE", claimExpiresAt: null, createdAt: new Date(1) }),
+      waitlistEntry("w2", "u2", { status: "ACTIVE", claimExpiresAt: null, createdAt: new Date(2) }),
+    );
+
+    // Multiple triggers for the same freed seat
+    const [res1, res2] = await Promise.all([
+      notifyNextInWaitlist("venue_1", DATE, "10:00", 60, "seat_1"),
+      notifyNextInWaitlist("venue_1", DATE, "10:00", 60, "seat_1"),
+    ]);
+
+    const notifiedResults = [res1, res2].filter((r) => r.notified);
+    expect(notifiedResults).toHaveLength(1);
+    expect(notifiedResults[0].waitlistId).toBe("w1");
+    expect(db.waitlist.filter((w: any) => w.status === "NOTIFIED")).toHaveLength(1);
     expect(sentNotifications).toHaveLength(1);
   });
 });
