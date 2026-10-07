@@ -174,10 +174,18 @@ export async function verifyPasskeyRegistration(
       expectedRPID: getRpId(req),
     });
   } catch {
+    // Invalidate challenge immediately upon verification failure to prevent replay
+    await prisma.passkeyChallenge
+      .delete({ where: { id: challengeRecord.id } })
+      .catch(() => {});
     return { ok: false, status: 400, error: "Passkey verification failed" };
   }
 
   if (!verification.verified || !verification.registrationInfo) {
+    // Invalidate challenge immediately if not verified
+    await prisma.passkeyChallenge
+      .delete({ where: { id: challengeRecord.id } })
+      .catch(() => {});
     return { ok: false, status: 400, error: "Passkey verification failed" };
   }
 

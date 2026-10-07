@@ -285,3 +285,55 @@ export async function generateEmergencyKitPDF(
 
   return pdfDoc.save();
 }
+
+/**
+ * Explicitly revokes and deletes a pending registration challenge token upon
+ * verification failure or user cancellation to prevent challenge replay attacks.
+ *
+ * @param challengeId Optional challenge record ID to revoke
+ * @param userId Optional userId whose active challenges should be invalidated
+ * @param challengeToken Optional raw challenge string to delete
+ */
+export async function invalidateRegistrationChallenge(params: {
+  challengeId?: string | null;
+  userId?: string | null;
+  challenge?: string | null;
+}): Promise<number> {
+  const { prisma } = await import("@/lib/prisma");
+  const { challengeId, userId, challenge } = params;
+
+  if (challengeId) {
+    const deleted = await prisma.passkeyChallenge
+      .deleteMany({
+        where: { id: challengeId },
+      })
+      .catch(() => ({ count: 0 }));
+    return deleted.count;
+  }
+
+  if (challenge) {
+    const deleted = await prisma.passkeyChallenge
+      .deleteMany({
+        where: { challenge },
+      })
+      .catch(() => ({ count: 0 }));
+    return deleted.count;
+  }
+
+  if (userId) {
+    const deleted = await prisma.passkeyChallenge
+      .deleteMany({
+        where: { userId },
+      })
+      .catch(() => ({ count: 0 }));
+    return deleted.count;
+  }
+
+  return 0;
+}
+
+/**
+ * Revoke challenge token immediately upon verification error or cancellation.
+ */
+export const revokeChallenge = invalidateRegistrationChallenge;
+export const cancelRegistrationChallenge = invalidateRegistrationChallenge;

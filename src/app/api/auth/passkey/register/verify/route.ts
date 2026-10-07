@@ -15,12 +15,27 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { registrationResponse, name } = body as {
-      registrationResponse: RegistrationResponseJSON;
+    const { registrationResponse, name, cancelled } = body as {
+      registrationResponse?: RegistrationResponseJSON;
       name?: string;
+      cancelled?: boolean;
     };
 
+    if (cancelled) {
+      await prisma.passkeyChallenge
+        .deleteMany({
+          where: { userId },
+        })
+        .catch(() => {});
+      return NextResponse.json({ ok: false, error: "Registration cancelled" }, { status: 200 });
+    }
+
     if (!registrationResponse) {
+      await prisma.passkeyChallenge
+        .deleteMany({
+          where: { userId },
+        })
+        .catch(() => {});
       return NextResponse.json(
         { error: "Registration response is required" },
         { status: 400 },
@@ -33,6 +48,11 @@ export async function POST(req: Request) {
       registrationResponse,
     );
     if (!result.ok) {
+      await prisma.passkeyChallenge
+        .deleteMany({
+          where: { userId },
+        })
+        .catch(() => {});
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
