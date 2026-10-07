@@ -240,3 +240,210 @@ describe("validateRelayState (#4383)", () => {
   });
 });
 
+describe("SAML Audience Restriction Validation (#4572)", () => {
+  const validXml = `
+    <Response>
+      <Assertion>
+        <Conditions NotBefore="2020-01-01T00:00:00Z" NotOnOrAfter="2099-01-01T00:00:00Z">
+          <AudienceRestriction>
+            <Audience>http://sp.example.com</Audience>
+          </AudienceRestriction>
+        </Conditions>
+        <Subject>
+          <NameID>user@example.com</NameID>
+        </Subject>
+        <AttributeStatement>
+          <Attribute Name="email">
+            <AttributeValue>user@example.com</AttributeValue>
+          </Attribute>
+        </AttributeStatement>
+        <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+          <SignatureValue>dummy</SignatureValue>
+        </Signature>
+      </Assertion>
+    </Response>
+  `;
+
+  const missingAudienceRestrictionXml = `
+    <Response>
+      <Assertion>
+        <Conditions NotBefore="2020-01-01T00:00:00Z" NotOnOrAfter="2099-01-01T00:00:00Z">
+        </Conditions>
+        <Subject>
+          <NameID>user@example.com</NameID>
+        </Subject>
+        <AttributeStatement>
+          <Attribute Name="email">
+            <AttributeValue>user@example.com</AttributeValue>
+          </Attribute>
+        </AttributeStatement>
+        <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+          <SignatureValue>dummy</SignatureValue>
+        </Signature>
+      </Assertion>
+    </Response>
+  `;
+
+  const missingConditionsXml = `
+    <Response>
+      <Assertion>
+        <Subject>
+          <NameID>user@example.com</NameID>
+        </Subject>
+        <AttributeStatement>
+          <Attribute Name="email">
+            <AttributeValue>user@example.com</AttributeValue>
+          </Attribute>
+        </AttributeStatement>
+        <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+          <SignatureValue>dummy</SignatureValue>
+        </Signature>
+      </Assertion>
+    </Response>
+  `;
+
+  const emptyAudienceXml = `
+    <Response>
+      <Assertion>
+        <Conditions NotBefore="2020-01-01T00:00:00Z" NotOnOrAfter="2099-01-01T00:00:00Z">
+          <AudienceRestriction>
+          </AudienceRestriction>
+        </Conditions>
+        <Subject>
+          <NameID>user@example.com</NameID>
+        </Subject>
+        <AttributeStatement>
+          <Attribute Name="email">
+            <AttributeValue>user@example.com</AttributeValue>
+          </Attribute>
+        </AttributeStatement>
+        <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+          <SignatureValue>dummy</SignatureValue>
+        </Signature>
+      </Assertion>
+    </Response>
+  `;
+
+  const multipleAudiencesXml = `
+    <Response>
+      <Assertion>
+        <Conditions NotBefore="2020-01-01T00:00:00Z" NotOnOrAfter="2099-01-01T00:00:00Z">
+          <AudienceRestriction>
+            <Audience>http://other-sp.com</Audience>
+            <Audience>http://sp.example.com</Audience>
+          </AudienceRestriction>
+        </Conditions>
+        <Subject>
+          <NameID>user@example.com</NameID>
+        </Subject>
+        <AttributeStatement>
+          <Attribute Name="email">
+            <AttributeValue>user@example.com</AttributeValue>
+          </Attribute>
+        </AttributeStatement>
+        <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+          <SignatureValue>dummy</SignatureValue>
+        </Signature>
+      </Assertion>
+    </Response>
+  `;
+
+  const testCert = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Y3r";
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env = { ...originalEnv };
+    delete process.env.SAML_ENTITY_ID;
+    delete process.env.SAML_SP_ENTITY_ID;
+
+    const mockSignedXmlInstance = {
+      publicCert: null as any,
+      loadSignature: jest.fn(),
+      checkSignature: jest.fn().mockReturnValue(true),
+    };
+    (SignedXml as unknown as jest.Mock).mockReturnValue(mockSignedXmlInstance);
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it("should validate assertion when audience strictly matches expectedAudience parameter", () => {
+    const result = validateSamlAssertion(
+      validXml,
+      testCert,
+      "http://sp.example.com",
+    );
+    expect(result.nameId).toBe("user@example.com");
+    expect(result.attributes.email).toBe("user@example.com");
+  });
+
+  it("should validate assertion when expected audience is resolved from process.env.SAML_ENTITY_ID", () => {
+    process.env.SAML_ENTITY_ID = "http://sp.example.com";
+    const result = validateSamlAssertion(validXml, testCert);
+    expect(result.nameId).toBe("user@example.com");
+  });
+
+  it("should validate assertion when expected audience is resolved from process.env.SAML_SP_ENTITY_ID", () => {
+    process.env.SAML_SP_ENTITY_ID = "http://sp.example.com";
+    const result = validateSamlAssertion(validXml, testCert);
+    expect(result.nameId).toBe("user@example.com");
+  });
+
+  it("should accept assertion containing multiple Audience elements when one matches", () => {
+    const result = validateSamlAssertion(
+      multipleAudiencesXml,
+      testCert,
+      "http://sp.example.com",
+    );
+    expect(result.nameId).toBe("user@example.com");
+  });
+
+  it("should reject assertion with mismatched audience value", () => {
+    expect(() => {
+      validateSamlAssertion(
+        validXml,
+        testCert,
+        "http://mismatched-sp.com",
+      );
+    }).toThrow("SAML Assertion Audience restriction mismatch");
+  });
+
+  it("should reject assertion when AudienceRestriction element is missing", () => {
+    expect(() => {
+      validateSamlAssertion(
+        missingAudienceRestrictionXml,
+        testCert,
+        "http://sp.example.com",
+      );
+    }).toThrow("Invalid SAML: Missing AudienceRestriction");
+  });
+
+  it("should reject assertion when Conditions element is missing entirely", () => {
+    expect(() => {
+      validateSamlAssertion(
+        missingConditionsXml,
+        testCert,
+        "http://sp.example.com",
+      );
+    }).toThrow("Invalid SAML: Missing Conditions");
+  });
+
+  it("should reject assertion when Audience element is missing inside AudienceRestriction", () => {
+    expect(() => {
+      validateSamlAssertion(
+        emptyAudienceXml,
+        testCert,
+        "http://sp.example.com",
+      );
+    }).toThrow("Invalid SAML: Missing Audience in AudienceRestriction");
+  });
+
+  it("should reject assertion when expected audience is not configured and not passed", () => {
+    expect(() => {
+      validateSamlAssertion(validXml, testCert);
+    }).toThrow("Invalid SAML: Expected audience is not configured");
+  });
+});
+

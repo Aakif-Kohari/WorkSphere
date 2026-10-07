@@ -7,7 +7,8 @@ import { XMLParser } from "fast-xml-parser";
  *
  * @param xmlString - The raw XML string of the SAML Response or Assertion
  * @param expectedCert - The expected X.509 certificate string from the IDP metadata
- * @param expectedAudience - (Optional) The expected audience (EntityID) of our SP
+ * @param expectedAudience - (Optional) The expected audience (EntityID) of our SP; falls back to process.env.SAML_ENTITY_ID or process.env.SAML_SP_ENTITY_ID
+ * @param expectedRecipient - (Optional) The expected recipient ACS URL
  * @returns An object containing the extracted NameID and attributes if valid
  */
 export function validateSamlAssertion(
@@ -131,34 +132,70 @@ export function validateSamlAssertion(
 
   // 4. Validate Conditions (Time and Audience)
   const conditions = assertion.Conditions;
-  if (conditions) {
-    const notBefore = conditions["@_NotBefore"];
-    const notOnOrAfter = conditions["@_NotOnOrAfter"];
-    const now = new Date();
+  if (!conditions) {
+    throw new Error("Invalid SAML: Missing Conditions");
+  }
 
-    if (notBefore && new Date(notBefore) > now) {
-      throw new Error("SAML Assertion is not yet valid (NotBefore)");
-    }
+  const notBefore = conditions["@_NotBefore"];
+  const notOnOrAfter = conditions["@_NotOnOrAfter"];
+  const now = new Date();
 
-    if (notOnOrAfter && new Date(notOnOrAfter) <= now) {
-      throw new Error("SAML Assertion has expired (NotOnOrAfter)");
-    }
+  if (notBefore && new Date(notBefore) > now) {
+    throw new Error("SAML Assertion is not yet valid (NotBefore)");
+  }
 
-    if (expectedAudience) {
-      const audienceRestriction = conditions.AudienceRestriction;
+  if (notOnOrAfter && new Date(notOnOrAfter) <= now) {
+    throw new Error("SAML Assertion has expired (NotOnOrAfter)");
+  }
 
-      if (!audienceRestriction) {
-        throw new Error("Invalid SAML: Missing AudienceRestriction");
+  const audienceRestriction = conditions.AudienceRestriction;
+
+  if (!audienceRestriction) {
+    throw new Error("Invalid SAML: Missing AudienceRestriction");
+  }
+
+  const rawRestrictions = Array.isArray(audienceRestriction)
+    ? audienceRestriction
+    : [audienceRestriction];
+
+  const audiences: string[] = [];
+  for (const restriction of rawRestrictions) {
+    if (!restriction) continue;
+    const rawAudiences = Array.isArray(restriction.Audience)
+      ? restriction.Audience
+      : restriction.Audience !== undefined
+        ? [restriction.Audience]
+        : [];
+
+    for (const aud of rawAudiences) {
+      const val =
+        typeof aud === "object" && aud !== null && typeof aud["#text"] === "string"
+          ? aud["#text"]
+          : typeof aud === "string"
+            ? aud
+            : String(aud ?? "");
+      const trimmed = val.trim();
+      if (trimmed) {
+        audiences.push(trimmed);
       }
-
-      const audiences = Array.isArray(audienceRestriction.Audience)
-        ? audienceRestriction.Audience
-        : [audienceRestriction.Audience];
-
-      if (!audiences.includes(expectedAudience)) {
-        throw new Error("SAML Assertion Audience restriction mismatch");
-      }
     }
+  }
+
+  if (audiences.length === 0) {
+    throw new Error("Invalid SAML: Missing Audience in AudienceRestriction");
+  }
+
+  const targetAudience =
+    expectedAudience?.trim() ||
+    process.env.SAML_ENTITY_ID?.trim() ||
+    process.env.SAML_SP_ENTITY_ID?.trim();
+
+  if (!targetAudience) {
+    throw new Error("Invalid SAML: Expected audience is not configured");
+  }
+
+  if (!audiences.includes(targetAudience)) {
+    throw new Error("SAML Assertion Audience restriction mismatch");
   }
 
   // 5. Extract NameID and Attributes
