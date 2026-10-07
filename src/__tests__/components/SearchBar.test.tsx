@@ -1,6 +1,6 @@
 import React from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
-import { SearchBar } from "@/components/venues/SearchBar";
+import { SearchBar, trimSearchQuery } from "@/components/venues/SearchBar";
 
 describe("SearchBar component (#4401, #4404)", () => {
   const originalFetch = global.fetch;
@@ -228,6 +228,64 @@ describe("SearchBar component (#4401, #4404)", () => {
 
       const liveRegion = screen.getByTestId("search-results-announcement");
       expect(liveRegion).toHaveTextContent("No venues found");
+    });
+  });
+
+  describe("Whitespace trimming and empty query prevention (#4788)", () => {
+    it("trims leading and trailing whitespace using trimSearchQuery helper", () => {
+      expect(trimSearchQuery("   Cafe Central   ")).toBe("Cafe Central");
+      expect(trimSearchQuery("Workspace   ")).toBe("Workspace");
+      expect(trimSearchQuery("   Downtown Desk")).toBe("Downtown Desk");
+      expect(trimSearchQuery("     ")).toBe("");
+      expect(trimSearchQuery("")).toBe("");
+    });
+
+    it("trims leading and trailing whitespace before invoking onSearch on Enter key", () => {
+      const onSearch = jest.fn();
+      render(<SearchBar onSearch={onSearch} />);
+
+      const input = screen.getByTestId("search-bar-input");
+      act(() => {
+        fireEvent.change(input, { target: { value: "   Coworking Hub   " } });
+      });
+
+      act(() => {
+        fireEvent.keyDown(input, { key: "Enter" });
+      });
+
+      expect(onSearch).toHaveBeenCalledWith("Coworking Hub");
+    });
+
+    it("prevents queries containing only whitespace from triggering search fetch on Enter", () => {
+      const onSearch = jest.fn();
+      render(<SearchBar onSearch={onSearch} />);
+
+      const input = screen.getByTestId("search-bar-input");
+      act(() => {
+        fireEvent.change(input, { target: { value: "     " } });
+      });
+
+      act(() => {
+        fireEvent.keyDown(input, { key: "Enter" });
+      });
+
+      expect(onSearch).toHaveBeenCalledWith("");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("prevents debounced search fetch when query contains only whitespace", async () => {
+      render(<SearchBar debounceMs={100} />);
+
+      const input = screen.getByTestId("search-bar-input");
+      act(() => {
+        fireEvent.change(input, { target: { value: "     " } });
+      });
+
+      await act(async () => {
+        jest.advanceTimersByTime(250);
+      });
+
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 });

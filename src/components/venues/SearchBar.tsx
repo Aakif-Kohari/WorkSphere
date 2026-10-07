@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Search, X, Loader2, MapPin } from "lucide-react";
 import { useVenueSearch, VenueSearchResult } from "@/hooks/useVenueSearch";
 import { AmenityFilterPills } from "./AmenityFilterPills";
@@ -14,6 +15,14 @@ export interface SearchBarProps {
   initialQuery?: string;
   autoFocus?: boolean;
   showAmenityPills?: boolean;
+  syncWithUrl?: boolean;
+}
+
+/**
+ * Trims leading and trailing whitespace from venue search queries.
+ */
+export function trimSearchQuery(query: string): string {
+  return typeof query === "string" ? query.trim() : "";
 }
 
 /**
@@ -29,6 +38,7 @@ export function SearchBar({
   initialQuery = "",
   autoFocus = false,
   showAmenityPills = false,
+  syncWithUrl = true,
 }: SearchBarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [shortcutKey, setShortcutKey] = useState("Ctrl+K");
@@ -38,6 +48,18 @@ export function SearchBar({
     start: null,
     end: null,
   });
+
+  // Navigation hooks with graceful fallback for environments outside Next.js App Router context
+  let router: any = null;
+  let searchParams: any = null;
+  let pathname: any = null;
+  try {
+    router = useRouter();
+    searchParams = useSearchParams();
+    pathname = usePathname();
+  } catch {
+    // Graceful fallback for testing environments
+  }
 
   const { query, setQuery, venues, isLoading, clear } = useVenueSearch({
     initialQuery,
@@ -101,11 +123,60 @@ export function SearchBar({
     };
   }, []);
 
+  const updateUrlQuery = useCallback(
+    (trimmedQuery: string) => {
+      if (!syncWithUrl || !router || !pathname) return;
+      try {
+        const params = new URLSearchParams(
+          searchParams ? searchParams.toString() : "",
+        );
+        if (trimmedQuery) {
+          params.set("q", trimmedQuery);
+          params.delete("query");
+        } else {
+          params.delete("q");
+          params.delete("query");
+        }
+        const qs = params.toString();
+        const target = `${pathname}${qs ? `?${qs}` : ""}`;
+        const navigate = (router.replace || router.push)?.bind(router);
+        if (navigate) {
+          navigate(target, { scroll: false });
+        }
+      } catch {
+        // Safe navigation failure guard
+      }
+    },
+    [syncWithUrl, router, pathname, searchParams],
+  );
+
+  const handleSearchSubmit = useCallback(
+    (rawQuery?: string) => {
+      const target = typeof rawQuery === "string" ? rawQuery : query;
+      const trimmed = trimSearchQuery(target);
+      if (!trimmed) {
+        // Prevent empty queries containing only spaces from triggering search fetch
+        clear();
+        onSearch?.("");
+        updateUrlQuery("");
+        setIsOpen(false);
+        return;
+      }
+      onSearch?.(trimmed);
+      updateUrlQuery(trimmed);
+      void search(trimmed);
+    },
+    [query, clear, onSearch, updateUrlQuery, search],
+  );
+
   const handleSelectVenue = (venue: VenueSearchResult) => {
     cursorRef.current = { start: null, end: null };
-    setQuery(venue.name);
+    const trimmedName = trimSearchQuery(venue.name);
+    setQuery(trimmedName);
     setIsOpen(false);
     onSelect?.(venue);
+    onSearch?.(trimmedName);
+    updateUrlQuery(trimmedName);
   };
 
   const handleClear = (e?: React.MouseEvent<HTMLButtonElement>) => {
@@ -116,16 +187,21 @@ export function SearchBar({
     cursorRef.current = { start: null, end: null };
     clear();
     onSearch?.("");
+    updateUrlQuery("");
     setIsOpen(true);
     inputRef.current?.focus();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Escape") {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSearchSubmit();
+    } else if (e.key === "Escape") {
       e.preventDefault();
       cursorRef.current = { start: null, end: null };
       clear();
       onSearch?.("");
+      updateUrlQuery("");
       setIsOpen(false);
       inputRef.current?.blur();
     }

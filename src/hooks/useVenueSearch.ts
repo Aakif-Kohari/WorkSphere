@@ -205,12 +205,12 @@ export function useVenueSearch<T = VenueSearchResult>(
     }
 
     if (debounceMs <= 0) {
-      void performSearch(activeQuery);
+      void performSearch(trimmed);
       return;
     }
 
     debounceTimerRef.current = setTimeout(() => {
-      void performSearch(activeQuery);
+      void performSearch(trimmed);
     }, debounceMs);
 
     return () => {
