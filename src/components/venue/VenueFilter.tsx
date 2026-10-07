@@ -78,12 +78,45 @@ export interface VenueWithTelemetry {
   capacity?: number | null;
   meetingRoomCapacity?: number | null;
   maxCapacity?: number | null;
+  rating?: number | null;
+  averageRating?: number | null;
   telemetry?: {
     averageNoise?: number | null;
     noiseScore?: number | null;
     [key: string]: unknown;
   } | null;
   [key: string]: unknown;
+}
+
+export interface SortOption {
+  id: string;
+  label: string;
+}
+
+export const SORT_OPTIONS: SortOption[] = [
+  { id: "default", label: "Default" },
+  { id: "rating_desc", label: "Rating: High to Low" },
+  { id: "rating_asc", label: "Rating: Low to High" },
+];
+
+/**
+ * Sort venue listings by average user rating (Highest Rated first / Lowest Rated first).
+ * "rating_desc": Highest Rated first (High to Low)
+ * "rating_asc": Lowest Rated first (Low to High)
+ * Handles null, undefined, or missing rating / averageRating safely (defaults to 0).
+ * Does not mutate the original array.
+ */
+export function sortVenuesByRating<
+  T extends { rating?: number | null; averageRating?: number | null }
+>(venues: T[], sortBy: string): T[] {
+  if (sortBy !== "rating_asc" && sortBy !== "rating_desc") {
+    return [...venues];
+  }
+  return [...venues].sort((a, b) => {
+    const rateA = a.averageRating ?? a.rating ?? 0;
+    const rateB = b.averageRating ?? b.rating ?? 0;
+    return sortBy === "rating_asc" ? rateA - rateB : rateB - rateA;
+  });
 }
 
 /**
@@ -145,22 +178,38 @@ export function filterVenuesByNoise<T extends VenueWithTelemetry>(
 export interface VenueFilterProps {
   selectedNoiseLevels?: string[];
   onChange?: (noiseLevels: string[]) => void;
+  sortBy?: string;
+  onSortChange?: (sortBy: string) => void;
   className?: string;
 }
 
 /**
- * Noise filter selector component for venue search.
- * Allows multi-selecting noise level tags (Quiet < 50dB, Moderate 50-70dB, Energetic > 70dB).
- * Updates URL search params (`?noise=quiet,moderate`).
+ * Filter and sort selector component for venue search.
+ * Allows multi-selecting noise level tags and sorting venue listings by average user rating.
+ * Updates URL search params (`?noise=quiet,moderate&sortBy=rating_desc`).
  */
 export function VenueFilter({
   selectedNoiseLevels: externalSelected,
   onChange,
+  sortBy: externalSortBy,
+  onSortChange,
   className = "",
 }: VenueFilterProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+
+  // Helper for router navigation that supports push and replace
+  const navigate = useCallback(
+    (targetUrl: string) => {
+      if (!router) return;
+      const navFn = (router.replace || router.push)?.bind(router);
+      if (navFn) {
+        navFn(targetUrl, { scroll: false });
+      }
+    },
+    [router],
+  );
 
   // Read noise filter from URL search params (e.g. noise=quiet,moderate)
   const urlNoiseLevels = useMemo(() => {
@@ -174,6 +223,15 @@ export function VenueFilter({
   }, [searchParams]);
 
   const activeSelected = externalSelected ?? urlNoiseLevels;
+
+  // Read sort option from URL search params (e.g. sortBy=rating_desc)
+  const urlSortBy = useMemo(() => {
+    if (!searchParams) return "default";
+    const raw = searchParams.get("sortBy") ?? searchParams.get("sort");
+    return raw || "default";
+  }, [searchParams]);
+
+  const activeSortBy = externalSortBy ?? urlSortBy;
 
   const handleToggleNoiseTag = useCallback(
     (tag: NoiseTag) => {
@@ -189,7 +247,7 @@ export function VenueFilter({
       }
 
       // Synchronize with URL search params
-      if (searchParams && router && pathname) {
+      if (searchParams && pathname) {
         const params = new URLSearchParams(searchParams.toString());
         if (next.length > 0) {
           params.set("noise", next.join(","));
@@ -200,66 +258,136 @@ export function VenueFilter({
         }
         const queryString = params.toString();
         const targetUrl = `${pathname}${queryString ? `?${queryString}` : ""}`;
-        router.replace(targetUrl, { scroll: false });
+        navigate(targetUrl);
       }
     },
-    [activeSelected, onChange, searchParams, router, pathname],
+    [activeSelected, onChange, searchParams, pathname, navigate],
+  );
+
+  const handleSortChange = useCallback(
+    (newSort: string) => {
+      if (onSortChange) {
+        onSortChange(newSort);
+      }
+
+      // Synchronize with URL search params
+      if (searchParams && pathname) {
+        const params = new URLSearchParams(searchParams.toString());
+        if (newSort && newSort !== "default") {
+          params.set("sortBy", newSort);
+          params.delete("sort");
+        } else {
+          params.delete("sortBy");
+          params.delete("sort");
+        }
+        const queryString = params.toString();
+        const targetUrl = `${pathname}${queryString ? `?${queryString}` : ""}`;
+        navigate(targetUrl);
+      }
+    },
+    [onSortChange, searchParams, pathname, navigate],
   );
 
   return (
-    <div className={`space-y-2 ${className}`} data-testid="venue-noise-filter">
-      <div className="flex items-center justify-between">
-        <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-          Noise Level
-        </label>
-        {activeSelected.length > 0 && (
-          <button
-            type="button"
-            data-testid="clear-noise-filter-btn"
-            onClick={() => {
-              if (onChange) onChange([]);
-              if (searchParams && router && pathname) {
-                const params = new URLSearchParams(searchParams.toString());
-                params.delete("noise");
-                params.delete("noiseLevel");
-                const queryString = params.toString();
-                const targetUrl = `${pathname}${queryString ? `?${queryString}` : ""}`;
-                router.replace(targetUrl, { scroll: false });
-              }
-            }}
-            className="text-[11px] font-bold text-rose-500 hover:underline"
-          >
-            Clear Noise
-          </button>
-        )}
+    <div className={`space-y-4 ${className}`} data-testid="venue-filter-container">
+      {/* Noise Level Filter */}
+      <div className="space-y-2" data-testid="venue-noise-filter">
+        <div className="flex items-center justify-between">
+          <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            Noise Level
+          </label>
+          {activeSelected.length > 0 && (
+            <button
+              type="button"
+              data-testid="clear-noise-filter-btn"
+              onClick={() => {
+                if (onChange) onChange([]);
+                if (searchParams && pathname) {
+                  const params = new URLSearchParams(searchParams.toString());
+                  params.delete("noise");
+                  params.delete("noiseLevel");
+                  const queryString = params.toString();
+                  const targetUrl = `${pathname}${queryString ? `?${queryString}` : ""}`;
+                  navigate(targetUrl);
+                }
+              }}
+              className="text-[11px] font-bold text-rose-500 hover:underline"
+            >
+              Clear Noise
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by Noise Level">
+          {NOISE_OPTIONS.map((option) => {
+            const isSelected = activeSelected.includes(option.id);
+            const Icon = option.icon;
+
+            return (
+              <button
+                key={option.id}
+                type="button"
+                data-testid={`noise-filter-${option.id}`}
+                aria-pressed={isSelected}
+                onClick={() => handleToggleNoiseTag(option.id)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                  isSelected
+                    ? "bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-500/20"
+                    : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:border-blue-400/60"
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{option.label}</span>
+                <span className={`text-[10px] opacity-80 font-normal ${isSelected ? "text-blue-100" : "text-zinc-400"}`}>
+                  ({option.dbRange})
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by Noise Level">
-        {NOISE_OPTIONS.map((option) => {
-          const isSelected = activeSelected.includes(option.id);
-          const Icon = option.icon;
-
-          return (
+      {/* Sort By Dropdown */}
+      <div className="space-y-1.5" data-testid="venue-sort-container">
+        <div className="flex items-center justify-between">
+          <label
+            htmlFor="venue-rating-sort-select"
+            className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400"
+          >
+            Sort By
+          </label>
+          {activeSortBy !== "default" && (
             <button
-              key={option.id}
               type="button"
-              data-testid={`noise-filter-${option.id}`}
-              aria-pressed={isSelected}
-              onClick={() => handleToggleNoiseTag(option.id)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-                isSelected
-                  ? "bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-500/20"
-                  : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:border-blue-400/60"
-              }`}
+              data-testid="clear-sort-btn"
+              onClick={() => handleSortChange("default")}
+              className="text-[11px] font-bold text-rose-500 hover:underline"
             >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{option.label}</span>
-              <span className={`text-[10px] opacity-80 font-normal ${isSelected ? "text-blue-100" : "text-zinc-400"}`}>
-                ({option.dbRange})
-              </span>
+              Reset Sort
             </button>
-          );
-        })}
+          )}
+        </div>
+        <div className="relative">
+          <select
+            id="venue-rating-sort-select"
+            data-testid="venue-sort-select"
+            value={activeSortBy}
+            onChange={(e) => handleSortChange(e.target.value)}
+            aria-label="Sort venue listings by rating or default"
+            className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none"
+          >
+            {SORT_OPTIONS.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-zinc-400">
+            <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
+              <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+            </svg>
+          </div>
+        </div>
       </div>
     </div>
   );

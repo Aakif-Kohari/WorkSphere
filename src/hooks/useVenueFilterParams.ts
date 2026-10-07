@@ -17,7 +17,12 @@ export interface VenueFilterState {
   amenities: string[];
   maxDistance: number;
   view: ViewMode;
-  sortBy?: "default" | "capacity_asc" | "capacity_desc";
+  sortBy?:
+    | "default"
+    | "capacity_asc"
+    | "capacity_desc"
+    | "rating_desc"
+    | "rating_asc";
 }
 
 export const DEFAULT_FILTER_STATE: VenueFilterState = {
@@ -101,7 +106,10 @@ export function parseFiltersFromSearchParams(
 
   const rawSort = params.get("sortBy") ?? params.get("sort");
   const sortBy =
-    rawSort === "capacity_asc" || rawSort === "capacity_desc"
+    rawSort === "capacity_asc" ||
+    rawSort === "capacity_desc" ||
+    rawSort === "rating_desc" ||
+    rawSort === "rating_asc"
       ? rawSort
       : "default";
 

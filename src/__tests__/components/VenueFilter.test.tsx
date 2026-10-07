@@ -83,5 +83,39 @@ describe("VenueFilter & Noise Level Classification (#4409)", () => {
       expect(onChange).toHaveBeenCalledWith(["quiet"]);
       expect(mockPush).toHaveBeenCalledWith("/venues?noise=quiet", { scroll: false });
     });
+
+    it("renders sort dropdown with Rating: High to Low and Rating: Low to High options", () => {
+      render(<VenueFilter />);
+
+      const sortSelect = screen.getByTestId("venue-sort-select");
+      expect(sortSelect).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Default" })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Rating: High to Low" })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Rating: Low to High" })).toBeInTheDocument();
+    });
+
+    it("triggers onSortChange and updates URL search parameter when sort option is selected", () => {
+      const onSortChange = jest.fn();
+      render(<VenueFilter onSortChange={onSortChange} />);
+
+      const sortSelect = screen.getByTestId("venue-sort-select");
+      fireEvent.change(sortSelect, { target: { value: "rating_desc" } });
+
+      expect(onSortChange).toHaveBeenCalledWith("rating_desc");
+      expect(mockPush).toHaveBeenCalledWith("/venues?sortBy=rating_desc", { scroll: false });
+    });
+
+    it("resets sort to default when Reset Sort button is clicked", () => {
+      mockSearchParams = new URLSearchParams("sortBy=rating_asc");
+      const onSortChange = jest.fn();
+      render(<VenueFilter onSortChange={onSortChange} />);
+
+      const resetBtn = screen.getByTestId("clear-sort-btn");
+      expect(resetBtn).toBeInTheDocument();
+      fireEvent.click(resetBtn);
+
+      expect(onSortChange).toHaveBeenCalledWith("default");
+      expect(mockPush).toHaveBeenCalledWith("/venues", { scroll: false });
+    });
   });
 });
