@@ -137,5 +137,23 @@ describe("useVenueFilterParams & URL Search Parameter Synchronization", () => {
       expect(nextParams.has("price")).toBe(false);
       expect(nextParams.get("view")).toBe("map");
     });
+
+    test("preserves and updates capacity sortBy parameter", () => {
+      const initialParams = new URLSearchParams("q=cafe&sortBy=capacity_asc");
+      const parsed = parseFiltersFromSearchParams(initialParams);
+      expect(parsed.sortBy).toBe("capacity_asc");
+
+      const updatedQuery = buildQueryStringWithFilters(initialParams, {
+        sortBy: "capacity_desc",
+      });
+      const nextParams = new URLSearchParams(updatedQuery.replace(/^\?/, ""));
+      expect(nextParams.get("sortBy")).toBe("capacity_desc");
+
+      const clearedQuery = buildQueryStringWithFilters(nextParams, {
+        sortBy: "default",
+      });
+      const clearedParams = new URLSearchParams(clearedQuery.replace(/^\?/, ""));
+      expect(clearedParams.has("sortBy")).toBe(false);
+    });
   });
 });

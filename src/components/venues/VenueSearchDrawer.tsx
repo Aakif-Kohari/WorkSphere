@@ -42,8 +42,30 @@ export interface VenueSearchDrawerProps {
   onMinCapacityChange?: (capacity: number) => void;
   capacity?: number;
   onCapacityChange?: (capacity: number) => void;
+  sortBy?: string;
+  onSortByChange?: (sortBy: string) => void;
   onClearFilters?: () => void;
   onApplyFilters?: () => void;
+}
+
+export const SORT_OPTIONS = [
+  { id: "default", label: "Default" },
+  { id: "capacity_asc", label: "Capacity: Low to High" },
+  { id: "capacity_desc", label: "Capacity: High to Low" },
+];
+
+export function sortVenuesByCapacity<T extends { totalDesks?: number | null; capacity?: number | null }>(
+  venues: T[],
+  sortBy: string,
+): T[] {
+  if (sortBy !== "capacity_asc" && sortBy !== "capacity_desc") {
+    return [...venues];
+  }
+  return [...venues].sort((a, b) => {
+    const capA = (a.totalDesks ?? a.capacity) ?? 0;
+    const capB = (b.totalDesks ?? b.capacity) ?? 0;
+    return sortBy === "capacity_asc" ? capA - capB : capB - capA;
+  });
 }
 
 export const AMENITIES_LIST = [
@@ -120,6 +142,8 @@ export function VenueSearchDrawer({
   onMinCapacityChange,
   capacity: externalCapacity,
   onCapacityChange,
+  sortBy: externalSortBy,
+  onSortByChange,
   onClearFilters,
   onApplyFilters,
 }: VenueSearchDrawerProps) {
@@ -133,6 +157,7 @@ export function VenueSearchDrawer({
   const [internalCapacity, setInternalCapacity] = useState<number | undefined>(
     undefined,
   );
+  const [internalSortBy, setInternalSortBy] = useState("default");
 
   // Preset management state
   const [presets, setPresets] = useState<FilterPreset[]>([]);
@@ -169,6 +194,7 @@ export function VenueSearchDrawer({
     externalMinCapacity ??
     externalCapacity ??
     internalCapacity;
+  const currentSortBy = externalSortBy ?? internalSortBy;
 
   const hasActiveFilters =
     search.trim() !== "" ||
@@ -177,7 +203,8 @@ export function VenueSearchDrawer({
     price !== "all" ||
     cat !== "all" ||
     distance > 0 ||
-    (capacity !== undefined && capacity > 1);
+    (capacity !== undefined && capacity > 1) ||
+    currentSortBy !== "default";
 
   const activeFilterCount =
     (search.trim() !== "" ? 1 : 0) +
@@ -186,7 +213,8 @@ export function VenueSearchDrawer({
     (price !== "all" ? 1 : 0) +
     (cat !== "all" ? 1 : 0) +
     (distance > 0 ? 1 : 0) +
-    (capacity !== undefined && capacity > 1 ? 1 : 0);
+    (capacity !== undefined && capacity > 1 ? 1 : 0) +
+    (currentSortBy !== "default" ? 1 : 0);
 
   const handleSearchInput = (val: string) => {
     setActivePresetId(null);
@@ -239,6 +267,12 @@ export function VenueSearchDrawer({
     if (onMinCapacityChange) onMinCapacityChange(sanitized);
     if (onCapacityChange) onCapacityChange(sanitized);
     setInternalCapacity(sanitized);
+  };
+
+  const handleSortByChange = (val: string) => {
+    setActivePresetId(null);
+    if (onSortByChange) onSortByChange(val);
+    else setInternalSortBy(val);
   };
 
   const handleApplyPreset = (preset: FilterPreset) => {
@@ -340,6 +374,9 @@ export function VenueSearchDrawer({
     if (onMinCapacityChange) onMinCapacityChange(1);
     if (onCapacityChange) onCapacityChange(1);
     setInternalCapacity(undefined);
+
+    if (onSortByChange) onSortByChange("default");
+    setInternalSortBy("default");
 
     if (onClearFilters) onClearFilters();
   };
@@ -620,6 +657,20 @@ export function VenueSearchDrawer({
                 </button>
               </span>
             )}
+            {currentSortBy !== "default" && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 animate-in zoom-in-95 duration-150">
+                Sort: {SORT_OPTIONS.find((s) => s.id === currentSortBy)?.label ?? currentSortBy}
+                <button
+                  type="button"
+                  data-testid="clear-sort-chip"
+                  onClick={() => handleSortByChange("default")}
+                  className="hover:text-rose-500 transition-colors"
+                  aria-label="Remove sort filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
             <button
               type="button"
               data-testid="clear-all-filters-btn"
@@ -813,6 +864,37 @@ export function VenueSearchDrawer({
               placeholder="e.g. 4 people (min 1)"
               className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
             />
+          </div>
+        </div>
+
+        {/* Sort By Venue Capacity Dropdown */}
+        <div className="space-y-1.5">
+          <label
+            htmlFor="venue-sort-select"
+            className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400"
+          >
+            Sort By
+          </label>
+          <div className="relative">
+            <select
+              id="venue-sort-select"
+              data-testid="venue-sort-select"
+              value={currentSortBy}
+              onChange={(e) => handleSortByChange(e.target.value)}
+              aria-label="Sort venues by capacity or preference"
+              className="w-full px-3 py-2.5 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none"
+            >
+              {SORT_OPTIONS.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-zinc-400">
+              <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+              </svg>
+            </div>
           </div>
         </div>
 

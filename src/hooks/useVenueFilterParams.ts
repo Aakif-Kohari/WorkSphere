@@ -17,6 +17,7 @@ export interface VenueFilterState {
   amenities: string[];
   maxDistance: number;
   view: ViewMode;
+  sortBy?: "default" | "capacity_asc" | "capacity_desc";
 }
 
 export const DEFAULT_FILTER_STATE: VenueFilterState = {
@@ -31,6 +32,7 @@ export const DEFAULT_FILTER_STATE: VenueFilterState = {
   amenities: [],
   maxDistance: 0,
   view: "list",
+  sortBy: "default",
 };
 
 /**
@@ -97,6 +99,12 @@ export function parseFiltersFromSearchParams(
       ? rawView
       : "list";
 
+  const rawSort = params.get("sortBy") ?? params.get("sort");
+  const sortBy =
+    rawSort === "capacity_asc" || rawSort === "capacity_desc"
+      ? rawSort
+      : "default";
+
   return {
     query,
     category,
@@ -109,6 +117,7 @@ export function parseFiltersFromSearchParams(
     amenities: Array.from(new Set(amenities)),
     maxDistance,
     view,
+    sortBy,
   };
 }
 
@@ -233,6 +242,16 @@ export function buildQueryStringWithFilters(
     }
   }
 
+  // Update or delete sortBy
+  if (updates.sortBy !== undefined) {
+    if (updates.sortBy && updates.sortBy !== "default") {
+      params.set("sortBy", updates.sortBy);
+    } else {
+      params.delete("sortBy");
+      params.delete("sort");
+    }
+  }
+
   const result = params.toString();
   return result ? `?${result}` : "";
 }
@@ -305,6 +324,7 @@ export function useVenueFilterParams() {
         amenities: [],
         maxDistance: 0,
         view: filters.view,
+        sortBy: "default",
       },
       { replace: false },
     );
@@ -327,6 +347,7 @@ export function useVenueFilterParams() {
       filters.outlets ||
       filters.priceRange !== "all" ||
       filters.amenities.length > 0 ||
-      filters.maxDistance > 0,
+      filters.maxDistance > 0 ||
+      (filters.sortBy !== undefined && filters.sortBy !== "default"),
   };
 }

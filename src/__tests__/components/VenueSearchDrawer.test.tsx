@@ -255,5 +255,54 @@ describe("VenueSearchDrawer Component (#1429)", () => {
       expect(screen.getByText("Weekend Work")).toBeInTheDocument();
     });
   });
+
+  describe("Sort by Capacity (Low to High / High to Low) (#4591)", () => {
+    it("renders sort dropdown with Capacity: Low to High and Capacity: High to Low options", () => {
+      const handleSortByChange = jest.fn();
+      render(
+        <VenueSearchDrawer
+          isOpen={true}
+          onClose={jest.fn()}
+          sortBy="default"
+          onSortByChange={handleSortByChange}
+        />,
+      );
+
+      const sortSelect = screen.getByTestId("venue-sort-select") as HTMLSelectElement;
+      expect(sortSelect).toBeInTheDocument();
+      expect(sortSelect.value).toBe("default");
+
+      expect(screen.getByRole("option", { name: "Default" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("option", { name: "Capacity: Low to High" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("option", { name: "Capacity: High to Low" }),
+      ).toBeInTheDocument();
+
+      fireEvent.change(sortSelect, { target: { value: "capacity_asc" } });
+      expect(handleSortByChange).toHaveBeenCalledWith("capacity_asc");
+
+      fireEvent.change(sortSelect, { target: { value: "capacity_desc" } });
+      expect(handleSortByChange).toHaveBeenCalledWith("capacity_desc");
+    });
+
+    it("resets sort selection when Clear Filters is clicked", () => {
+      const handleSortByChange = jest.fn();
+      render(
+        <VenueSearchDrawer
+          isOpen={true}
+          onClose={jest.fn()}
+          sortBy="capacity_asc"
+          onSortByChange={handleSortByChange}
+        />,
+      );
+
+      const clearBtn = screen.getByTestId("clear-filters-btn");
+      fireEvent.click(clearBtn);
+
+      expect(handleSortByChange).toHaveBeenCalledWith("default");
+    });
+  });
 });
 
