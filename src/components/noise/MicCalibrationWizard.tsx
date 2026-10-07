@@ -152,6 +152,9 @@ export function MicCalibrationWizard({
 
       const processAudio = () => {
         if (!analyserRef.current) return;
+        if (audioContextRef.current?.state === "suspended") {
+          void audioContextRef.current.resume();
+        }
         analyserRef.current.getFloatTimeDomainData(buffer);
 
         // Calculate Root Mean Square (RMS)
