@@ -4,6 +4,8 @@
  * backed by localStorage for quick venue discovery.
  */
 
+import { sanitizeCapacityInput } from "./filters";
+
 export interface VenueFilterValues {
   searchText?: string;
   amenities: string[];
@@ -11,6 +13,7 @@ export interface VenueFilterValues {
   priceRange: string;
   category: string;
   maxDistance: number;
+  minCapacity?: number;
 }
 
 export interface FilterPreset {
@@ -117,6 +120,10 @@ export function saveFilterPreset(name: string, filters: VenueFilterValues): Filt
       priceRange: filters.priceRange || "all",
       category: filters.category || "all",
       maxDistance: filters.maxDistance ?? 0,
+      minCapacity:
+        filters.minCapacity !== undefined
+          ? sanitizeCapacityInput(filters.minCapacity)
+          : undefined,
     },
     isDefault: false,
     createdAt: Date.now(),

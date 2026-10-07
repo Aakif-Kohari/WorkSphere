@@ -52,17 +52,56 @@ export function classifyNoiseLevel(dBScore: number): NoiseTag {
   return "energetic";
 }
 
+/**
+ * Sanitizes and clamps venue capacity filter inputs.
+ * Clamps to integers >= 1; non-numeric, NaN, or negative inputs are rejected/defaulted to minimum 1.
+ */
+export function sanitizeCapacityInput(
+  value: unknown,
+  defaultValue: number = 1,
+): number {
+  if (value === undefined || value === null || value === "") {
+    return Math.max(1, Math.floor(defaultValue) || 1);
+  }
+  const num = typeof value === "number" ? value : Number(value);
+  if (isNaN(num) || !isFinite(num)) {
+    return Math.max(1, Math.floor(defaultValue) || 1);
+  }
+  return Math.max(1, Math.floor(num));
+}
+
 export interface VenueWithTelemetry {
   id?: string;
   name?: string;
   noiseLevel?: string;
   averageNoise?: number | null;
+  capacity?: number | null;
+  meetingRoomCapacity?: number | null;
+  maxCapacity?: number | null;
   telemetry?: {
     averageNoise?: number | null;
     noiseScore?: number | null;
     [key: string]: unknown;
   } | null;
   [key: string]: unknown;
+}
+
+/**
+ * Filter venues by minimum seating / room capacity.
+ * Clamps input to integers >= 1, safely handling NaN, non-numeric, or negative capacity parameters.
+ */
+export function filterVenuesByCapacity<T extends VenueWithTelemetry>(
+  venues: T[],
+  minCapacity: unknown,
+): T[] {
+  const target = sanitizeCapacityInput(minCapacity);
+  return venues.filter((venue) => {
+    const cap =
+      venue.capacity ??
+      venue.meetingRoomCapacity ??
+      venue.maxCapacity;
+    return typeof cap === "number" && !isNaN(cap) && cap >= target;
+  });
 }
 
 /**

@@ -20,6 +20,7 @@ import {
   deleteFilterPreset,
   FilterPreset,
 } from "@/lib/venueFilterPresets";
+import { sanitizeCapacityInput } from "@/lib/filters";
 
 export interface VenueSearchDrawerProps {
   isOpen: boolean;
@@ -36,6 +37,10 @@ export interface VenueSearchDrawerProps {
   onCategoryChange?: (category: string) => void;
   maxDistance?: number;
   onMaxDistanceChange?: (distance: number) => void;
+  minCapacity?: number;
+  onMinCapacityChange?: (capacity: number) => void;
+  capacity?: number;
+  onCapacityChange?: (capacity: number) => void;
   onClearFilters?: () => void;
   onApplyFilters?: () => void;
 }
@@ -110,6 +115,10 @@ export function VenueSearchDrawer({
   onCategoryChange,
   maxDistance: externalMaxDistance,
   onMaxDistanceChange,
+  minCapacity: externalMinCapacity,
+  onMinCapacityChange,
+  capacity: externalCapacity,
+  onCapacityChange,
   onClearFilters,
   onApplyFilters,
 }: VenueSearchDrawerProps) {
@@ -120,6 +129,9 @@ export function VenueSearchDrawer({
   const [internalPrice, setInternalPrice] = useState("all");
   const [internalCategory, setInternalCategory] = useState("all");
   const [internalDistance, setInternalDistance] = useState(0);
+  const [internalCapacity, setInternalCapacity] = useState<number | undefined>(
+    undefined,
+  );
 
   // Preset management state
   const [presets, setPresets] = useState<FilterPreset[]>([]);
@@ -139,6 +151,10 @@ export function VenueSearchDrawer({
   const price = externalPriceRange ?? internalPrice;
   const cat = externalCategory ?? internalCategory;
   const distance = externalMaxDistance ?? internalDistance;
+  const capacity =
+    externalMinCapacity ??
+    externalCapacity ??
+    internalCapacity;
 
   const hasActiveFilters =
     search.trim() !== "" ||
@@ -146,7 +162,8 @@ export function VenueSearchDrawer({
     noise !== "all" ||
     price !== "all" ||
     cat !== "all" ||
-    distance > 0;
+    distance > 0 ||
+    (capacity !== undefined && capacity > 1);
 
   const activeFilterCount =
     (search.trim() !== "" ? 1 : 0) +
@@ -154,7 +171,8 @@ export function VenueSearchDrawer({
     (noise !== "all" ? 1 : 0) +
     (price !== "all" ? 1 : 0) +
     (cat !== "all" ? 1 : 0) +
-    (distance > 0 ? 1 : 0);
+    (distance > 0 ? 1 : 0) +
+    (capacity !== undefined && capacity > 1 ? 1 : 0);
 
   const handleSearchInput = (val: string) => {
     setActivePresetId(null);
@@ -195,6 +213,20 @@ export function VenueSearchDrawer({
     else setInternalDistance(val);
   };
 
+  const handleCapacityChange = (val: unknown) => {
+    setActivePresetId(null);
+    if (val === "" || val === undefined || val === null) {
+      if (onMinCapacityChange) onMinCapacityChange(1);
+      if (onCapacityChange) onCapacityChange(1);
+      setInternalCapacity(undefined);
+      return;
+    }
+    const sanitized = sanitizeCapacityInput(val, 1);
+    if (onMinCapacityChange) onMinCapacityChange(sanitized);
+    if (onCapacityChange) onCapacityChange(sanitized);
+    setInternalCapacity(sanitized);
+  };
+
   const handleApplyPreset = (preset: FilterPreset) => {
     setActivePresetId(preset.id);
     const {
@@ -204,6 +236,7 @@ export function VenueSearchDrawer({
       priceRange: pPrice,
       category: pCat,
       maxDistance: pDist,
+      minCapacity: pCap,
     } = preset.filters;
 
     if (onSearchChange) onSearchChange(searchText);
@@ -223,6 +256,15 @@ export function VenueSearchDrawer({
 
     if (onMaxDistanceChange) onMaxDistanceChange(pDist);
     else setInternalDistance(pDist);
+
+    if (pCap !== undefined) {
+      const sanitized = sanitizeCapacityInput(pCap, 1);
+      if (onMinCapacityChange) onMinCapacityChange(sanitized);
+      if (onCapacityChange) onCapacityChange(sanitized);
+      setInternalCapacity(sanitized);
+    } else {
+      setInternalCapacity(undefined);
+    }
   };
 
   const handleSavePreset = () => {
@@ -239,6 +281,7 @@ export function VenueSearchDrawer({
       priceRange: price,
       category: cat,
       maxDistance: distance,
+      minCapacity: capacity !== undefined ? sanitizeCapacityInput(capacity, 1) : undefined,
     });
     setPresets(updated);
     const created = updated[updated.length - 1];
@@ -279,6 +322,10 @@ export function VenueSearchDrawer({
 
     if (onMaxDistanceChange) onMaxDistanceChange(0);
     setInternalDistance(0);
+
+    if (onMinCapacityChange) onMinCapacityChange(1);
+    if (onCapacityChange) onCapacityChange(1);
+    setInternalCapacity(undefined);
 
     if (onClearFilters) onClearFilters();
   };
@@ -545,6 +592,20 @@ export function VenueSearchDrawer({
                 </button>
               </span>
             )}
+            {capacity !== undefined && capacity > 1 && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 animate-in zoom-in-95 duration-150">
+                Min Capacity: {capacity}+ seats
+                <button
+                  type="button"
+                  data-testid="clear-capacity-chip"
+                  onClick={() => handleCapacityChange("")}
+                  className="hover:text-rose-500 transition-colors"
+                  aria-label="Remove capacity filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
             <button
               type="button"
               data-testid="clear-all-filters-btn"
@@ -720,6 +781,24 @@ export function VenueSearchDrawer({
                 {item.label}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Minimum Capacity / Group Size Filter */}
+        <div className="space-y-1.5">
+          <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            Minimum Capacity / Seats
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              data-testid="capacity-filter-input"
+              value={capacity !== undefined && capacity > 0 ? capacity : ""}
+              onChange={(e) => handleCapacityChange(e.target.value)}
+              placeholder="e.g. 4 people (min 1)"
+              className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+            />
           </div>
         </div>
 

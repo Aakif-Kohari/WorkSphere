@@ -48,8 +48,28 @@ export const VENUE_FILTERS = {
   { type: "boolean" | "enum"; values?: readonly string[]; default: unknown }
 >;
 
+/**
+ * Sanitizes and clamps venue capacity filter inputs.
+ * Capacity is clamped to integers >= 1; non-numeric, NaN, or negative inputs are defaulted to minimum 1.
+ */
+export function sanitizeCapacityInput(
+  value: unknown,
+  defaultValue: number = 1,
+): number {
+  if (value === undefined || value === null || value === "") {
+    return Math.max(1, Math.floor(defaultValue) || 1);
+  }
+  const num = typeof value === "number" ? value : Number(value);
+  if (isNaN(num) || !isFinite(num)) {
+    return Math.max(1, Math.floor(defaultValue) || 1);
+  }
+  return Math.max(1, Math.floor(num));
+}
+
 export type VenueFilterKey = keyof typeof VENUE_FILTERS;
-export type VenueFilters = Partial<Record<VenueFilterKey, unknown>>;
+export type VenueFilters = Partial<Record<VenueFilterKey, unknown>> & {
+  minCapacity?: number | string;
+};
 
 interface VenueLike {
   wifi?: boolean;
@@ -160,6 +180,14 @@ export function applyFilters<T extends object>(
           return venue.catsAllowed === true;
         case "musicStyle":
           return matchesMusicStyle(venue, value as string);
+        case "minCapacity": {
+          const targetCapacity = sanitizeCapacityInput(value);
+          const cap =
+            (venue as any).capacity ??
+            (venue as any).meetingRoomCapacity ??
+            (venue as any).maxCapacity;
+          return typeof cap === "number" && !isNaN(cap) && cap >= targetCapacity;
+        }
         default:
           return true;
       }
@@ -175,6 +203,12 @@ export function buildVenueSearchSchema() {
     category: z.enum(["cafe", "coworking", "library", "all"]).optional(),
     cities: z.string().optional(),
     query: z.string().optional(),
+    minCapacity: z
+      .preprocess(
+        (v) => sanitizeCapacityInput(v),
+        z.number().int().min(1),
+      )
+      .optional(),
   };
 
   for (const [key, config] of Object.entries(VENUE_FILTERS)) {
