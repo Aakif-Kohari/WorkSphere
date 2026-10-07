@@ -17,6 +17,7 @@ jest.mock("lucide-react", () => ({
   AlertTriangle: (props: any) => (
     <svg data-testid="icon-alert-triangle" {...props} />
   ),
+  Info: (props: any) => <svg data-testid="icon-info" {...props} />,
 }));
 
 jest.mock("@/lib/utils", () => ({

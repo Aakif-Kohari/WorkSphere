@@ -17,6 +17,7 @@ jest.mock("lucide-react", () => ({
   AlertTriangle: (props: any) => (
     <svg data-testid="icon-alert-triangle" {...props} />
   ),
+  Info: (props: any) => <svg data-testid="icon-info" {...props} />,
 }));
 
 // Mock cn helper
@@ -273,5 +274,71 @@ describe("Toast functionality", () => {
     expect(
       screen.getByText("Rate limit reached. Try again in 10 seconds"),
     ).toBeInTheDocument();
+  });
+
+  it("auto-dismisses warning toasts after 5 seconds", () => {
+    function WarningButton() {
+      const { toast } = useToast();
+      return (
+        <button onClick={() => toast("Network unstable warning", "warning")}>
+          Show Warning
+        </button>
+      );
+    }
+
+    render(
+      <Wrapper>
+        <WarningButton />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Show Warning"));
+    expect(screen.getByText("Network unstable warning")).toBeInTheDocument();
+
+    // At 4 seconds, warning toast should still be visible
+    act(() => {
+      jest.advanceTimersByTime(4000);
+    });
+    expect(screen.getByText("Network unstable warning")).toBeInTheDocument();
+
+    // At 5 seconds, warning toast should be dismissed
+    act(() => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(
+      screen.queryByText("Network unstable warning"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("auto-dismisses info toasts after 5 seconds", () => {
+    function InfoButton() {
+      const { toast } = useToast();
+      return (
+        <button onClick={() => toast("Sync triggered info", "info")}>
+          Show Info
+        </button>
+      );
+    }
+
+    render(
+      <Wrapper>
+        <InfoButton />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Show Info"));
+    expect(screen.getByText("Sync triggered info")).toBeInTheDocument();
+
+    // At 4 seconds, info toast should still be visible
+    act(() => {
+      jest.advanceTimersByTime(4000);
+    });
+    expect(screen.getByText("Sync triggered info")).toBeInTheDocument();
+
+    // At 5 seconds, info toast should be dismissed
+    act(() => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(screen.queryByText("Sync triggered info")).not.toBeInTheDocument();
   });
 });

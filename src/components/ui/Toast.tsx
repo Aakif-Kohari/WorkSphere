@@ -8,10 +8,10 @@ import {
   createContext,
   useContext,
 } from "react";
-import { X, CheckCircle2, AlertCircle, AlertTriangle } from "lucide-react";
+import { X, CheckCircle2, AlertCircle, AlertTriangle, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type ToastType = "success" | "error" | "warning";
+export type ToastType = "success" | "error" | "warning" | "info";
 
 export interface ToastOptions {
   id?: string;
@@ -267,8 +267,10 @@ function ToastContainer({
   );
 }
 
-/** Auto-dismiss timeout in milliseconds. */
+/** Default auto-dismiss timeout in milliseconds. */
 const TOAST_DURATION_MS = 4000;
+/** Default auto-dismiss timeout for warning and info toasts (5 seconds). */
+const WARNING_TOAST_DURATION_MS = 5000;
 
 function ToastItem({
   toast,
@@ -319,25 +321,34 @@ function ToastItem({
     if (toast.countdown !== undefined) return;
     if (isInteracting) return;
 
+    const duration =
+      toast.type === "warning" || toast.type === "info"
+        ? WARNING_TOAST_DURATION_MS
+        : TOAST_DURATION_MS;
+
     const timer = setTimeout(() => {
       onRemove(toast.id);
-    }, TOAST_DURATION_MS);
+    }, duration);
 
     return () => clearTimeout(timer);
-  }, [toast.id, onRemove, toast.countdown, isInteracting, toast.updatedAt, toast.message]);
+  }, [toast.id, onRemove, toast.countdown, isInteracting, toast.updatedAt, toast.message, toast.type]);
 
   const Icon =
     toast.type === "success"
       ? CheckCircle2
       : toast.type === "error"
         ? AlertCircle
-        : AlertTriangle;
+        : toast.type === "info"
+          ? Info
+          : AlertTriangle;
   const iconColor =
     toast.type === "success"
       ? "text-green-500"
       : toast.type === "error"
         ? "text-red-500"
-        : "text-amber-500";
+        : toast.type === "info"
+          ? "text-blue-500"
+          : "text-amber-500";
 
   const displayMessage =
     countdown !== undefined
