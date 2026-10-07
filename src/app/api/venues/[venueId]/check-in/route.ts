@@ -96,7 +96,7 @@ export async function GET(_req: Request, context: RouteContext) {
   const noisyActiveCount = applyPrivacyFilter(activeCount, maxCapacity, 1.0, 10);
 
   return NextResponse.json({
-    activeCount: noisyActiveCount,
+    activeCount: Math.max(0, noisyActiveCount),
     checkedIn: Boolean(mine),
     expiresAt: mine?.expiresAt ?? null,
     ttlMinutes: CHECK_IN_TTL_MS / 60_000,
