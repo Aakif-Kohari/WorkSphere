@@ -213,7 +213,10 @@ export async function getCachedProof(scope: string, commit: string): Promise<Pro
       void db.put(STORE, entry).catch(() => {});
       return entry;
     }
-    if (entry) await db.delete(STORE, entry.key);
+    if (entry) {
+      await db.delete(STORE, entry.key);
+      void purgeExpiredProofs().catch(() => {});
+    }
   } catch {
     // IndexedDB blocked (private mode, quota): behave as a miss
   }
@@ -263,13 +266,21 @@ export async function storeProof(
     const others = await tx.store.index("scope").getAllKeys(scope);
     await Promise.all(others.filter((k: string) => k !== entry.key).map((k: string) => tx.store.delete(k)));
 
-    // Byte budget eviction
+    // Purge expired entries in transaction
     const allEntries: ProofCacheEntry[] = await tx.store.getAll();
-    let totalBytes = allEntries.reduce((acc, e) => acc + (e.byteSize || calculateProofEntryBytes(e)), 0);
+    const now = Date.now();
+    for (const e of allEntries) {
+      if (e.expiresAt <= now) {
+        await tx.store.delete(e.key);
+      }
+    }
+
+    const validEntries = allEntries.filter((e) => e.expiresAt > now);
+    let totalBytes = validEntries.reduce((acc, e) => acc + (e.byteSize || calculateProofEntryBytes(e)), 0);
 
     // Evict oldest (least recently accessed) entries until new entry fits within maxByteSize
     if (totalBytes + entryBytes > maxByteSize) {
-      const sorted = allEntries
+      const sorted = validEntries
         .filter((e) => e.key !== entry.key)
         .sort((a, b) => (a.lastAccessedAt || a.createdAt) - (b.lastAccessedAt || b.createdAt));
 
@@ -315,6 +326,33 @@ export async function invalidateProof(scope: string, commit: string): Promise<vo
     await (await getDb()).delete(STORE, entryKey(scope, commit));
   } catch {
     // ignore
+  }
+}
+
+/**
+ * Automatically purges all expired proof entries and cross-epoch entries from IndexedDB.
+ * Returns the count of deleted entries.
+ */
+export async function purgeExpiredProofs(): Promise<number> {
+  if (!isProofCacheAvailable()) return 0;
+  const epoch = await getCircuitEpoch();
+  try {
+    const db = await getDb();
+    const tx = db.transaction(STORE, "readwrite");
+    const allEntries: ProofCacheEntry[] = await tx.store.getAll();
+    const now = Date.now();
+    let purgedCount = 0;
+
+    for (const entry of allEntries) {
+      if (entry.expiresAt <= now || (epoch && entry.epoch !== epoch)) {
+        await tx.store.delete(entry.key);
+        purgedCount++;
+      }
+    }
+    await tx.done;
+    return purgedCount;
+  } catch {
+    return 0;
   }
 }
 

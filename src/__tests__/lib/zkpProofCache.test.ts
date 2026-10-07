@@ -10,6 +10,7 @@ import {
   getCachedProof,
   getOrCreateProof,
   invalidateProof,
+  purgeExpiredProofs,
   storeProof,
   _resetProofCacheForTesting,
   type CachedProof,
@@ -237,4 +238,17 @@ describe("provePremiumAccess with the proof cache", () => {
     expect(FakeZkpWorker.instances).toBe(1);
     expect(await getCachedProof(PREMIUM_PROOF_SCOPE, commit)).toBeNull();
   });
+
+  it("automatically purges expired proof entries", async () => {
+    // Store one valid entry and one expired entry
+    await storeProof(SCOPE, "commit-valid", proofFor("commit-valid"), { maxAgeMs: 60 * 1000 });
+    await storeProof(SCOPE, "commit-expired", proofFor("commit-expired"), { maxAgeMs: -1000 });
+
+    const purged = await purgeExpiredProofs();
+    expect(purged).toBeGreaterThanOrEqual(1);
+
+    expect(await getCachedProof(SCOPE, "commit-valid")).not.toBeNull();
+    expect(await getCachedProof(SCOPE, "commit-expired")).toBeNull();
+  });
 });
+
