@@ -108,7 +108,13 @@ jobs:
                     issue_number: num
                   });
                   if (issueRes.data && !issueRes.data.pull_request) {
-                    linkedIssues.push(`#${num}`);
+                    const assignees = (issueRes.data.assignees || []).map(a => a.login.toLowerCase());
+                    const isMaintainer = ['satyampandey-07'].includes(prAuthor);
+                    if (isMaintainer || assignees.includes(prAuthor)) {
+                      linkedIssues.push(`#${num}`);
+                    } else {
+                      console.log(`Issue #${num} is not assigned to PR author @${prAuthor}. Not counted for auto-merge.`);
+                    }
                   } else {
                     console.log(`Reference #${num} is a Pull Request, not an Issue. Ignored.`);
                   }
