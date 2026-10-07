@@ -319,12 +319,19 @@ export function BookingHistoryList({
                               ? ` · Seat ${booking.seatNumber}`
                               : ""}
                           </span>
-                          <div className="inline-flex items-center gap-1">
-                            <span className="font-mono text-xs text-zinc-400">
+                          <div className="inline-flex items-center gap-1.5" data-testid="confirmation-id-container">
+                            <span
+                              data-testid="confirmation-id-badge"
+                              className="font-mono text-xs px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700/60 font-medium inline-flex items-center"
+                            >
                               {booking.confirmationId}
                             </span>
                             <CopyBookingReferenceButton
                               referenceId={booking.confirmationId}
+                              testId="copy-confirmation-id-btn"
+                              tooltipText="Copy confirmation ID"
+                              copiedTooltipText="Copied!"
+                              ariaLabel={`Copy confirmation ID ${booking.confirmationId}`}
                               tooltipPosition="top"
                               className="!p-1 !rounded-md"
                             />

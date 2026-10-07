@@ -68,4 +68,62 @@ describe("BookingHistoryList Virtualization (#3772)", () => {
     expect(renderedCards.length).toBeGreaterThan(0);
     expect(screen.getAllByText("Cancelled")[0]).toBeInTheDocument();
   });
+
+  describe("Confirmation ID Copy Button (#4820)", () => {
+    let originalClipboard: any;
+
+    beforeEach(() => {
+      originalClipboard = navigator.clipboard;
+      Object.defineProperty(navigator, "clipboard", {
+        value: {
+          writeText: jest.fn().mockResolvedValue(undefined),
+        },
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        value: originalClipboard,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    it("renders confirmation ID badge and copy button", () => {
+      const mockBookings = generateMockBookings(3);
+      render(<BookingHistoryList bookings={mockBookings} />);
+
+      const badges = screen.getAllByTestId("confirmation-id-badge");
+      expect(badges.length).toBeGreaterThan(0);
+      expect(badges[0]).toHaveTextContent(mockBookings[0].confirmationId);
+
+      const copyBtns = screen.getAllByTestId("copy-confirmation-id-btn");
+      expect(copyBtns.length).toBeGreaterThan(0);
+    });
+
+    it("copies confirmation ID to clipboard and shows Copied! tooltip feedback for 2 seconds", () => {
+      jest.useFakeTimers();
+      const mockBookings = generateMockBookings(1);
+      render(<BookingHistoryList bookings={mockBookings} />);
+
+      const copyBtn = screen.getByTestId("copy-confirmation-id-btn");
+      fireEvent.click(copyBtn);
+
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        mockBookings[0].confirmationId,
+      );
+
+      // Shows Copied! feedback
+      expect(screen.getByText("Copied!")).toBeInTheDocument();
+
+      // Advance by 2 seconds
+      jest.advanceTimersByTime(2000);
+
+      // Tooltip resets after 2 seconds
+      expect(screen.queryByText("Copied!")).not.toBeInTheDocument();
+      jest.useRealTimers();
+    });
+  });
 });

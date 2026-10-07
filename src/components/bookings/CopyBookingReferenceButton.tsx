@@ -20,6 +20,8 @@ export interface CopyBookingReferenceButtonProps {
   className?: string;
   /** Optional callback fired when successfully copied */
   onCopied?: (referenceId: string) => void;
+  /** Optional data-testid override */
+  testId?: string;
   /** Optional aria-label override */
   ariaLabel?: string;
 }
@@ -28,12 +30,13 @@ export function CopyBookingReferenceButton({
   referenceId,
   label,
   showId = false,
-  tooltipText = "Copy reference ID",
-  copiedTooltipText = "Reference ID copied!",
+  tooltipText = "Copy confirmation ID",
+  copiedTooltipText = "Copied!",
   tooltipPosition = "top",
   className = "",
   onCopied,
   ariaLabel,
+  testId,
 }: CopyBookingReferenceButtonProps) {
   const [isCopied, setIsCopied] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
@@ -143,7 +146,7 @@ export function CopyBookingReferenceButton({
         onBlur={() => setIsFocused(false)}
         aria-label={computedAriaLabel}
         aria-describedby={isTooltipVisible ? tooltipId : undefined}
-        data-testid="copy-booking-reference-btn"
+        data-testid={testId || "copy-booking-reference-btn"}
         className={`group inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-violet-500/50 ${
           isCopied
             ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold"
@@ -171,16 +174,16 @@ export function CopyBookingReferenceButton({
           id={tooltipId}
           role="tooltip"
           aria-live="polite"
-          data-testid="copy-reference-tooltip"
+          data-testid={isCopied ? "copied-tooltip" : "copy-reference-tooltip"}
           className={`absolute z-50 pointer-events-none whitespace-nowrap px-2.5 py-1 text-[11px] font-medium rounded-lg shadow-lg transition-all duration-200 animate-in fade-in zoom-in-95 ${getTooltipPositionClasses()} ${
             isCopied
               ? "bg-emerald-700 dark:bg-emerald-600 text-white"
               : "bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900"
           }`}
         >
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1" data-testid="copy-reference-tooltip">
             {isCopied && <Check className="w-3 h-3 text-white" />}
-            <span>{isCopied ? copiedTooltipText : tooltipText}</span>
+            <span data-testid="copied-tooltip-text">{isCopied ? copiedTooltipText : tooltipText}</span>
           </div>
           {/* Tooltip Arrow */}
           <div
