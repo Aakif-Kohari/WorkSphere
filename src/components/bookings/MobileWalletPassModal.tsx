@@ -14,8 +14,12 @@ import {
   ShieldCheck,
   CheckCircle2,
   Calendar,
+  Copy,
+  Check,
+  AlertCircle,
 } from "lucide-react";
 import { BookingSummary } from "@/components/bookings/BookingList";
+import { useToast } from "@/components/ui/Toast";
 
 interface MobileWalletPassModalProps {
   booking: BookingSummary | null;
@@ -28,9 +32,13 @@ export function MobileWalletPassModal({
   isOpen,
   onClose,
 }: MobileWalletPassModalProps) {
+  const { toast } = useToast();
   const [googleSaveUrl, setGoogleSaveUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const [showFallbackInput, setShowFallbackInput] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !booking) return;
@@ -60,6 +68,56 @@ export function MobileWalletPassModal({
   const venueName = booking.venue?.name || "WorkSphere Venue";
   const seatLabel = booking.seatNumber ? `Desk ${booking.seatNumber}` : "Reserved Hot Desk";
   const address = booking.venue?.address || "Venue Address";
+
+  const passUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/api/bookings/${booking.id}/wallet/apple`
+      : `/api/bookings/${booking.id}/wallet/apple`;
+
+  const fallbackCopy = (text: string): boolean => {
+    try {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";
+      textArea.style.top = "0";
+      textArea.style.left = "0";
+      textArea.style.opacity = "0";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const successful = document.execCommand("copy");
+      document.body.removeChild(textArea);
+      return successful;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleCopyPassUrl = async () => {
+    setCopyError(null);
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(passUrl);
+        setCopiedUrl(true);
+        toast("Pass URL copied to clipboard!", "success");
+        setTimeout(() => setCopiedUrl(false), 2000);
+      } else {
+        const success = fallbackCopy(passUrl);
+        if (success) {
+          setCopiedUrl(true);
+          toast("Pass URL copied to clipboard!", "success");
+          setTimeout(() => setCopiedUrl(false), 2000);
+        } else {
+          throw new Error("Clipboard API unavailable");
+        }
+      }
+    } catch (err: any) {
+      console.warn("[MobileWalletPassModal] Clipboard copy failed:", err);
+      setShowFallbackInput(true);
+      setCopyError("Clipboard permission denied or unsupported. Copy URL below:");
+      toast("Unable to copy to clipboard. Please copy manually.", "error");
+    }
+  };
 
   const handleDownloadApplePass = () => {
     const link = document.createElement("a");
@@ -226,6 +284,47 @@ export function MobileWalletPassModal({
             </svg>
             <span>Add to Google Wallet</span>
           </button>
+
+          {/* Copy Pass URL Button */}
+          <button
+            type="button"
+            onClick={handleCopyPassUrl}
+            data-testid="copy-wallet-pass-url-btn"
+            className="w-full flex items-center justify-center gap-2.5 py-3 px-4 rounded-2xl bg-zinc-800 hover:bg-zinc-750 text-zinc-200 hover:text-white font-bold text-xs uppercase tracking-wider border border-zinc-700 active:scale-[0.98] transition-all"
+          >
+            {copiedUrl ? (
+              <>
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span className="text-emerald-400">Pass URL Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-4 h-4 text-zinc-400" />
+                <span>Copy Pass URL</span>
+              </>
+            )}
+          </button>
+
+          {/* Fallback selectable input when clipboard access is denied or fails */}
+          {(showFallbackInput || copyError) && (
+            <div
+              data-testid="clipboard-fallback-container"
+              className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-2 animate-in fade-in"
+            >
+              <div className="flex items-center gap-2 text-amber-300 font-medium">
+                <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+                <span>{copyError || "Clipboard access blocked. Copy URL manually:"}</span>
+              </div>
+              <input
+                type="text"
+                readOnly
+                value={passUrl}
+                data-testid="fallback-pass-url-input"
+                onFocus={(e) => e.target.select()}
+                className="w-full px-3 py-2 bg-zinc-900 border border-zinc-750 rounded-lg text-xs text-zinc-200 font-mono focus:outline-none focus:border-amber-400 select-all"
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>
