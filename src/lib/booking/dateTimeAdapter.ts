@@ -228,12 +228,27 @@ export function bookingInterval(
 /**
  * Half-open interval intersection test: [start, end)
  * Back-to-back bookings do not conflict.
+ * Properly handles zero-duration/instant edge cases where start time matches end time.
  */
 export function intervalsOverlap(
   a: BookingInterval,
   b: BookingInterval,
 ): boolean {
-  return a.start < b.end && b.start < a.end;
+  const aStart = Math.min(a.start, a.end);
+  const aEnd = Math.max(a.start, a.end);
+  const bStart = Math.min(b.start, b.end);
+  const bEnd = Math.max(b.start, b.end);
+
+  if (aStart === aEnd && bStart === bEnd) {
+    return aStart === bStart;
+  }
+  if (aStart === aEnd) {
+    return aStart >= bStart && aStart < bEnd;
+  }
+  if (bStart === bEnd) {
+    return bStart >= aStart && bStart < aEnd;
+  }
+  return aStart < bEnd && bStart < aEnd;
 }
 
 /**
