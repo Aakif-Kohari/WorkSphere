@@ -67,6 +67,67 @@ export async function GET(request: NextRequest) {
     console.error("[PartitionCron] Failed to create partitions:", err);
   }
 
+  // 1b. Automated background partition pre-creation cron for upcoming calendar months (closes #4833)
+  // Pre-creates next month's partitions (_yyyy_mm) across audit logs, telemetry, and check-ins
+  try {
+    const now = new Date();
+    const nextMonthYear = now.getUTCMonth() === 11 ? now.getUTCFullYear() + 1 : now.getUTCFullYear();
+    const nextMonthVal = now.getUTCMonth() === 11 ? 1 : now.getUTCMonth() + 2;
+    const formattedMonth = String(nextMonthVal).padStart(2, "0");
+    const partitionSuffix = `_${nextMonthYear}_${formattedMonth}`;
+
+    const startTimestamp = new Date(Date.UTC(nextMonthYear, nextMonthVal - 1, 1, 0, 0, 0, 0));
+    const endTimestamp = new Date(Date.UTC(nextMonthYear, nextMonthVal, 1, 0, 0, 0, 0));
+
+    const targetTables = ["AdminAuditLog", "WifiTelemetry", "TelemetryRecord", "CheckIn"];
+    const verifiedPartitions: { table: string; partitionName: string; verified: boolean }[] = [];
+
+    for (const table of targetTables) {
+      const partitionName = `${table}${partitionSuffix}`;
+      try {
+        // Idempotently create upcoming month partition if parent table is partitioned
+        const isParentPartitioned = await prisma.$queryRawUnsafe<{ relkind: string }[]>(
+          `SELECT relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = $1`,
+          table,
+        );
+
+        if (isParentPartitioned.length > 0 && isParentPartitioned[0].relkind === "p") {
+          await prisma.$executeRawUnsafe(`
+            CREATE TABLE IF NOT EXISTS "${partitionName}"
+            PARTITION OF "${table}"
+            FOR VALUES FROM ('${startTimestamp.toISOString()}') TO ('${endTimestamp.toISOString()}')
+          `);
+        }
+
+        // Verify partition creation via database catalog query
+        const catalogCheck = await prisma.$queryRawUnsafe<{ relname: string }[]>(
+          `SELECT child.relname
+           FROM pg_inherits
+           JOIN pg_class child ON pg_inherits.inhrelid = child.oid
+           JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+           WHERE child.relname = $1`,
+          partitionName,
+        );
+
+        const verified = catalogCheck.length > 0;
+        verifiedPartitions.push({ table, partitionName, verified });
+        console.log(`[PartitionCron] Pre-created/verified partition ${partitionName}: ${verified ? "VERIFIED" : "SKIPPED/UNVERIFIED"}`);
+      } catch (tableErr) {
+        console.warn(`[PartitionCron] Partition pre-creation check for ${table}:`, tableErr);
+      }
+    }
+
+    (results as any).upcomingMonthlyPartitions = {
+      start: startTimestamp.toISOString(),
+      end: endTimestamp.toISOString(),
+      verifiedPartitions,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    results.errors.push(`upcomingMonthPartitions: ${msg}`);
+    console.error("[PartitionCron] Upcoming month partition pre-creation failed:", err);
+  }
+
   // 2. Archive expired push notification partitions
   try {
     const archiveResult = await archiveExpiredPushNotificationPartitions();
