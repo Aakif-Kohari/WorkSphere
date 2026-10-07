@@ -57,6 +57,7 @@ export default function CompassFallback({
   });
   const {
     heading,
+    accuracy,
     error: orientationError,
     isSupported,
     permissionState,
@@ -79,14 +80,14 @@ export default function CompassFallback({
 
   useEffect(() => {
     if (heading !== null && !isNaN(heading)) {
-      const smoothed = kalmanFilterRef.current?.update(heading);
+      const smoothed = kalmanFilterRef.current?.update(heading, accuracy);
       if (smoothed !== null && smoothed !== undefined) {
         setFilteredHeading(Math.round(smoothed * 10) / 10);
       }
     } else {
       setFilteredHeading(null);
     }
-  }, [heading]);
+  }, [heading, accuracy]);
 
   const activeHeading = filteredHeading !== null ? filteredHeading : heading;
 

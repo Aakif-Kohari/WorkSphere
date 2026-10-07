@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 export interface DeviceOrientationState {
   heading: number | null;
+  accuracy: number | null;
   error: string | null;
   isSupported: boolean;
   permissionState: "prompt" | "granted" | "denied" | "unsupported";
@@ -10,6 +11,7 @@ export interface DeviceOrientationState {
 
 export function useDeviceOrientation(): DeviceOrientationState {
   const [heading, setHeading] = useState<number | null>(null);
+  const [accuracy, setAccuracy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState<boolean>(true);
   const [permissionState, setPermissionState] = useState<
@@ -19,8 +21,16 @@ export function useDeviceOrientation(): DeviceOrientationState {
 
   const handleOrientation = useCallback((event: DeviceOrientationEvent) => {
     let h: number | null = null;
+    let acc: number | null = null;
 
     // iOS Safari provides webkitCompassHeading directly (degrees from true north)
+    // and webkitCompassAccuracy representing deviation tolerance in degrees
+    const webkitAcc = (event as any).webkitCompassAccuracy;
+    if (typeof webkitAcc === "number" && webkitAcc >= 0) {
+      // Map 0° deviation to 1.0 (highest confidence), >= 60° deviation to 0.01 (low confidence)
+      acc = Math.max(0.01, 1 - Math.min(webkitAcc, 60) / 60);
+    }
+
     if (
       (event as any).webkitCompassHeading !== undefined &&
       (event as any).webkitCompassHeading !== null
@@ -34,6 +44,7 @@ export function useDeviceOrientation(): DeviceOrientationState {
 
     if (h !== null && !isNaN(h)) {
       setHeading(Math.round(h * 10) / 10);
+      setAccuracy(acc);
     }
   }, []);
 
@@ -139,5 +150,5 @@ export function useDeviceOrientation(): DeviceOrientationState {
     return true;
   }, [attachListener]);
 
-  return { heading, error, isSupported, permissionState, requestPermission };
+  return { heading, accuracy, error, isSupported, permissionState, requestPermission };
 }

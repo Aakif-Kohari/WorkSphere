@@ -21,6 +21,8 @@ export interface ImuSample {
   gy?: number; // Gyroscope angular rate in rad/s (Y-axis)
   gz?: number; // Gyroscope angular rate in rad/s (Z-axis / yaw)
   headingDeg?: number; // Optional compass / magnetometer heading in degrees (0-360)
+  compassConfidence?: number; // Optional compass confidence / accuracy (0 to 1)
+  headingAccuracy?: number; // Optional heading accuracy metric (0 to 1)
 }
 
 export interface BeaconReading {
@@ -778,13 +780,28 @@ export class IndoorPdrEngine {
         this.currentHeadingRad + gyroZ * dtSeconds,
       );
 
-      // Complementary fusion
-      const alpha = this.config.gyroAlpha;
+      // Extract reported sensor confidence/accuracy (default to 1.0)
+      const rawConf = sample.compassConfidence ?? sample.headingAccuracy;
+      const confidence =
+        rawConf !== undefined && rawConf !== null && Number.isFinite(rawConf)
+          ? Math.max(0.001, Math.min(1.0, rawConf))
+          : 1.0;
+
+      // Dynamically scale sensor covariance matrix (R) inversely with reported sensor accuracy,
+      // relying more on gyroscope dead reckoning when compass confidence drops.
+      const baseVariance = 0.05;
+      const dynamicR = baseVariance / confidence;
+
+      // Dynamically adapt complementary fusion weight: when confidence drops,
+      // reliance shifts towards gyro dead reckoning (dynamicAlpha -> 1.0)
+      const baseAlpha = this.config.gyroAlpha;
+      const dynamicAlpha = 1 - (1 - baseAlpha) * confidence;
+
       const fusedRad = normalizeAngle(
-        alpha * gyroHeading + (1 - alpha) * magRad,
+        dynamicAlpha * gyroHeading + (1 - dynamicAlpha) * magRad,
       );
       this.currentHeadingRad = fusedRad;
-      this.ekf.updateHeading(fusedRad, 0.05);
+      this.ekf.updateHeading(fusedRad, dynamicR);
     } else {
       this.currentHeadingRad = this.ekf.getState().heading;
     }

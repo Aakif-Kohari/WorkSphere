@@ -46,6 +46,7 @@ export function useIndoorSensorFusion(
   const [detectedBeacons, setDetectedBeacons] = useState<BeaconReading[]>(knownBeacons);
 
   const compassHeadingRef = useRef<number | undefined>(undefined);
+  const compassConfidenceRef = useRef<number | undefined>(undefined);
   const orientationHandlerRef = useRef<((e: DeviceOrientationEvent) => void) | null>(null);
   const motionHandlerRef = useRef<((e: DeviceMotionEvent) => void) | null>(null);
 
@@ -172,12 +173,18 @@ export function useIndoorSensorFusion(
       // Device orientation handler for magnetometer heading
       const handleOrientation = (e: DeviceOrientationEvent) => {
         let heading: number | undefined;
+        let confidence: number | undefined;
+        const webkitAccuracy = (e as unknown as { webkitCompassAccuracy?: number }).webkitCompassAccuracy;
         if (typeof (e as unknown as { webkitCompassHeading?: number }).webkitCompassHeading === "number") {
           heading = (e as unknown as { webkitCompassHeading: number }).webkitCompassHeading;
+          if (typeof webkitAccuracy === "number" && webkitAccuracy >= 0) {
+            confidence = Math.max(0.01, 1 - Math.min(webkitAccuracy, 60) / 60);
+          }
         } else if (e.alpha !== null) {
           heading = 360 - e.alpha;
         }
         compassHeadingRef.current = heading;
+        compassConfidenceRef.current = confidence;
       };
 
       // Device motion handler for accelerometer & gyroscope
@@ -195,6 +202,7 @@ export function useIndoorSensorFusion(
           az,
           gz,
           headingDeg: compassHeadingRef.current,
+          compassConfidence: compassConfidenceRef.current,
         });
       };
 

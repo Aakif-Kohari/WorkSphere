@@ -51,11 +51,14 @@ export class CompassKalmanFilter {
 
   /**
    * Updates the filter with a new raw compass measurement (in degrees).
+   * Dynamically scales sensor covariance matrix (R) inversely with reported
+   * sensor accuracy/confidence, relying more on prediction/dead reckoning when confidence drops.
    *
    * @param measurement Raw compass angle in degrees [0, 360)
+   * @param confidence Optional sensor accuracy or confidence in range (0, 1]
    * @returns Smoothed and filtered compass angle in degrees [0, 360)
    */
-  public update(measurement: number | null): number | null {
+  public update(measurement: number | null, confidence?: number | null): number | null {
     if (measurement === null || isNaN(measurement)) {
       return this.state;
     }
@@ -76,8 +79,15 @@ export class CompassKalmanFilter {
     // 2. Innovation / Measurement Residual (using circular difference)
     const residual = shortestAngularDifference(xPred, normMeasurement);
 
+    // Dynamically scale sensor covariance matrix (R) inversely with reported sensor accuracy
+    let effectiveR = this.r;
+    if (confidence !== undefined && confidence !== null && Number.isFinite(confidence)) {
+      const clampedConfidence = Math.max(0.001, Math.min(1.0, confidence));
+      effectiveR = this.r / clampedConfidence;
+    }
+
     // 3. Kalman Gain
-    const innovationCov = pPred + this.r;
+    const innovationCov = pPred + effectiveR;
     const kalmanGain = pPred / innovationCov;
 
     // 4. Update Step
