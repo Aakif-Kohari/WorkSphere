@@ -69,6 +69,11 @@ export class MemoryRateLimitStore {
   getSlidingWindowEntry(key: string): MemEntry | undefined {
     const entry = this.slidingWindowStore.get(key);
     if (entry) {
+      const now = Date.now();
+      if (now > entry.resetTime) {
+        this.slidingWindowStore.delete(key);
+        return undefined;
+      }
       // Re-insert to refresh LRU order
       this.slidingWindowStore.delete(key);
       this.slidingWindowStore.set(key, entry);
@@ -76,7 +81,63 @@ export class MemoryRateLimitStore {
     return entry;
   }
 
+  /**
+   * Bulk lookup for multiple sliding window keys, eagerly pruning expired entries on the fly.
+   */
+  getBulkSlidingWindowEntries(keys: string[]): Map<string, MemEntry> {
+    const results = new Map<string, MemEntry>();
+    const now = Date.now();
+
+    for (const key of keys) {
+      const entry = this.slidingWindowStore.get(key);
+      if (entry) {
+        if (now > entry.resetTime) {
+          this.slidingWindowStore.delete(key);
+        } else {
+          // Refresh LRU order
+          this.slidingWindowStore.delete(key);
+          this.slidingWindowStore.set(key, entry);
+          results.set(key, entry);
+        }
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Bulk lookup for multiple token bucket keys, eagerly pruning expired entries on the fly.
+   */
+  getBulkTokenBucketEntries(keys: string[]): Map<string, MemoryBucketEntry> {
+    const results = new Map<string, MemoryBucketEntry>();
+    const now = Date.now();
+
+    for (const key of keys) {
+      const entry = this.tokenBucketStore.get(key);
+      if (entry) {
+        const windowMs = entry.windowMs ?? MemoryRateLimitStore.TOKEN_BUCKET_DEFAULT_WINDOW_MS;
+        if (now - entry.lastRefill >= windowMs) {
+          this.tokenBucketStore.delete(key);
+        } else {
+          // Refresh LRU order
+          this.tokenBucketStore.delete(key);
+          this.tokenBucketStore.set(key, entry);
+          results.set(key, entry);
+        }
+      }
+    }
+
+    return results;
+  }
+
   setSlidingWindowEntry(key: string, entry: MemEntry) {
+    const now = Date.now();
+    // Do not store already expired entries
+    if (now > entry.resetTime) {
+      this.slidingWindowStore.delete(key);
+      return;
+    }
+
     if (this.slidingWindowStore.has(key)) {
       this.slidingWindowStore.delete(key);
     } else if (this.slidingWindowStore.size >= this.maxEntries) {
@@ -118,6 +179,13 @@ export class MemoryRateLimitStore {
   }
 
   setTokenBucketEntry(key: string, entry: MemoryBucketEntry) {
+    const now = Date.now();
+    const windowMs = entry.windowMs ?? MemoryRateLimitStore.TOKEN_BUCKET_DEFAULT_WINDOW_MS;
+    if (now - entry.lastRefill >= windowMs) {
+      this.tokenBucketStore.delete(key);
+      return;
+    }
+
     if (this.tokenBucketStore.has(key)) {
       this.tokenBucketStore.delete(key);
     } else if (this.tokenBucketStore.size >= this.maxEntries) {
