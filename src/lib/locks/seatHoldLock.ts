@@ -57,7 +57,10 @@ export async function acquireSeatWebLock(
 ): Promise<AcquireLockResult> {
   const key = getLockKey(venueId, seatId);
   const now = Date.now();
-  const clampedTtl = Math.min(Math.max(ttlSeconds, 10), 600);
+  const validTtl = Number.isFinite(ttlSeconds)
+    ? ttlSeconds
+    : DEFAULT_LOCK_TTL_SECONDS;
+  const clampedTtl = Math.min(Math.max(validTtl, 10), 600);
   const expiresAt = now + clampedTtl * 1000;
 
   const redis = getRedis();
