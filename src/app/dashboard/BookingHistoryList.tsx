@@ -8,6 +8,7 @@ import {
   Download,
   CalendarPlus,
   Ban,
+  QrCode,
   Smartphone,
 } from "lucide-react";
 import { BookingSummary } from "@/components/bookings/BookingList";
@@ -354,6 +355,14 @@ export function BookingHistoryList({
                       >
                         <Download className="w-3.5 h-3.5" />
                         Receipt
+                      </a>
+                      <a
+                        href={`/api/bookings/${booking.id}/itinerary`}
+                        className={chipClass}
+                        aria-label="Export booking itinerary as PDF with QR code verification badge"
+                      >
+                        <QrCode className="w-3.5 h-3.5 text-blue-500" />
+                        Itinerary PDF
                       </a>
                       {future && (
                         <>
