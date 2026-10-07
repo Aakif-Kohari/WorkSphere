@@ -10,3 +10,5 @@ export { AmenityFilterPills } from "./AmenityFilterPills";
 export { GeolocationFallbackBanner } from "./GeolocationFallbackBanner";
 export { MultiCityComparison } from "./MultiCityComparison";
 export { PremiumZkpGate } from "./PremiumZkpGate";
+export { DistanceFilterSlider } from "./DistanceFilterSlider";
+export type { DistanceFilterSliderProps } from "./DistanceFilterSlider";
