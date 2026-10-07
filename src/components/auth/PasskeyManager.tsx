@@ -92,6 +92,7 @@ export function PasskeyManager() {
   const [customName, setCustomName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [savingId, setSavingId] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [showStepUpModal, setShowStepUpModal] = useState(false);
   const [stepUpAction, setStepUpAction] = useState("passkey_management");
@@ -216,13 +217,61 @@ export function PasskeyManager() {
     }
   };
 
-  const handleRename = (pk: PasskeyItem) => {
-    const newName = editName.trim();
-    if (!newName || newName === pk.name) {
-      setEditingId(null);
+  const handleStartEdit = (pk: PasskeyItem) => {
+    setEditingId(pk.id);
+    setEditName(pk.name);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditName("");
+  };
+
+  const handleInlineRename = async (pk: PasskeyItem) => {
+    const trimmed = editName.trim();
+    if (!trimmed || trimmed === pk.name) {
+      handleCancelEdit();
       return;
     }
-    setPending({ action: "rename", id: pk.id, name: pk.name, newName });
+
+    const previousName = pk.name;
+    // Optimistic update
+    setPasskeys((prev) =>
+      prev.map((item) =>
+        item.id === pk.id ? { ...item, name: trimmed } : item,
+      ),
+    );
+    setEditingId(null);
+    setSavingId(pk.id);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/auth/passkey/credentials/${pk.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to rename passkey.");
+      }
+
+      setSuccess(`Passkey renamed to "${trimmed}".`);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: unknown) {
+      // Revert optimistic update on failure
+      setPasskeys((prev) =>
+        prev.map((item) =>
+          item.id === pk.id ? { ...item, name: previousName } : item,
+        ),
+      );
+      const msg = err instanceof Error ? err.message : "Failed to rename passkey.";
+      setError(msg);
+      setTimeout(() => setError(null), 4000);
+    } finally {
+      setSavingId(null);
+    }
   };
 
   const handleDelete = (pk: PasskeyItem) => {
@@ -564,29 +613,68 @@ export function PasskeyManager() {
                       <div className="flex items-center gap-2">
                         <input
                           type="text"
+                          autoFocus
                           maxLength={64}
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          className="px-2 py-1 text-sm rounded-lg border border-blue-500 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleInlineRename(pk);
+                            } else if (e.key === "Escape") {
+                              e.preventDefault();
+                              handleCancelEdit();
+                            }
+                          }}
+                          className="px-2 py-1 text-sm rounded-lg border border-blue-500 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          data-testid={`rename-input-${pk.id}`}
+                          aria-label="Edit passkey nickname"
                         />
                         <button
-                          onClick={() => handleRename(pk)}
-                          className="text-xs px-2 py-1 rounded-md bg-blue-600 text-white"
+                          type="button"
+                          onClick={() => handleInlineRename(pk)}
+                          disabled={savingId === pk.id}
+                          className="text-xs px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer"
+                          data-testid={`save-rename-${pk.id}`}
                         >
-                          Save
+                          {savingId === pk.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            "Save"
+                          )}
                         </button>
                         <button
-                          onClick={() => setEditingId(null)}
-                          className="text-xs px-2 py-1 text-zinc-500"
+                          type="button"
+                          onClick={handleCancelEdit}
+                          disabled={savingId === pk.id}
+                          className="text-xs px-2 py-1 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors cursor-pointer"
+                          data-testid={`cancel-rename-${pk.id}`}
                         >
                           Cancel
                         </button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
-                        <p className="font-medium text-sm text-zinc-900 dark:text-zinc-100">
-                          {pk.name}
-                        </p>
+                        <div className="flex items-center gap-1.5 group/name">
+                          <p
+                            onDoubleClick={() => handleStartEdit(pk)}
+                            className="font-medium text-sm text-zinc-900 dark:text-zinc-100 cursor-pointer select-none"
+                            title="Double-click to rename"
+                            data-testid={`passkey-name-${pk.id}`}
+                          >
+                            {pk.name}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => handleStartEdit(pk)}
+                            title="Rename passkey"
+                            aria-label={`Rename passkey ${pk.name}`}
+                            className="p-1 text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 rounded transition-colors opacity-70 hover:opacity-100 cursor-pointer"
+                            data-testid={`edit-nickname-btn-${pk.id}`}
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                         {pk.backedUp ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                             <ShieldCheck className="h-3 w-3" /> Synced Passkey
@@ -662,10 +750,7 @@ export function PasskeyManager() {
                     <RefreshCw className="h-4 w-4" />
                   </button>
                   <button
-                    onClick={() => {
-                      setEditingId(pk.id);
-                      setEditName(pk.name);
-                    }}
+                    onClick={() => handleStartEdit(pk)}
                     title="Rename passkey"
                     className="p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-200/50 dark:hover:bg-zinc-800 transition-colors"
                   >
