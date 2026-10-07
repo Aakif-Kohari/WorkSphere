@@ -128,3 +128,13 @@ export function rmsToCalibratedDb(
   // Clamp within acoustic range (0 dB absolute silence to 130 dB threshold of pain)
   return Math.max(0, Math.min(130, Math.round(calibratedSpl * 10) / 10));
 }
+
+/**
+ * Normalizes raw frequency gain or decibel value to a percentage/height bounded strictly in [0, 100].
+ * Prevents extreme burst signals from causing visual spectrum bars to overflow SVG container bounds.
+ */
+export function normalizeFrequencyGain(val: number): number {
+  if (typeof val !== "number" || isNaN(val)) return 0;
+  return Math.min(100, Math.max(0, val));
+}
+

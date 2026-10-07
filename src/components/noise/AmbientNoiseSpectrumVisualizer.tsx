@@ -17,6 +17,7 @@ import {
   getFrequencyProfile,
   type FrequencyBandSpectrum,
 } from "@/lib/noise/spectrumAnalyzer";
+import { normalizeFrequencyGain } from "@/lib/noise/calibration";
 
 export interface AmbientNoiseSpectrumVisualizerProps {
   venueId?: string;
@@ -139,7 +140,7 @@ export function AmbientNoiseSpectrumVisualizer({
             sum += dataArray[startIdx + j];
           }
           const avgByte = sum / step;
-          const normalizedPct = Math.min(100, Math.max(4, Math.round((avgByte / 255) * 100)));
+          const normalizedPct = normalizeFrequencyGain(Math.round((avgByte / 255) * 100));
           newBars.push(normalizedPct);
           totalEnergy += avgByte;
         }
@@ -362,7 +363,8 @@ export function AmbientNoiseSpectrumVisualizer({
         <div className="absolute inset-x-0 top-[75%] border-b border-white/5 pointer-events-none" />
 
         {bars.map((height, i) => {
-          const peakHeight = peaks[i] || height;
+          const clampedHeight = normalizeFrequencyGain(height);
+          const peakHeight = normalizeFrequencyGain(peaks[i] || height);
           const bgGradient = getBarColor(i);
 
           return (
@@ -379,7 +381,7 @@ export function AmbientNoiseSpectrumVisualizer({
               {/* Dynamic Frequency Bar */}
               <div
                 className={`w-full max-w-[12px] bg-gradient-to-t ${bgGradient} rounded-t-sm transition-all duration-100 ease-out`}
-                style={{ height: `${height}%` }}
+                style={{ height: `${clampedHeight}%` }}
               />
             </div>
           );
