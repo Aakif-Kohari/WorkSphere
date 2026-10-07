@@ -18,13 +18,15 @@ export async function GET(req: NextRequest) {
       : new URL("http://localhost/api/bookings/history");
     const searchParams = url.searchParams;
 
-    // 1. Pagination parameters: take and cursor
-    const takeParam = searchParams.get("take") || searchParams.get("limit");
-    const take = takeParam
-      ? Math.min(100, Math.max(1, parseInt(takeParam, 10) || 20))
-      : 20;
+    // 1. Pagination parameters: page, limit, take, cursor
+    const pageParam = searchParams.get("page");
+    const limitParam = searchParams.get("limit") || searchParams.get("take");
+    const limit = limitParam
+      ? Math.min(50, Math.max(1, parseInt(limitParam, 10) || 10))
+      : 10;
 
     const cursor = searchParams.get("cursor");
+    const page = pageParam ? Math.max(1, parseInt(pageParam, 10) || 1) : undefined;
 
     // 2. Sorting by date (asc or desc, defaults to desc)
     const sortParam =
@@ -74,11 +76,20 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Execute cursor-based query (fetching take + 1 to detect hasMore)
-    const items = await (prisma as any).booking.findMany({
+    // 4. Date range filter (startDate and endDate)
+    const startDate = searchParams.get("startDate");
+    const endDate = searchParams.get("endDate");
+    if (startDate || endDate) {
+      const dateFilter: { gte?: string; lte?: string } = {};
+      if (startDate) dateFilter.gte = startDate;
+      if (endDate) dateFilter.lte = endDate;
+      where.date = dateFilter;
+    }
+
+    // Prepare findMany query arguments
+    const queryArgs: any = {
       where,
-      take: take + 1,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      take: limit + 1,
       include: {
         venue: {
           select: {
@@ -96,19 +107,48 @@ export async function GET(req: NextRequest) {
         { time: sortDirection },
         { id: sortDirection },
       ],
-    });
+    };
 
-    const hasMore = items.length > take;
-    const bookings = hasMore ? items.slice(0, take) : items;
+    if (cursor) {
+      queryArgs.cursor = { id: cursor };
+      queryArgs.skip = 1;
+    } else if (page !== undefined) {
+      queryArgs.skip = (page - 1) * limit;
+    }
+
+    // Execute query (fetching limit + 1 to detect hasMore / hasNextPage)
+    const items = await (prisma as any).booking.findMany(queryArgs);
+
+    const hasMore = items.length > limit;
+    const bookings = hasMore ? items.slice(0, limit) : items;
     const nextCursor = hasMore
       ? (bookings[bookings.length - 1]?.id ?? null)
       : null;
+
+    // Total count calculation for pagination metadata
+    let totalCount = 0;
+    if (typeof (prisma as any).booking?.count === "function") {
+      totalCount = await (prisma as any).booking.count({ where });
+    } else {
+      totalCount = hasMore
+        ? (page !== undefined ? (page - 1) * limit + items.length : items.length)
+        : bookings.length;
+    }
+
+    const totalPages = limit > 0 ? Math.ceil(totalCount / limit) : 0;
+    const currentPage = page ?? 1;
+    const hasNextPage = page !== undefined ? currentPage < totalPages : hasMore;
 
     return NextResponse.json({
       bookings,
       nextCursor,
       hasMore,
       total: bookings.length,
+      page: currentPage,
+      limit,
+      totalCount,
+      totalPages,
+      hasNextPage,
     });
   } catch (error: any) {
     console.error("[Bookings History Error]:", error);
@@ -120,6 +160,11 @@ export async function GET(req: NextRequest) {
         nextCursor: null,
         hasMore: false,
         total: 0,
+        page: 1,
+        limit: 10,
+        totalCount: 0,
+        totalPages: 0,
+        hasNextPage: false,
       });
     }
 
