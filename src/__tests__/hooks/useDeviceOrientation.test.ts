@@ -129,6 +129,29 @@ describe("useDeviceOrientation hook", () => {
     expect(result.current.heading).toBe(270);
   });
 
+  it("handles null alpha sensor reading by falling back gracefully to 0 heading without NaN", () => {
+    let orientationCallback: any;
+    jest.spyOn(window, "addEventListener").mockImplementation((event: string, cb: any) => {
+      if (event === "deviceorientation") {
+        orientationCallback = cb;
+      }
+    });
+
+    (window as any).DeviceOrientationEvent = class {};
+
+    const { result } = renderHook(() => useDeviceOrientation());
+
+    act(() => {
+      orientationCallback({
+        alpha: null, // Device without hardware magnetometer
+        webkitCompassHeading: null,
+      });
+    });
+
+    expect(result.current.heading).toBe(0);
+    expect(Number.isNaN(result.current.heading)).toBe(false);
+  });
+
   it("removes event listeners on unmount", () => {
     const removeEventListenerSpy = jest.spyOn(window, "removeEventListener");
     (window as any).DeviceOrientationEvent = class {};

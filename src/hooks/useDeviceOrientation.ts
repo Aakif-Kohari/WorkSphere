@@ -36,10 +36,18 @@ export function useDeviceOrientation(): DeviceOrientationState {
       (event as any).webkitCompassHeading !== null
     ) {
       h = (event as any).webkitCompassHeading;
-    } else if (event.alpha !== null && event.alpha !== undefined) {
+    } else if (
+      event.alpha !== null &&
+      event.alpha !== undefined &&
+      Number.isFinite(event.alpha)
+    ) {
       // Standard DeviceOrientationEvent: alpha is rotation around z-axis
       // True compass heading = (360 - alpha) % 360
       h = ((360 - event.alpha) % 360 + 360) % 360;
+    } else {
+      // Device without hardware magnetometer emits null/undefined alpha
+      // Gracefully fall back to stationary 0-degree heading without polluting calculation with NaN
+      h = 0;
     }
 
     if (h !== null && !isNaN(h)) {

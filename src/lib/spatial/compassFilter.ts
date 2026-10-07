@@ -27,9 +27,48 @@ export function shortestAngularDifference(fromAngle: number, toAngle: number): n
 /**
  * Normalizes any degree value into the canonical [0, 360) range.
  */
-export function normalizeDegrees(deg: number): number {
-  if (!Number.isFinite(deg)) return 0;
+export function normalizeDegrees(deg: number | null | undefined): number {
+  if (deg === null || deg === undefined || !Number.isFinite(deg)) return 0;
   return ((deg % 360) + 360) % 360;
+}
+
+/**
+ * Converts heading/azimuth degrees to radians [-PI, PI].
+ * Validates null, undefined, or non-finite readings and falls back to a stationary 0 heading.
+ *
+ * @param deg Heading or azimuth angle in degrees, or null/undefined if sensor lacks hardware magnetometer
+ * @param fallbackDeg Optional fallback heading if input is null or non-finite (default: 0)
+ * @returns Heading angle in radians [-PI, PI]
+ */
+export function degreesToRadians(
+  deg: number | null | undefined,
+  fallbackDeg = 0,
+): number {
+  const safeDeg =
+    deg !== null && deg !== undefined && Number.isFinite(deg)
+      ? deg
+      : Number.isFinite(fallbackDeg)
+        ? fallbackDeg
+        : 0;
+  const normalized = normalizeDegrees(safeDeg);
+  let rad = (normalized * Math.PI) / 180;
+  while (rad > Math.PI) rad -= 2 * Math.PI;
+  while (rad < -Math.PI) rad += 2 * Math.PI;
+  return rad;
+}
+
+/**
+ * Alias for degreesToRadians specifically for azimuth and orientation calculations.
+ */
+export const headingToRadians = degreesToRadians;
+
+/**
+ * Converts radians to degrees in the range [0, 360).
+ */
+export function radiansToDegrees(rad: number | null | undefined): number {
+  if (rad === null || rad === undefined || !Number.isFinite(rad)) return 0;
+  let deg = (rad * 180) / Math.PI;
+  return normalizeDegrees(deg);
 }
 
 /**
@@ -53,14 +92,22 @@ export class CompassKalmanFilter {
    * Updates the filter with a new raw compass measurement (in degrees).
    * Dynamically scales sensor covariance matrix (R) inversely with reported
    * sensor accuracy/confidence, relying more on prediction/dead reckoning when confidence drops.
+   * If sensor returns null or non-finite values (e.g. device lacks hardware magnetometer),
+   * returns the last known heading or optional fallback heading (defaulting to 0 if uninitialized),
+   * preventing calculation state from degrading into NaN.
    *
-   * @param measurement Raw compass angle in degrees [0, 360)
+   * @param measurement Raw compass angle in degrees [0, 360), or null/undefined
    * @param confidence Optional sensor accuracy or confidence in range (0, 1]
+   * @param fallbackHeading Optional fallback heading in degrees if sensor is null and uninitialized (default: 0)
    * @returns Smoothed and filtered compass angle in degrees [0, 360)
    */
-  public update(measurement: number | null, confidence?: number | null): number | null {
-    if (measurement === null || isNaN(measurement)) {
-      return this.state;
+  public update(
+    measurement: number | null | undefined,
+    confidence?: number | null,
+    fallbackHeading = 0,
+  ): number | null {
+    if (measurement === null || measurement === undefined || !Number.isFinite(measurement)) {
+      return this.state !== null ? this.state : normalizeDegrees(fallbackHeading);
     }
 
     const normMeasurement = normalizeDegrees(measurement);
@@ -128,15 +175,30 @@ export class CompassKalmanFilter {
  * @param prevHeading Previous filtered heading in degrees [0, 360)
  * @param newHeading New measurement in degrees [0, 360)
  * @param alpha Smoothing factor between 0 (keep prev) and 1 (instant update). Default 0.15
+ * @param fallbackHeading Default heading in degrees if both inputs are null or invalid (default: 0)
  */
 export function smoothCircularHeading(
-  prevHeading: number | null,
-  newHeading: number | null,
+  prevHeading: number | null | undefined,
+  newHeading: number | null | undefined,
   alpha = 0.15,
-): number | null {
-  if (newHeading === null || isNaN(newHeading)) return prevHeading;
-  if (prevHeading === null || isNaN(prevHeading)) return normalizeDegrees(newHeading);
+  fallbackHeading = 0,
+): number {
+  const hasNew = newHeading !== null && newHeading !== undefined && Number.isFinite(newHeading);
+  const hasPrev = prevHeading !== null && prevHeading !== undefined && Number.isFinite(prevHeading);
 
-  const delta = shortestAngularDifference(prevHeading, newHeading);
-  return normalizeDegrees(prevHeading + alpha * delta);
+  if (!hasNew && !hasPrev) {
+    return normalizeDegrees(fallbackHeading);
+  }
+  if (!hasNew) {
+    return normalizeDegrees(prevHeading);
+  }
+  if (!hasPrev) {
+    return normalizeDegrees(newHeading);
+  }
+
+  const normPrev = normalizeDegrees(prevHeading);
+  const normNew = normalizeDegrees(newHeading);
+  const delta = shortestAngularDifference(normPrev, normNew);
+  const safeAlpha = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0.15;
+  return normalizeDegrees(normPrev + safeAlpha * delta);
 }
