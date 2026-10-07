@@ -4,6 +4,7 @@
  */
 
 import { sanitizeSvg } from "@/lib/security/svgSanitizer";
+import { generateQRCodeSVG } from "@/lib/qr/svgQr";
 import { uint8ArrayToBase64, base64ToUint8Array } from "@/lib/crypto/encoding";
 import type { Share, EncryptedShare, EmergencyKitPayload } from "../types";
 
@@ -180,68 +181,10 @@ export function generateRecoveryQRCodeSVG(
 ): string {
   const safeSize = Math.max(1, Number(size) || 240);
   const data = JSON.stringify(payload);
-  const matrix = encodeQRMatrix(data);
-  const moduleCount = matrix.length;
-  const cellSize = safeSize / moduleCount;
-
-  let cells = "";
-  for (let row = 0; row < moduleCount; row++) {
-    for (let col = 0; col < moduleCount; col++) {
-      if (matrix[row][col]) {
-        const x = (col * cellSize).toFixed(2);
-        const y = (row * cellSize).toFixed(2);
-        cells += `<rect x="${x}" y="${y}" width="${cellSize.toFixed(2)}" height="${cellSize.toFixed(2)}" />`;
-      }
-    }
-  }
-
-  const rawSvg = (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${safeSize} ${safeSize}" ` +
-    `width="${safeSize}" height="${safeSize}" shape-rendering="crispEdges">` +
-    `<rect width="${safeSize}" height="${safeSize}" fill="#ffffff" />` +
-    `<g fill="#000000">${cells}</g>` +
-    `</svg>`
-  );
-
-  return sanitizeSvg(rawSvg);
-}
-
-function encodeQRMatrix(data: string): boolean[][] {
-  const size = Math.max(
-    21,
-    Math.min(41, 21 + Math.floor(data.length / 50) * 4),
-  );
-  const matrix: boolean[][] = Array.from({ length: size }, () =>
-    new Array(size).fill(false),
-  );
-
-  let seed = 0;
-  for (let i = 0; i < data.length; i++) {
-    seed = (seed * 31 + data.charCodeAt(i)) >>> 0;
-  }
-
-  for (let row = 0; row < size; row++) {
-    for (let col = 0; col < size; col++) {
-      seed = (seed * 1103515245 + 12345) >>> 0;
-      matrix[row][col] = (seed >>> 16) % 2 === 0;
-    }
-  }
-
-  drawFinderPattern(matrix, 0, 0);
-  drawFinderPattern(matrix, 0, size - 7);
-  drawFinderPattern(matrix, size - 7, 0);
-
-  return matrix;
-}
-
-function drawFinderPattern(matrix: boolean[][], r: number, c: number): void {
-  for (let i = 0; i < 7; i++) {
-    for (let j = 0; j < 7; j++) {
-      const isBorder = i === 0 || i === 6 || j === 0 || j === 6;
-      const isCore = i >= 2 && i <= 4 && j >= 2 && j <= 4;
-      matrix[r + i][c + j] = isBorder || isCore;
-    }
-  }
+  return generateQRCodeSVG(data, {
+    size: safeSize,
+    title: "Emergency Recovery Kit",
+  });
 }
 
 /**
