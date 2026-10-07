@@ -10,5 +10,6 @@ export * from "./geoExporter";
 export * from "./folderPdfExporter";
 export * from "./multiCityPdfExporter";
 export * from "./chatExporter";
+export * from "./systemVitalsExporter";
 export * from "./bookingHistoryExporter";
 export * from "./itineraryExporter";

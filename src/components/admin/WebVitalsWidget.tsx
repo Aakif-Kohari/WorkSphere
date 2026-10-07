@@ -11,6 +11,7 @@ import {
   Layers,
   RefreshCw,
   Zap,
+  Download,
 } from "lucide-react";
 import {
   AggregatedWebVitals,
@@ -22,6 +23,7 @@ import {
   getStoredWebVitals,
   MetricSummary,
 } from "@/lib/webVitalsCollector";
+import { downloadWebVitalsCSV } from "@/lib/export/domain/systemVitalsExporter";
 
 export interface WebVitalsWidgetProps {
   initialRange?: string;
@@ -365,12 +367,24 @@ export function WebVitalsWidget({
             ))}
           </div>
 
+          {/* Export CSV button */}
+          <button
+            onClick={() => data && downloadWebVitalsCSV(data)}
+            disabled={!data || loading}
+            className="p-2 rounded-xl border border-white/10 bg-zinc-900/80 text-zinc-400 hover:text-white transition-colors disabled:opacity-40"
+            title="Export Web Vitals telemetry as CSV"
+            aria-label="Export Web Vitals telemetry as CSV"
+          >
+            <Download className="h-4 w-4 text-violet-400" />
+          </button>
+
           {/* Refresh button */}
           <button
             onClick={fetchVitals}
             disabled={refreshing}
             className="p-2 rounded-xl border border-white/10 bg-zinc-900/80 text-zinc-400 hover:text-white transition-colors"
             title="Refresh Web Vitals metrics"
+            aria-label="Refresh Web Vitals metrics"
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin text-violet-400" : ""}`} />
           </button>
