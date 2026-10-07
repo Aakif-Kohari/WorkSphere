@@ -39,15 +39,20 @@ describe("ICS Calendar Utility (RFC 5545)", () => {
       const escaped = escapeIcsText(raw);
       expect(escaped).toBe("Special\\; text\\, with\\\\backslash and\\nnewline");
     });
+
+    it("sanitizes CRLF and standalone CR line endings into literal \\n", () => {
+      const crlfText = "Line 1\r\nLine 2\rLine 3\nLine 4";
+      expect(escapeIcsText(crlfText)).toBe("Line 1\\nLine 2\\nLine 3\\nLine 4");
+    });
   });
 
   describe("foldIcsLine", () => {
-    it("does not fold lines with 75 or fewer characters", () => {
+    it("does not fold lines with 75 or fewer octets", () => {
       const shortLine = "SUMMARY:Short line";
       expect(foldIcsLine(shortLine)).toBe(shortLine);
     });
 
-    it("folds lines longer than 75 characters with CRLF and leading space", () => {
+    it("folds lines longer than 75 octets with CRLF and leading space", () => {
       const longLine = "A".repeat(160);
       const folded = foldIcsLine(longLine);
       const parts = folded.split("\r\n");
@@ -56,6 +61,18 @@ describe("ICS Calendar Utility (RFC 5545)", () => {
       for (let i = 1; i < parts.length; i++) {
         expect(parts[i].startsWith(" ")).toBe(true);
         expect(parts[i].length).toBeLessThanOrEqual(75);
+      }
+    });
+
+    it("folds lines correctly based on UTF-8 octets without splitting multi-byte characters", () => {
+      // 30 2-byte characters = 60 bytes + prefix 20 bytes = 80 bytes (exceeds 75 octets)
+      const multiByteLine = "DESCRIPTION:" + "é".repeat(30);
+      const folded = foldIcsLine(multiByteLine);
+      const parts = folded.split("\r\n");
+      const encoder = new TextEncoder();
+      expect(parts.length).toBeGreaterThan(1);
+      for (const part of parts) {
+        expect(encoder.encode(part).length).toBeLessThanOrEqual(75);
       }
     });
   });

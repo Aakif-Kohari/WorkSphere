@@ -9,21 +9,49 @@ export const escapeIcsText = (text: string): string =>
     .replace(/\\/g, "\\\\")
     .replace(/;/g, "\\;")
     .replace(/,/g, "\\,")
-    .replace(/\r/g, "")
-    .replace(/\n/g, "\\n");
+    .replace(/\r\n|\r|\n/g, "\\n");
 
 /**
- * Folds lines longer than 75 characters per RFC 5545 section 3.1.
+ * Folds lines longer than 75 octets per RFC 5545 section 3.1.
+ * Ensures continuation lines begin with a single space and multi-byte UTF-8
+ * characters are not split across fold boundaries.
  */
 export function foldIcsLine(line: string): string {
-  if (line.length <= 75) return line;
+  const encoder = new TextEncoder();
+  if (encoder.encode(line).length <= 75) return line;
+
   const parts: string[] = [];
-  parts.push(line.slice(0, 75));
-  let remaining = line.slice(75);
-  while (remaining.length > 0) {
-    parts.push(" " + remaining.slice(0, 74));
-    remaining = remaining.slice(74);
+  let isFirst = true;
+  let currentPart = "";
+  let currentBytes = 0;
+
+  for (const char of line) {
+    const charBytes = encoder.encode(char).length;
+    const limit = isFirst ? 75 : 74;
+
+    if (currentBytes + charBytes > limit) {
+      if (isFirst) {
+        parts.push(currentPart);
+        isFirst = false;
+      } else {
+        parts.push(" " + currentPart);
+      }
+      currentPart = char;
+      currentBytes = charBytes;
+    } else {
+      currentPart += char;
+      currentBytes += charBytes;
+    }
   }
+
+  if (currentPart.length > 0) {
+    if (isFirst) {
+      parts.push(currentPart);
+    } else {
+      parts.push(" " + currentPart);
+    }
+  }
+
   return parts.join("\r\n");
 }
 
