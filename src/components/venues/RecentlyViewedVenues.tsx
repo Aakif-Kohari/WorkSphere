@@ -8,6 +8,7 @@ import {
   getRecentlyViewedVenues,
   removeRecentlyViewedVenue,
   clearRecentlyViewedVenues,
+  MAX_RECENTLY_VIEWED,
 } from "@/components/venues/RecentlyViewedTracker";
 import {
   getRecentlyViewedVenuesOffline,
@@ -21,11 +22,19 @@ export function RecentlyViewedVenues() {
   const [isOffline, setIsOffline] = useState(false);
 
   const loadRecentlyViewed = async () => {
-    // 1. First try loading up to 20 cached venues from IndexedDB
+    // 1. First try loading cached venues from IndexedDB
     try {
       const idbVenues = await getRecentlyViewedVenuesOffline();
       if (Array.isArray(idbVenues) && idbVenues.length > 0) {
-        setVenues(idbVenues as RecentlyViewedVenue[]);
+        const seen = new Set<string>();
+        const deduplicated: RecentlyViewedVenue[] = [];
+        for (const item of idbVenues as RecentlyViewedVenue[]) {
+          if (item?.id && !seen.has(item.id)) {
+            seen.add(item.id);
+            deduplicated.push(item);
+          }
+        }
+        setVenues(deduplicated.slice(0, MAX_RECENTLY_VIEWED));
         return;
       }
     } catch {

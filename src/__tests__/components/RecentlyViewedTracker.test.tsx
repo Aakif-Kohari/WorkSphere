@@ -62,8 +62,8 @@ describe("RecentlyViewedTracker", () => {
     expect(stored[0].name).toBe("Updated Venue 1");
   });
 
-  it("keeps only the five most recently viewed venues", () => {
-    for (let i = 1; i <= 6; i++) {
+  it("keeps only the ten most recently viewed venues", () => {
+    for (let i = 1; i <= 12; i++) {
       render(<RecentlyViewedTracker venue={createVenue(String(i))} />);
     }
 
@@ -71,13 +71,18 @@ describe("RecentlyViewedTracker", () => {
       localStorage.getItem(RECENTLY_VIEWED_STORAGE_KEY) || "[]",
     );
 
-    expect(stored).toHaveLength(5);
+    expect(stored).toHaveLength(10);
     expect(stored.map((venue: RecentlyViewedVenue) => venue.id)).toEqual([
+      "12",
+      "11",
+      "10",
+      "9",
+      "8",
+      "7",
       "6",
       "5",
       "4",
       "3",
-      "2",
     ]);
   });
 });

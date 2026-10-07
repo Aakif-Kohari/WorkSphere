@@ -21,7 +21,7 @@ export interface RecentlyViewedVenue {
 }
 
 export const RECENTLY_VIEWED_STORAGE_KEY = "worksphere-recently-viewed";
-export const MAX_RECENTLY_VIEWED = 5;
+export const MAX_RECENTLY_VIEWED = 10;
 
 export function getRecentlyViewedVenues(): RecentlyViewedVenue[] {
   if (typeof window === "undefined") return [];
@@ -29,7 +29,16 @@ export function getRecentlyViewedVenues(): RecentlyViewedVenue[] {
     const stored = localStorage.getItem(RECENTLY_VIEWED_STORAGE_KEY);
     if (!stored) return [];
     const parsed = JSON.parse(stored);
-    return Array.isArray(parsed) ? parsed.slice(0, MAX_RECENTLY_VIEWED) : [];
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set<string>();
+    const deduplicated: RecentlyViewedVenue[] = [];
+    for (const item of parsed) {
+      if (item && typeof item === "object" && item.id && !seen.has(item.id)) {
+        seen.add(item.id);
+        deduplicated.push(item);
+      }
+    }
+    return deduplicated.slice(0, MAX_RECENTLY_VIEWED);
   } catch (error) {
     console.error("Failed to load recently viewed venues:", error);
     return [];
@@ -64,6 +73,7 @@ interface RecentlyViewedTrackerProps {
 
 export function RecentlyViewedTracker({ venue }: RecentlyViewedTrackerProps) {
   useEffect(() => {
+    if (!venue || !venue.id) return;
     try {
       const recentlyViewed = getRecentlyViewedVenues();
 
@@ -80,7 +90,7 @@ export function RecentlyViewedTracker({ venue }: RecentlyViewedTrackerProps) {
       console.error("Failed to save recently viewed venue to localStorage:", error);
     }
 
-    // Persist full payload in IndexedDB (up to 20 items for offline access)
+    // Persist full payload in IndexedDB (for offline access)
     saveRecentlyViewedVenueOffline(venue).catch((error) => {
       console.warn("Failed to persist recently viewed venue to IndexedDB:", error);
     });
