@@ -45,16 +45,34 @@ export async function initOfflineDB(): Promise<IDBDatabase> {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onblocked = () => {
-        console.warn("[OfflineDB] Database upgrade blocked");
+        console.warn("[OfflineDB] Database upgrade blocked by open connection, closing inactive connections");
+        if (dbInstance) {
+          try {
+            dbInstance.close();
+          } catch {
+            // ignore
+          }
+          dbInstance = null;
+        }
       };
 
       request.onerror = () => {
         if (settled) return;
         settled = true;
         clearTimeout(timeoutId);
+        if (dbInstance) {
+          try {
+            dbInstance.close();
+          } catch {
+            // ignore
+          }
+          dbInstance = null;
+        }
         const err = request.error || new Error("Unknown IndexedDB error");
         if (err.name === "SecurityError") {
           showPrivateBrowsingAlert();
+        } else if (err.name === "AbortError") {
+          console.warn("[OfflineDB] Transaction abort error during schema upgrade handled gracefully", err);
         }
         reject(err);
       };
@@ -65,7 +83,12 @@ export async function initOfflineDB(): Promise<IDBDatabase> {
         clearTimeout(timeoutId);
         dbInstance = request.result;
         dbInstance.onversionchange = () => {
-          dbInstance?.close();
+          console.warn("[OfflineDB] Database version change detected, closing connection gracefully");
+          try {
+            dbInstance?.close();
+          } catch {
+            // ignore
+          }
           dbInstance = null;
         };
         resolve(dbInstance);
@@ -73,6 +96,28 @@ export async function initOfflineDB(): Promise<IDBDatabase> {
 
       request.onupgradeneeded = (event) => {
         const database = (event.target as IDBOpenDBRequest).result;
+        const transaction = (event.target as IDBOpenDBRequest).transaction;
+
+        if (transaction) {
+          transaction.onabort = (e) => {
+            console.warn("[OfflineDB] Upgrade transaction aborted", transaction.error || e);
+          };
+          transaction.onerror = (e) => {
+            console.warn("[OfflineDB] Upgrade transaction error", transaction.error || e);
+          };
+        }
+
+        database.onversionchange = () => {
+          console.warn("[OfflineDB] Database version change during upgrade, closing connection gracefully");
+          try {
+            database.close();
+          } catch {
+            // ignore
+          }
+          if (dbInstance === database) {
+            dbInstance = null;
+          }
+        };
 
         // Venues store
         if (!database.objectStoreNames.contains("venues")) {

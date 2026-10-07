@@ -120,15 +120,34 @@ export function openReviewDB(): Promise<IDBDatabase> {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onblocked = () => {
-        console.warn("[offlineReviewSync] IndexedDB upgrade blocked by open connection");
+        console.warn("[offlineReviewSync] IndexedDB upgrade blocked by open connection, closing inactive connections");
+        if (dbInstance) {
+          try {
+            dbInstance.close();
+          } catch {
+            // ignore
+          }
+          dbInstance = null;
+        }
       };
 
       request.onerror = () => {
         if (settled) return;
         settled = true;
         clearTimeout(timeoutId);
-        dbInstance = null;
-        reject(request.error || new Error("Failed to open IndexedDB"));
+        if (dbInstance) {
+          try {
+            dbInstance.close();
+          } catch {
+            // ignore
+          }
+          dbInstance = null;
+        }
+        const err = request.error || new Error("Failed to open IndexedDB");
+        if (err.name === "AbortError") {
+          console.warn("[offlineReviewSync] Transaction abort error during schema upgrade handled gracefully", err);
+        }
+        reject(err);
       };
 
       request.onsuccess = () => {
@@ -137,7 +156,12 @@ export function openReviewDB(): Promise<IDBDatabase> {
         clearTimeout(timeoutId);
         dbInstance = request.result;
         dbInstance.onversionchange = () => {
-          dbInstance?.close();
+          console.warn("[offlineReviewSync] Database version change detected, closing connection gracefully");
+          try {
+            dbInstance?.close();
+          } catch {
+            // ignore
+          }
           dbInstance = null;
         };
         resolve(dbInstance);
@@ -145,6 +169,26 @@ export function openReviewDB(): Promise<IDBDatabase> {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
+        const transaction = (event.target as IDBOpenDBRequest).transaction;
+
+        if (transaction) {
+          transaction.onabort = (e) => {
+            console.warn("[offlineReviewSync] Upgrade transaction aborted", transaction.error || e);
+          };
+          transaction.onerror = (e) => {
+            console.warn("[offlineReviewSync] Upgrade transaction error", transaction.error || e);
+          };
+        }
+
+        db.onversionchange = () => {
+          console.warn("[offlineReviewSync] Database version change during upgrade, closing connection gracefully");
+          try {
+            db.close();
+          } catch {
+            // ignore
+          }
+          dbInstance = null;
+        };
 
         // Existing stores preserved
         if (!db.objectStoreNames.contains("venues")) {

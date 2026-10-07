@@ -111,8 +111,43 @@ export function getDB(): Promise<IDBDatabase> {
     try {
       const request = indexedDB.open(DB_NAME, 3);
 
+      request.onblocked = () => {
+        console.warn("[OfflineStore] Database upgrade blocked by open connection, closing inactive connections");
+        if (dbInstance) {
+          try {
+            dbInstance.close();
+          } catch {
+            // ignore
+          }
+          dbInstance = null;
+          dbPromise = null;
+        }
+      };
+
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
+        const transaction = (event.target as IDBOpenDBRequest).transaction;
+
+        if (transaction) {
+          transaction.onabort = (e) => {
+            console.warn("[OfflineStore] Upgrade transaction aborted", transaction.error || e);
+          };
+          transaction.onerror = (e) => {
+            console.warn("[OfflineStore] Upgrade transaction error", transaction.error || e);
+          };
+        }
+
+        db.onversionchange = () => {
+          console.warn("[OfflineStore] Database version change during upgrade, closing connection gracefully");
+          try {
+            db.close();
+          } catch {
+            // ignore
+          }
+          dbInstance = null;
+          dbPromise = null;
+        };
+
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME, {
             keyPath: "id",
@@ -133,10 +168,6 @@ export function getDB(): Promise<IDBDatabase> {
         }
       };
 
-      request.onblocked = () => {
-        console.warn("[OfflineStore] Database upgrade blocked");
-      };
-
       request.onsuccess = () => {
         if (settled) return;
         settled = true;
@@ -147,7 +178,12 @@ export function getDB(): Promise<IDBDatabase> {
         // DB version).  Close the stale connection and clear the singleton so
         // the next getDB() call re-opens with the new version.
         db.onversionchange = () => {
-          db.close();
+          console.warn("[OfflineStore] Database version change detected, closing connection gracefully");
+          try {
+            db.close();
+          } catch {
+            // ignore
+          }
           dbInstance = null;
           dbPromise = null;
         };
@@ -162,11 +198,20 @@ export function getDB(): Promise<IDBDatabase> {
         settled = true;
         clearTimeout(timeoutId);
         // Clear both variables so the next getDB() call starts fresh.
+        if (dbInstance) {
+          try {
+            dbInstance.close();
+          } catch {
+            // ignore
+          }
+        }
         dbInstance = null;
         dbPromise = null;
         const err = request.error || new Error("Unknown IndexedDB error");
         if (err.name === "SecurityError") {
           showPrivateBrowsingAlert();
+        } else if (err.name === "AbortError") {
+          console.warn("[OfflineStore] Transaction abort error during schema upgrade handled gracefully", err);
         }
         reject(err);
       };
