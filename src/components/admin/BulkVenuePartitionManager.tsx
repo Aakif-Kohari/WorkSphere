@@ -271,7 +271,8 @@ export function BulkVenuePartitionManager({
               type="button"
               onClick={() => onRefresh()}
               className="p-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-zinc-400 hover:text-zinc-200 border border-white/10 transition-colors"
-              title="Refresh partition health"
+              title="Refresh partition catalog health, live row counts, and disk allocation"
+              aria-label="Refresh partition catalog metrics"
             >
               <RefreshCw className="h-4 w-4" />
             </button>
@@ -384,7 +385,9 @@ export function BulkVenuePartitionManager({
           <button
             type="button"
             onClick={() => setOperationFeedback(null)}
-            className="text-zinc-400 hover:text-zinc-200"
+            className="text-zinc-400 hover:text-zinc-200 transition-colors"
+            title="Dismiss notification"
+            aria-label="Dismiss notification"
           >
             <X className="h-4 w-4" />
           </button>
@@ -438,6 +441,12 @@ export function BulkVenuePartitionManager({
             type="button"
             onClick={() => setShowArchiveModal(true)}
             disabled={selectedPartitions.size === 0 || isProcessing}
+            title={
+              selectedPartitions.size === 0
+                ? "Select one or more partitions below to perform bulk archiving"
+                : `Detach ${selectedPartitions.size} selected partition(s) and relocate into cold storage archive schema`
+            }
+            aria-label={`Bulk archive ${selectedPartitions.size} selected partitions`}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs sm:text-sm font-medium transition-colors disabled:opacity-40"
           >
             <Archive className="h-4 w-4" />
@@ -448,6 +457,12 @@ export function BulkVenuePartitionManager({
             type="button"
             onClick={() => setShowDeleteModal(true)}
             disabled={selectedPartitions.size === 0 || isProcessing}
+            title={
+              selectedPartitions.size === 0
+                ? "Select one or more partitions below to permanently delete"
+                : `Permanently drop ${selectedPartitions.size} selected partition table(s) and reclaim physical disk space`
+            }
+            aria-label={`Bulk delete ${selectedPartitions.size} selected partitions`}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 text-xs sm:text-sm font-medium transition-colors disabled:opacity-40"
           >
             <Trash2 className="h-4 w-4" />
@@ -463,6 +478,8 @@ export function BulkVenuePartitionManager({
           type="button"
           onClick={handleSelectAllVisible}
           className="px-2.5 py-1 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 transition-colors"
+          title={`Select all ${filteredPartitions.length} currently filtered partition(s)`}
+          aria-label={`Select all ${filteredPartitions.length} visible partitions`}
         >
           All Visible ({filteredPartitions.length})
         </button>
@@ -470,6 +487,8 @@ export function BulkVenuePartitionManager({
           type="button"
           onClick={handleSelectExpired}
           className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 transition-colors"
+          title="Select all active partitions exceeding the 12-month retention policy"
+          aria-label="Select all expired partitions exceeding retention policy"
         >
           All Expired (&gt;12 mo)
         </button>
@@ -477,6 +496,8 @@ export function BulkVenuePartitionManager({
           type="button"
           onClick={handleSelectCold}
           className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-300 transition-colors"
+          title="Select all large partitions exceeding 100 MB cold storage threshold"
+          aria-label="Select all partitions exceeding 100 MB"
         >
           All Heavy (&gt;100 MB)
         </button>
@@ -485,6 +506,8 @@ export function BulkVenuePartitionManager({
             type="button"
             onClick={handleClearSelection}
             className="px-2.5 py-1 rounded-lg bg-zinc-700/50 hover:bg-zinc-700 text-zinc-300 transition-colors ml-auto"
+            title="Deselect all currently selected partitions"
+            aria-label="Clear partition selection"
           >
             Clear Selection
           </button>
@@ -511,6 +534,8 @@ export function BulkVenuePartitionManager({
                     }
                   }}
                   className="rounded border-zinc-600 bg-zinc-800 text-violet-500 focus:ring-violet-500"
+                  title="Toggle select all visible partitions"
+                  aria-label="Toggle select all visible partitions"
                 />
               </th>
               <th className="p-3.5">Partition Name</th>
@@ -549,6 +574,8 @@ export function BulkVenuePartitionManager({
                         checked={isSelected}
                         onChange={() => handleToggleSelect(partition.name)}
                         className="rounded border-zinc-600 bg-zinc-800 text-violet-500 focus:ring-violet-500"
+                        title={`Select partition ${partition.name}`}
+                        aria-label={`Select partition ${partition.name}`}
                       />
                     </td>
                     <td className="p-3.5 font-mono text-zinc-200">
@@ -614,7 +641,8 @@ export function BulkVenuePartitionManager({
                               setShowArchiveModal(true);
                             }}
                             className="p-1.5 rounded-lg text-amber-400 hover:bg-amber-500/10 transition-colors"
-                            title="Archive this partition"
+                            title={`Archive partition ${partition.name} (${partition.tableSizePretty}) to cold storage schema`}
+                            aria-label={`Archive partition ${partition.name}`}
                           >
                             <Archive className="h-3.5 w-3.5" />
                           </button>
@@ -626,7 +654,8 @@ export function BulkVenuePartitionManager({
                             setShowDeleteModal(true);
                           }}
                           className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors"
-                          title="Delete this partition"
+                          title={`Permanently drop partition ${partition.name} (${partition.tableSizePretty})`}
+                          aria-label={`Delete partition ${partition.name}`}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
@@ -687,6 +716,8 @@ export function BulkVenuePartitionManager({
                 onClick={() => setShowArchiveModal(false)}
                 disabled={isProcessing}
                 className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium transition-colors"
+                title="Cancel archive operation"
+                aria-label="Cancel archive operation"
               >
                 Cancel
               </button>
@@ -695,6 +726,8 @@ export function BulkVenuePartitionManager({
                 onClick={handleBulkArchive}
                 disabled={isProcessing}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+                title={`Confirm archiving of ${selectedPartitions.size} selected partition(s)`}
+                aria-label={`Confirm archive of ${selectedPartitions.size} partitions`}
               >
                 {isProcessing && <Loader2 className="h-4 w-4 animate-spin" />}
                 Archive Partitions
@@ -765,6 +798,8 @@ export function BulkVenuePartitionManager({
                 }}
                 disabled={isProcessing}
                 className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium transition-colors"
+                title="Cancel deletion operation"
+                aria-label="Cancel deletion operation"
               >
                 Cancel
               </button>
@@ -773,6 +808,12 @@ export function BulkVenuePartitionManager({
                 onClick={handleBulkDelete}
                 disabled={deleteConfirmInput !== "DELETE" || isProcessing}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                title={
+                  deleteConfirmInput !== "DELETE"
+                    ? "Type DELETE in the confirmation field to proceed"
+                    : `Permanently drop ${selectedPartitions.size} selected partition table(s)`
+                }
+                aria-label={`Permanently delete ${selectedPartitions.size} partitions`}
               >
                 {isProcessing && <Loader2 className="h-4 w-4 animate-spin" />}
                 Permanently Delete
