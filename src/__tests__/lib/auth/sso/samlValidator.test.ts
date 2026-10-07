@@ -447,3 +447,146 @@ describe("SAML Audience Restriction Validation (#4572)", () => {
   });
 });
 
+describe("SAML Clock Skew Leeway Window Validation (#4798)", () => {
+  const testCert = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Y3r";
+
+  function buildAssertionXml(notBefore: string, notOnOrAfter: string, confirmationNotOnOrAfter?: string) {
+    const confTime = confirmationNotOnOrAfter ?? notOnOrAfter;
+    return `
+      <Response>
+        <Assertion>
+          <Conditions NotBefore="${notBefore}" NotOnOrAfter="${notOnOrAfter}">
+            <AudienceRestriction>
+              <Audience>http://sp.example.com</Audience>
+            </AudienceRestriction>
+          </Conditions>
+          <Subject>
+            <NameID>user@example.com</NameID>
+            <SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">
+              <SubjectConfirmationData NotOnOrAfter="${confTime}" />
+            </SubjectConfirmation>
+          </Subject>
+          <AttributeStatement>
+            <Attribute Name="email">
+              <AttributeValue>user@example.com</AttributeValue>
+            </Attribute>
+          </AttributeStatement>
+          <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+            <SignatureValue>dummy</SignatureValue>
+          </Signature>
+        </Assertion>
+      </Response>
+    `;
+  }
+
+  beforeEach(() => {
+    const mockSignedXmlInstance = {
+      publicCert: null as any,
+      loadSignature: jest.fn(),
+      checkSignature: jest.fn().mockReturnValue(true),
+      getSignedReferences: jest.fn().mockReturnValue([
+        // returns full assertion
+      ]),
+    };
+    (SignedXml as unknown as jest.Mock).mockImplementation(() => {
+      return {
+        publicCert: null as any,
+        loadSignature: jest.fn(),
+        checkSignature: jest.fn().mockReturnValue(true),
+        getSignedReferences: jest.fn().mockImplementation(function (this: any) {
+          return [this._xmlString];
+        }),
+        _xmlString: "",
+      };
+    });
+  });
+
+  it("accepts assertion when IdP server clock is drifted 30 seconds ahead (NotBefore is 30s in future)", () => {
+    const now = Date.now();
+    // IdP clock is ahead: NotBefore is set to 30 seconds in the future
+    const notBefore = new Date(now + 30 * 1000).toISOString();
+    const notOnOrAfter = new Date(now + 10 * 60 * 1000).toISOString();
+
+    const xml = buildAssertionXml(notBefore, notOnOrAfter);
+    const result = validateSamlAssertion(xml, testCert, "http://sp.example.com", undefined, 60);
+    expect(result.nameId).toBe("user@example.com");
+  });
+
+  it("accepts assertion when IdP server clock is drifted 30 seconds behind (NotOnOrAfter expired 30s ago)", () => {
+    const now = Date.now();
+    // IdP clock is behind: NotOnOrAfter was 30 seconds ago
+    const notBefore = new Date(now - 10 * 60 * 1000).toISOString();
+    const notOnOrAfter = new Date(now - 30 * 1000).toISOString();
+
+    const xml = buildAssertionXml(notBefore, notOnOrAfter);
+    const result = validateSamlAssertion(xml, testCert, "http://sp.example.com", undefined, 60);
+    expect(result.nameId).toBe("user@example.com");
+  });
+
+  it("rejects assertion when IdP server clock drift exceeds 60s skew window in the future (NotBefore)", () => {
+    const now = Date.now();
+    // IdP clock is 70 seconds ahead -> outside 60s window
+    const notBefore = new Date(now + 70 * 1000).toISOString();
+    const notOnOrAfter = new Date(now + 10 * 60 * 1000).toISOString();
+
+    const xml = buildAssertionXml(notBefore, notOnOrAfter);
+    expect(() => {
+      validateSamlAssertion(xml, testCert, "http://sp.example.com", undefined, 60);
+    }).toThrow("SAML Assertion is not yet valid (NotBefore)");
+  });
+
+  it("rejects assertion when IdP server clock drift exceeds 60s skew window in the past (NotOnOrAfter)", () => {
+    const now = Date.now();
+    // IdP clock is 70 seconds expired -> outside 60s window
+    const notBefore = new Date(now - 10 * 60 * 1000).toISOString();
+    const notOnOrAfter = new Date(now - 70 * 1000).toISOString();
+
+    const xml = buildAssertionXml(notBefore, notOnOrAfter);
+    expect(() => {
+      validateSamlAssertion(xml, testCert, "http://sp.example.com", undefined, 60);
+    }).toThrow("SAML Assertion has expired (NotOnOrAfter)");
+  });
+
+  it("supports configurable clockSkewSec argument (e.g. 10s strict window)", () => {
+    const now = Date.now();
+    // 20 seconds ahead: should fail with 10s skew, succeed with default 60s skew
+    const notBefore = new Date(now + 20 * 1000).toISOString();
+    const notOnOrAfter = new Date(now + 5 * 60 * 1000).toISOString();
+
+    const xml = buildAssertionXml(notBefore, notOnOrAfter);
+
+    expect(() => {
+      validateSamlAssertion(xml, testCert, "http://sp.example.com", undefined, 10);
+    }).toThrow("SAML Assertion is not yet valid (NotBefore)");
+
+    const result = validateSamlAssertion(xml, testCert, "http://sp.example.com", undefined, 60);
+    expect(result.nameId).toBe("user@example.com");
+  });
+
+  it("accepts SubjectConfirmationData NotOnOrAfter within clock skew window", () => {
+    const now = Date.now();
+    const notBefore = new Date(now - 60 * 1000).toISOString();
+    const notOnOrAfter = new Date(now + 5 * 60 * 1000).toISOString();
+    // Subject confirmation expired 25 seconds ago (within 60s leeway)
+    const confTime = new Date(now - 25 * 1000).toISOString();
+
+    const xml = buildAssertionXml(notBefore, notOnOrAfter, confTime);
+    const result = validateSamlAssertion(xml, testCert, "http://sp.example.com", undefined, 60);
+    expect(result.nameId).toBe("user@example.com");
+  });
+
+  it("rejects SubjectConfirmationData NotOnOrAfter when expired beyond clock skew window", () => {
+    const now = Date.now();
+    const notBefore = new Date(now - 60 * 1000).toISOString();
+    const notOnOrAfter = new Date(now + 5 * 60 * 1000).toISOString();
+    // Subject confirmation expired 80 seconds ago (outside 60s leeway)
+    const confTime = new Date(now - 80 * 1000).toISOString();
+
+    const xml = buildAssertionXml(notBefore, notOnOrAfter, confTime);
+    expect(() => {
+      validateSamlAssertion(xml, testCert, "http://sp.example.com", undefined, 60);
+    }).toThrow("SAML SubjectConfirmation has expired");
+  });
+});
+
+

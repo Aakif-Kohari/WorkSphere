@@ -2,6 +2,8 @@ import { SignedXml } from "xml-crypto";
 import { DOMParser } from "@xmldom/xmldom";
 import { XMLParser } from "fast-xml-parser";
 
+export const DEFAULT_SAML_CLOCK_SKEW_SEC = 60;
+
 /**
  * Validates a SAML 2.0 XML Assertion.
  *
@@ -9,6 +11,7 @@ import { XMLParser } from "fast-xml-parser";
  * @param expectedCert - The expected X.509 certificate string from the IDP metadata
  * @param expectedAudience - (Optional) The expected audience (EntityID) of our SP; falls back to process.env.SAML_ENTITY_ID or process.env.SAML_SP_ENTITY_ID
  * @param expectedRecipient - (Optional) The expected recipient ACS URL
+ * @param clockSkewSec - (Optional) Clock skew leeway window in seconds (default: 60 seconds)
  * @returns An object containing the extracted NameID and attributes if valid
  */
 export function validateSamlAssertion(
@@ -16,6 +19,7 @@ export function validateSamlAssertion(
   expectedCert: string,
   expectedAudience?: string,
   expectedRecipient?: string,
+  clockSkewSec = DEFAULT_SAML_CLOCK_SKEW_SEC,
 ) {
   // 1. Verify XML Signature using xml-crypto
   const doc = new DOMParser().parseFromString(xmlString, "text/xml");
@@ -126,7 +130,12 @@ export function validateSamlAssertion(
     );
   }
 
-  if (new Date(confirmationNotOnOrAfter) <= new Date()) {
+  const skewMs = clockSkewSec * 1000;
+  const nowMs = Date.now();
+
+  // SubjectConfirmationData NotOnOrAfter with clock skew leeway:
+  // Must satisfy now <= confirmationNotOnOrAfter + skew
+  if (new Date(confirmationNotOnOrAfter).getTime() + skewMs <= nowMs) {
     throw new Error("SAML SubjectConfirmation has expired");
   }
 
@@ -138,13 +147,15 @@ export function validateSamlAssertion(
 
   const notBefore = conditions["@_NotBefore"];
   const notOnOrAfter = conditions["@_NotOnOrAfter"];
-  const now = new Date();
 
-  if (notBefore && new Date(notBefore) > now) {
+  // NotBefore: assertion is valid starting from notBefore - skew
+  // If notBefore - skew > now, assertion is in the future
+  if (notBefore && new Date(notBefore).getTime() - skewMs > nowMs) {
     throw new Error("SAML Assertion is not yet valid (NotBefore)");
   }
 
-  if (notOnOrAfter && new Date(notOnOrAfter) <= now) {
+  // NotOnOrAfter: assertion expires when now >= notOnOrAfter + skew
+  if (notOnOrAfter && new Date(notOnOrAfter).getTime() + skewMs <= nowMs) {
     throw new Error("SAML Assertion has expired (NotOnOrAfter)");
   }
 
