@@ -12,7 +12,8 @@ import {
   Vector3,
 } from "@/types/ar";
 import CompassFallback from "./CompassFallback";
-import { Eye, Layers, Navigation } from "lucide-react";
+import { Eye, Layers, Navigation, Compass, Disc3 } from "lucide-react";
+import { drawRadarOverlay } from "@/lib/ar/radarCanvas";
 
 export interface SeatARPointerProps {
   /** Target reserved seat information */
@@ -54,11 +55,13 @@ export function SeatARPointer({
   onClose,
 }: SeatARPointerProps) {
   const { isSupported, requestSession } = useWebXR();
-  const { heading: _heading } = useDeviceOrientation();
+  const { heading } = useDeviceOrientation();
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const radarCanvasRef = useRef<HTMLCanvasElement>(null);
   const [_xrSession, setXrSession] = useState<XRSession | null>(null);
   const [sessionActive, setSessionActive] = useState(false);
+  const [showRadar, setShowRadar] = useState(true);
   const [distanceToSeat, setDistanceToSeat] = useState<number>(3.0);
   const [elevationDelta, setElevationDelta] = useState<number>(0);
   const [elevationText, setElevationText] = useState<string>("Same Level (+0.0m)");
@@ -243,6 +246,35 @@ export function SeatARPointer({
     };
   }, [targetAnchor, floorLevel, smoothingAlpha]);
 
+  // Synchronous 2D Radar Canvas drawing loop
+  useEffect(() => {
+    if (!showRadar) return;
+    const canvas = radarCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animId: number;
+    const renderRadar = () => {
+      drawRadarOverlay(ctx, {
+        size: 130,
+        maxRangeMeters: 10,
+        heading: heading ?? 0,
+        bearingAngle,
+        distance: distanceToSeat,
+        pulseTime: Date.now() / 1000,
+        seatLabel: seatNumber,
+      });
+      animId = requestAnimationFrame(renderRadar);
+    };
+
+    animId = requestAnimationFrame(renderRadar);
+
+    return () => {
+      cancelAnimationFrame(animId);
+    };
+  }, [showRadar, heading, bearingAngle, distanceToSeat, seatNumber]);
+
   if (isWebXRUnavailable) {
     return (
       <div className="relative w-full h-full flex flex-col items-center justify-center p-4">
@@ -288,15 +320,58 @@ export function SeatARPointer({
           </div>
         </div>
 
-        {onClose && (
+        <div className="flex items-center gap-2 pointer-events-auto">
+          {/* Radar Overlay Toggle Button */}
           <button
-            onClick={onClose}
-            className="p-2 rounded-xl bg-slate-900/80 backdrop-blur-md border border-slate-700 text-slate-300 hover:text-white pointer-events-auto transition"
+            type="button"
+            onClick={() => setShowRadar((prev) => !prev)}
+            title={showRadar ? "Hide 2D Radar" : "Show 2D Radar"}
+            aria-label={showRadar ? "Hide 2D Radar" : "Show 2D Radar"}
+            aria-pressed={showRadar}
+            data-testid="toggle-radar-btn"
+            className={`p-2 rounded-xl backdrop-blur-md border transition flex items-center gap-1.5 text-xs font-medium ${
+              showRadar
+                ? "bg-blue-600/80 border-blue-500 text-white shadow-lg shadow-blue-500/20"
+                : "bg-slate-900/80 border-slate-700 text-slate-300 hover:text-white"
+            }`}
           >
-            ✕
+            <Compass className="w-4 h-4" />
+            <span className="hidden sm:inline">Radar</span>
           </button>
-        )}
+
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl bg-slate-900/80 backdrop-blur-md border border-slate-700 text-slate-300 hover:text-white transition"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Mini 2D Radar Overlay in Bottom Corner */}
+      {showRadar && (
+        <div
+          data-testid="radar-overlay-container"
+          className="absolute bottom-16 right-4 z-20 pointer-events-auto flex flex-col items-end gap-1.5 animate-in fade-in zoom-in-95 duration-200"
+        >
+          <div className="relative rounded-full p-1 bg-slate-950/80 backdrop-blur-md border border-sky-500/30 shadow-2xl shadow-sky-950/50">
+            <canvas
+              ref={radarCanvasRef}
+              width={130}
+              height={130}
+              className="block rounded-full"
+              data-testid="radar-canvas"
+              aria-label="2D Radar mini-map showing seat position"
+            />
+            {/* Compass Azimuth indicator badge on radar */}
+            <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded-full bg-slate-900/90 border border-sky-400/30 text-[9px] font-mono text-sky-300 shadow">
+              {Math.round(heading ?? 0)}°
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Controls Footer */}
       <div className="absolute bottom-6 inset-x-4 z-20 flex flex-col items-center gap-3 pointer-events-none">
