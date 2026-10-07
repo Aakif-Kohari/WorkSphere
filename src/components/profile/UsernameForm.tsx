@@ -40,6 +40,8 @@ export function UsernameForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
+
     setError(null);
     setSuccess(null);
 
@@ -154,10 +156,17 @@ export function UsernameForm({
             type="submit"
             data-testid="save-username-btn"
             disabled={loading}
-            className="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+            aria-busy={loading}
+            className="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
           >
-            {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            Save Username
+            {loading ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                <span>Saving...</span>
+              </>
+            ) : (
+              <span>Save Username</span>
+            )}
           </button>
         </div>
       </form>
