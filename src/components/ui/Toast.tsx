@@ -11,10 +11,18 @@ import {
 import { X, CheckCircle2, AlertCircle, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type ToastType = "success" | "error" | "warning";
+export type ToastType = "success" | "error" | "warning";
 
-interface Toast {
+export interface ToastOptions {
+  id?: string;
+  key?: string;
+  countdown?: number;
+  action?: { label: string; onClick: () => void };
+}
+
+export interface Toast {
   id: string;
+  key?: string;
   message: string;
   type: ToastType;
   action?: {
@@ -22,14 +30,16 @@ interface Toast {
     onClick: () => void;
   };
   countdown?: number;
+  updatedAt?: number;
 }
 
-interface ToastContextValue {
+export interface ToastContextValue {
   toast: (
     message: string,
     type?: ToastType,
-    action?: { label: string; onClick: () => void },
+    actionOrOptions?: { label: string; onClick: () => void } | ToastOptions,
     countdown?: number,
+    idOrKey?: string,
   ) => void;
 }
 
@@ -53,12 +63,68 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     (
       message: string,
       type: ToastType = "success",
-      action?: { label: string; onClick: () => void },
+      actionOrOptions?: { label: string; onClick: () => void } | ToastOptions,
       countdown?: number,
+      idOrKey?: string,
     ) => {
+      let action: { label: string; onClick: () => void } | undefined;
+      let effectiveCountdown = countdown;
+      let toastKey: string | undefined = idOrKey;
+
+      if (actionOrOptions) {
+        if ("onClick" in actionOrOptions && "label" in actionOrOptions) {
+          action = actionOrOptions as { label: string; onClick: () => void };
+        } else {
+          const opts = actionOrOptions as ToastOptions;
+          if (opts.action) action = opts.action;
+          if (opts.countdown !== undefined) effectiveCountdown = opts.countdown;
+          if (opts.id) toastKey = opts.id;
+          else if (opts.key) toastKey = opts.key;
+        }
+      }
+
       const now = Date.now();
+
+      // If a toastKey or id is provided, deduplicate and update existing toast in-place
+      if (toastKey) {
+        setToasts((prev) => {
+          const existingIndex = prev.findIndex(
+            (t) => t.id === toastKey || t.key === toastKey,
+          );
+          if (existingIndex !== -1) {
+            const updated = [...prev];
+            updated[existingIndex] = {
+              ...updated[existingIndex],
+              message,
+              type,
+              action: action ?? updated[existingIndex].action,
+              countdown:
+                effectiveCountdown !== undefined
+                  ? effectiveCountdown
+                  : updated[existingIndex].countdown,
+              key: toastKey,
+              updatedAt: now,
+            };
+            return updated;
+          }
+          return [
+            ...prev,
+            {
+              id: toastKey,
+              key: toastKey,
+              message,
+              type,
+              action,
+              countdown: effectiveCountdown,
+              updatedAt: now,
+            },
+          ];
+        });
+        return;
+      }
+
       const lastSeen = recentMessagesRef.current.get(message);
-      if (countdown === undefined && lastSeen && now - lastSeen < 3000) {
+      if (effectiveCountdown === undefined && lastSeen && now - lastSeen < 3000) {
         return; // Suppress duplicate toast dispatch within 3-second window (#1748)
       }
       recentMessagesRef.current.set(message, now);
@@ -71,11 +137,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         recentMessagesRef.current.delete(oldest);
       }
 
-      const id = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${now}-${Math.random().toString(36).slice(2, 9)}-${recentMessagesRef.current.size}`;
+      const id =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${now}-${Math.random().toString(36).slice(2, 9)}-${recentMessagesRef.current.size}`;
+
       setToasts((prev) => {
-        if (countdown !== undefined && message.includes("Rate limit")) {
+        if (effectiveCountdown !== undefined && message.includes("Rate limit")) {
           const existingIndex = prev.findIndex(
             (t) =>
               t.countdown !== undefined && t.message.includes("Rate limit"),
@@ -87,13 +155,24 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               message,
               countdown: Math.max(
                 updated[existingIndex].countdown || 0,
-                countdown,
+                effectiveCountdown,
               ),
+              updatedAt: now,
             };
             return updated;
           }
         }
-        return [...prev, { id, message, type, action, countdown }];
+        return [
+          ...prev,
+          {
+            id,
+            message,
+            type,
+            action,
+            countdown: effectiveCountdown,
+            updatedAt: now,
+          },
+        ];
       });
     },
     [],
@@ -215,7 +294,7 @@ function ToastItem({
     if (toast.countdown === undefined) return;
     deadlineRef.current = Date.now() + toast.countdown * 1000;
     setCountdown(toast.countdown);
-  }, [toast.countdown]);
+  }, [toast.countdown, toast.updatedAt]);
 
   useEffect(() => {
     if (countdown === undefined) return;
@@ -228,8 +307,8 @@ function ToastItem({
       setCountdown((prev) =>
         deadline === null
           ? prev !== undefined
-            ? prev - 1
-            : undefined
+          ? prev - 1
+          : undefined
           : Math.max(0, Math.ceil((deadline - Date.now()) / 1000)),
       );
     }, 1000);
@@ -245,7 +324,7 @@ function ToastItem({
     }, TOAST_DURATION_MS);
 
     return () => clearTimeout(timer);
-  }, [toast.id, onRemove, toast.countdown, isInteracting]);
+  }, [toast.id, onRemove, toast.countdown, isInteracting, toast.updatedAt, toast.message]);
 
   const Icon =
     toast.type === "success"
