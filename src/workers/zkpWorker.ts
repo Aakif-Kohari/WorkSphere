@@ -45,6 +45,34 @@ type WorkerMessage =
 let generation = 0;
 
 export const DEFAULT_VERIFICATION_TIMEOUT_MS = 15_000;
+export const DEFAULT_PROVING_TIMEOUT_MS = 30_000;
+
+// Setup unhandled rejection and uncaught exception listeners inside the worker
+if (typeof self !== "undefined") {
+  self.addEventListener("unhandledrejection", (event: PromiseRejectionEvent) => {
+    event.preventDefault();
+    const reason = event.reason;
+    const errorType = classifyError(reason);
+    self.postMessage({
+      type: "error",
+      error: sanitizeError(reason),
+      code: errorType === "timeout" ? "PROVING_TIMEOUT" : "UNHANDLED_REJECTION",
+      isTimeout: errorType === "timeout",
+      details: reason instanceof Error ? reason.message : String(reason),
+    });
+  });
+
+  self.addEventListener("error", (event: ErrorEvent) => {
+    const errorType = classifyError(event.error || event.message);
+    self.postMessage({
+      type: "error",
+      error: sanitizeError(event.error || event.message),
+      code: errorType === "timeout" ? "PROVING_TIMEOUT" : "WORKER_ERROR",
+      isTimeout: errorType === "timeout",
+      details: event.message,
+    });
+  });
+}
 
 type WorkerErrorType = "oom" | "internal" | "timeout" | "generic";
 
@@ -57,6 +85,8 @@ export function classifyError(error: unknown): WorkerErrorType {
 
     if (
       msg.includes("verification_timeout") ||
+      msg.includes("proving_timeout") ||
+      msg.includes("witness generation timed out") ||
       msg.includes("timed out") ||
       msg.includes("timeout")
     ) {
@@ -92,6 +122,10 @@ function sanitizeError(error: unknown): string {
   const type = classifyError(error);
 
   if (type === "timeout") {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes("Witness generation timed out") || msg.includes("PROVING_TIMEOUT")) {
+      return "Witness generation timed out after 30 seconds. Your device may not have enough processing power to generate cryptographic proofs.";
+    }
     return "VERIFICATION_TIMEOUT";
   }
 
@@ -109,6 +143,7 @@ function sanitizeError(error: unknown): string {
 export function withTimeout<T>(
   promiseFn: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number = DEFAULT_VERIFICATION_TIMEOUT_MS,
+  timeoutErrorMessage = "VERIFICATION_TIMEOUT",
 ): Promise<T> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -116,7 +151,7 @@ export function withTimeout<T>(
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       controller.abort();
-      reject(new Error("VERIFICATION_TIMEOUT"));
+      reject(new Error(timeoutErrorMessage));
     }, timeoutMs);
   });
 
@@ -257,7 +292,7 @@ self.addEventListener("message", async (e: MessageEvent<WorkerMessage>) => {
   if (e.data.type === "prove-student" || e.data.type === "prove_student") {
     const myGeneration = ++generation;
     const { secret, epoch, root, pathElements, pathIndices } = e.data;
-    const timeoutMs = typeof (e.data as any).timeoutMs === "number" ? (e.data as any).timeoutMs : DEFAULT_VERIFICATION_TIMEOUT_MS;
+    const timeoutMs = typeof (e.data as any).timeoutMs === "number" ? (e.data as any).timeoutMs : DEFAULT_PROVING_TIMEOUT_MS;
 
     const hasSecret = typeof secret === "string" ? secret !== "" : secret != null;
     const hasEpoch =
@@ -291,6 +326,7 @@ self.addEventListener("message", async (e: MessageEvent<WorkerMessage>) => {
             "/zkp/student_membership.zkey",
           ),
         timeoutMs,
+        "Witness generation timed out after 30 seconds",
       );
 
       if (myGeneration !== generation) return;
@@ -302,7 +338,7 @@ self.addEventListener("message", async (e: MessageEvent<WorkerMessage>) => {
       self.postMessage({
         type: "error",
         error: sanitizeError(error),
-        code: errorType === "timeout" ? "VERIFICATION_TIMEOUT" : undefined,
+        code: errorType === "timeout" ? "PROVING_TIMEOUT" : undefined,
         isOom: errorType === "oom",
         isTimeout: errorType === "timeout",
       });
@@ -316,7 +352,7 @@ self.addEventListener("message", async (e: MessageEvent<WorkerMessage>) => {
   if (e.data.type === "prove") {
     const myGeneration = ++generation;
     const { identityToken, expectedCommit } = e.data;
-    const timeoutMs = typeof (e.data as any).timeoutMs === "number" ? (e.data as any).timeoutMs : DEFAULT_VERIFICATION_TIMEOUT_MS;
+    const timeoutMs = typeof (e.data as any).timeoutMs === "number" ? (e.data as any).timeoutMs : DEFAULT_PROVING_TIMEOUT_MS;
 
     if (typeof identityToken !== "string" || !/^-?\d+$/.test(identityToken)) {
       self.postMessage({
@@ -344,6 +380,7 @@ self.addEventListener("message", async (e: MessageEvent<WorkerMessage>) => {
       const { proof, publicSignals } = await withTimeout(
         () => generateProof(identityToken, expectedCommit),
         timeoutMs,
+        "Witness generation timed out after 30 seconds",
       );
 
       if (myGeneration !== generation) {
@@ -365,7 +402,7 @@ self.addEventListener("message", async (e: MessageEvent<WorkerMessage>) => {
       self.postMessage({
         type: "error",
         error: sanitizeError(error),
-        code: errorType === "timeout" ? "VERIFICATION_TIMEOUT" : undefined,
+        code: errorType === "timeout" ? "PROVING_TIMEOUT" : undefined,
         isOom: errorType === "oom",
         isTimeout: errorType === "timeout",
       });
