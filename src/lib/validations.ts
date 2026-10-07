@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { buildVenueSearchSchema } from "@/lib/filters";
 import {
   sanitizeDisplayName,
   sanitizeUsername,
@@ -28,9 +30,10 @@ const hhMm = z
 
 export const bookingRequestSchema = z.object({
   venueId: z.string().min(1, "venueId is required"),
-  seatId: z.string().min(1, "seatId is required").or(
-    z.array(z.string().min(1)).min(1, "at least one seatId required"),
-  ),
+  seatId: z
+    .string()
+    .min(1, "seatId is required")
+    .or(z.array(z.string().min(1)).min(1, "at least one seatId required")),
   date: isoDate,
   time: hhMm,
   duration: z
@@ -89,12 +92,23 @@ export const userSettingsSchema = z.object({
   displayName: z
     .string()
     .transform((val) => sanitizeDisplayName(val))
-    .refine((val) => val.length > 0, "Display name cannot be empty or contain only whitespace")
+    .refine(
+      (val) => val.length > 0,
+      "Display name cannot be empty or contain only whitespace",
+    )
     .optional(),
   phoneNumber: z.string().max(20).optional(),
   smsAlertsEnabled: z.boolean().optional(),
-  whatsappWebhookUrl: z.string().url("Invalid WhatsApp webhook URL").or(z.literal("")).optional(),
-  telegramWebhookUrl: z.string().url("Invalid Telegram webhook URL").or(z.literal("")).optional(),
+  whatsappWebhookUrl: z
+    .string()
+    .url("Invalid WhatsApp webhook URL")
+    .or(z.literal(""))
+    .optional(),
+  telegramWebhookUrl: z
+    .string()
+    .url("Invalid Telegram webhook URL")
+    .or(z.literal(""))
+    .optional(),
   notificationStart: z
     .string()
     .regex(/^\d{2}:\d{2}$/, "notificationStart must be HH:mm")
@@ -239,18 +253,17 @@ export const favoriteSchema = z.object({
 
 // Favorite notes schema - supports plaintext or zero-knowledge encrypted payload
 export const favoriteNotesSchema = z.object({
-  notes: z
-    .union([
-      z.string().max(8000).nullable(),
-      z.object({
-        ciphertext: z.string(),
-        iv: z.string(),
-        authTag: z.string(),
-        algorithm: z.literal("AES-GCM-256"),
-        keyDerivation: z.enum(["WEBAUTHN-PRF", "PBKDF2-FALLBACK"]),
-        salt: z.string(),
-      }),
-    ]),
+  notes: z.union([
+    z.string().max(8000).nullable(),
+    z.object({
+      ciphertext: z.string(),
+      iv: z.string(),
+      authTag: z.string(),
+      algorithm: z.literal("AES-GCM-256"),
+      keyDerivation: z.enum(["WEBAUTHN-PRF", "PBKDF2-FALLBACK"]),
+      salt: z.string(),
+    }),
+  ]),
 });
 
 // Favorite tag schemas
