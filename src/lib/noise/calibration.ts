@@ -104,12 +104,17 @@ export function resetMicCalibration(): MicCalibrationProfile {
 
 /**
  * Converts audio RMS to Calibrated Decibels (dB SPL equivalent).
+ * Clamps output between 0 dB (absolute silence) and 130 dB (threshold of pain)
+ * to filter out acoustic distortion spikes and microphone clipping.
  */
 export function rmsToCalibratedDb(
   rms: number,
   calibration: MicCalibrationProfile = getMicCalibration()
 ): number {
-  if (rms <= 0.000001) return Math.max(20, 20 + calibration.offsetDb);
+  if (rms <= 0.000001) {
+    const calibratedSpl = calibration.offsetDb;
+    return Math.max(0, Math.min(130, Math.round(calibratedSpl * 10) / 10));
+  }
 
   // Raw dBFS calculation (0 dBFS is digital maximum)
   const dbfs = 20 * Math.log10(rms * calibration.sensitivity);
@@ -120,6 +125,6 @@ export function rmsToCalibratedDb(
   // Apply calibration offset
   const calibratedSpl = rawSpl + calibration.offsetDb;
 
-  // Clamp within realistic room acoustic range (20 dB whisper to 120 dB jet engine)
-  return Math.max(20, Math.min(120, Math.round(calibratedSpl * 10) / 10));
+  // Clamp within acoustic range (0 dB absolute silence to 130 dB threshold of pain)
+  return Math.max(0, Math.min(130, Math.round(calibratedSpl * 10) / 10));
 }

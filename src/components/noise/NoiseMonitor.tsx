@@ -127,8 +127,8 @@ export function NoiseMonitor({
         const rms = Math.sqrt(sumSquares / buffer.length);
         const calibrated = rmsToCalibratedDb(rms, getMicCalibration());
         const clampedDb = Math.max(
-          30,
-          Math.min(120, Math.round(calibrated * 10) / 10),
+          0,
+          Math.min(130, Math.round(calibrated * 10) / 10),
         );
 
         const now = Date.now();
