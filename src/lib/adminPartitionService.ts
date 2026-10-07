@@ -58,17 +58,86 @@ const SAFE_NAME_REGEX = /^[A-Za-z0-9_]{3,64}$/;
 
 /**
  * Validates that partition name is safe and matches one of the expected parent tables.
+ *
+ * A partition name is `<ParentTable>_<suffix>`. The bare parent table name (for
+ * example `AdminAuditLog`) is deliberately NOT accepted: it is the partitioned
+ * table itself, and dropping or archiving it would destroy every partition.
  */
 export function isSafePartitionName(partitionName: string): boolean {
   if (!SAFE_NAME_REGEX.test(partitionName)) {
     return false;
   }
+  const hasSuffix = (prefix: string) =>
+    partitionName.startsWith(prefix) && partitionName.length > prefix.length;
   return SUPPORTED_PARENT_TABLES.some(
-    (prefix) =>
-      partitionName === prefix ||
-      partitionName.startsWith(`${prefix}_`) ||
-      partitionName.startsWith(`${prefix}Log_`),
+    (parent) => hasSuffix(`${parent}_`) || hasSuffix(`${parent}Log_`),
   );
+}
+
+interface PartitionLocation {
+  /** Supported parent table this partition is currently attached to in `public`. */
+  attachedParent: string | null;
+  /** Archive schemas that hold a detached table with this name. */
+  archivedIn: string[];
+}
+
+type RawQueryClient = {
+  $queryRawUnsafe: <T = unknown>(query: string, ...values: unknown[]) => Promise<T>;
+};
+
+/**
+ * Asks the PostgreSQL catalog what `name` actually is, instead of trusting the
+ * name. The lexical check in `isSafePartitionName` is not enough on its own: a
+ * destructive statement must only ever run against a relation that is really an
+ * attached partition of a supported table or a detached table in an archive
+ * schema.
+ */
+async function locatePartition(
+  tx: RawQueryClient,
+  name: string,
+): Promise<PartitionLocation> {
+  const attached = await tx.$queryRawUnsafe<{ parent: string }[]>(
+    `SELECT parent.relname AS "parent"
+       FROM pg_inherits i
+       JOIN pg_class child ON i.inhrelid = child.oid
+       JOIN pg_namespace child_ns ON child.relnamespace = child_ns.oid
+       JOIN pg_class parent ON i.inhparent = parent.oid
+       JOIN pg_namespace parent_ns ON parent.relnamespace = parent_ns.oid
+      WHERE child_ns.nspname = 'public'
+        AND parent_ns.nspname = 'public'
+        AND child.relname = $1`,
+    name,
+  );
+  const parent = attached[0]?.parent;
+  const attachedParent =
+    parent && (SUPPORTED_PARENT_TABLES as readonly string[]).includes(parent)
+      ? parent
+      : null;
+
+  const archiveSchemaList = ARCHIVE_SCHEMAS.map((schema) => `'${schema}'`).join(", ");
+  const archived = await tx.$queryRawUnsafe<{ schema: string }[]>(
+    `SELECT ns.nspname AS "schema"
+       FROM pg_class c
+       JOIN pg_namespace ns ON c.relnamespace = ns.oid
+      WHERE c.relname = $1
+        AND c.relkind = 'r'
+        AND ns.nspname IN (${archiveSchemaList})`,
+    name,
+  );
+
+  return { attachedParent, archivedIn: archived.map((row) => row.schema) };
+}
+
+async function relationSize(
+  tx: RawQueryClient,
+  schema: string,
+  name: string,
+): Promise<number> {
+  const rows = await tx.$queryRawUnsafe<{ size: string | number | null }[]>(
+    `SELECT pg_total_relation_size(to_regclass($1)) AS size`,
+    `"${schema}"."${name}"`,
+  );
+  return Number(rows[0]?.size) || 0;
 }
 
 /**
@@ -298,46 +367,40 @@ export async function bulkArchiveVenuePartitions(
       continue;
     }
 
-    const parentTable = inferParentTable(name);
-    const targetSchema =
-      parentTable === "PushNotificationLog"
-        ? "push_notification_archive"
-        : "telemetry_archive";
-
     try {
-      await prisma.$transaction(async (tx) => {
-        // 1. Ensure archive schema exists
-        await tx.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${targetSchema}"`);
+      // Everything that can fail runs inside the transaction without any
+      // swallowed errors: in PostgreSQL a failed statement aborts the whole
+      // transaction, so catching it and carrying on cannot work.
+      const size = await prisma.$transaction(async (tx) => {
+        const location = await locatePartition(tx, name);
 
-        // 2. Measure size
-        try {
-          const sizeRes = await tx.$queryRawUnsafe<{ size: string | number }[]>(
-            `SELECT pg_total_relation_size(to_regclass($1)) AS size`,
-            `public."${name}"`,
-          );
-          if (sizeRes[0]?.size) {
-            freedBytes += Number(sizeRes[0].size) || 0;
+        if (!location.attachedParent) {
+          if (location.archivedIn.length > 0) {
+            return 0; // Already archived: nothing to do.
           }
-        } catch {
-          // ignore size check errors
-        }
-
-        // 3. Detach partition if attached
-        try {
-          await tx.$executeRawUnsafe(
-            `ALTER TABLE "${parentTable}" DETACH PARTITION "${name}"`,
+          throw new Error(
+            `"${name}" is not an attached partition of a supported table`,
           );
-        } catch (detachErr: any) {
-          // If not attached or already detached, continue
-          console.warn(`[BulkArchive] Detach notice for ${name}:`, detachErr?.message);
         }
 
-        // 4. Move table to archive schema
+        const targetSchema =
+          location.attachedParent === "PushNotificationLog"
+            ? "push_notification_archive"
+            : "telemetry_archive";
+
+        await tx.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${targetSchema}"`);
+        const partitionSize = await relationSize(tx, "public", name);
         await tx.$executeRawUnsafe(
-          `ALTER TABLE "${name}" SET SCHEMA "${targetSchema}"`,
+          `ALTER TABLE "public"."${location.attachedParent}" DETACH PARTITION "public"."${name}"`,
         );
+        await tx.$executeRawUnsafe(
+          `ALTER TABLE "public"."${name}" SET SCHEMA "${targetSchema}"`,
+        );
+        return partitionSize;
       });
 
+      // Only counted once the transaction has committed.
+      freedBytes += size;
       processed.push(name);
     } catch (err: any) {
       console.error(`[BulkArchive] Failed to archive ${name}:`, err);
@@ -395,41 +458,36 @@ export async function bulkDeleteVenuePartitions(
       continue;
     }
 
-    const parentTable = inferParentTable(name);
-
     try {
-      await prisma.$transaction(async (tx) => {
-        // 1. Measure size before drop
-        for (const schema of ["public", "telemetry_archive", "push_notification_archive", "partition_archive"]) {
-          try {
-            const sizeRes = await tx.$queryRawUnsafe<{ size: string | number }[]>(
-              `SELECT pg_total_relation_size(to_regclass($1)) AS size`,
-              `"${schema}"."${name}"`,
-            );
-            if (sizeRes[0]?.size) {
-              freedBytes += Number(sizeRes[0].size) || 0;
-            }
-          } catch {
-            // ignore
-          }
-        }
+      const size = await prisma.$transaction(async (tx) => {
+        const location = await locatePartition(tx, name);
 
-        // 2. Detach from parent if still attached in public
-        try {
-          await tx.$executeRawUnsafe(
-            `ALTER TABLE "${parentTable}" DETACH PARTITION "${name}"`,
+        if (!location.attachedParent && location.archivedIn.length === 0) {
+          throw new Error(
+            `"${name}" is neither an attached partition of a supported table nor an archived partition; refusing to drop it`,
           );
-        } catch {
-          // Already detached or not in parent
         }
 
-        // 3. Drop table in public and any archive schemas
-        await tx.$executeRawUnsafe(`DROP TABLE IF EXISTS "public"."${name}" CASCADE`);
-        for (const schema of ARCHIVE_SCHEMAS) {
-          await tx.$executeRawUnsafe(`DROP TABLE IF EXISTS "${schema}"."${name}" CASCADE`);
+        let partitionSize = 0;
+
+        if (location.attachedParent) {
+          partitionSize += await relationSize(tx, "public", name);
+          await tx.$executeRawUnsafe(
+            `ALTER TABLE "public"."${location.attachedParent}" DETACH PARTITION "public"."${name}"`,
+          );
+          await tx.$executeRawUnsafe(`DROP TABLE "public"."${name}" CASCADE`);
         }
+
+        for (const schema of location.archivedIn) {
+          partitionSize += await relationSize(tx, schema, name);
+          await tx.$executeRawUnsafe(`DROP TABLE "${schema}"."${name}" CASCADE`);
+        }
+
+        return partitionSize;
       });
 
+      // Only counted once the transaction has committed.
+      freedBytes += size;
       processed.push(name);
     } catch (err: any) {
       console.error(`[BulkDelete] Failed to drop partition ${name}:`, err);
