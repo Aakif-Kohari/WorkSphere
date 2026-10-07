@@ -27,6 +27,156 @@ export interface OfflineStorageStats {
   isEstimateAvailable: boolean;
 }
 
+export const DEFAULT_OFFLINE_STORAGE_STATS: OfflineStorageStats = {
+  usageBytes: 0,
+  quotaBytes: 0,
+  usagePercent: 0,
+  floorPlanBytes: 0,
+  floorPlanCount: 0,
+  floorPlanPercentOfUsage: 0,
+  floorPlanPercentOfQuota: 0,
+  isEstimateAvailable: false,
+};
+
+export const STORAGE_STATS_CACHE_KEY = "worksphere_offline_storage_stats";
+
+/**
+ * Safely parses and validates a raw string or payload into OfflineStorageStats.
+ * Resilient against malformed/corrupted JSON payloads or interrupted browser writes,
+ * gracefully catching SyntaxErrors, logging a diagnostic warning, and resetting to defaults.
+ */
+export function parseOfflineStorageStats(raw: unknown): OfflineStorageStats {
+  if (raw === null || raw === undefined || raw === "") {
+    return { ...DEFAULT_OFFLINE_STORAGE_STATS };
+  }
+
+  let parsed: unknown;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      console.warn(
+        "[StorageStats] Corrupted or malformed storage stats JSON detected; resetting to defaults:",
+        err instanceof Error ? err.message : err,
+      );
+      return { ...DEFAULT_OFFLINE_STORAGE_STATS };
+    }
+  } else {
+    parsed = raw;
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    console.warn(
+      "[StorageStats] Invalid storage stats payload format (expected object); resetting to defaults",
+    );
+    return { ...DEFAULT_OFFLINE_STORAGE_STATS };
+  }
+
+  const data = parsed as Record<string, unknown>;
+  const usageBytes =
+    typeof data.usageBytes === "number" && !isNaN(data.usageBytes) && isFinite(data.usageBytes)
+      ? Math.max(0, data.usageBytes)
+      : 0;
+  const quotaBytes =
+    typeof data.quotaBytes === "number" && !isNaN(data.quotaBytes) && isFinite(data.quotaBytes)
+      ? Math.max(0, data.quotaBytes)
+      : 0;
+  const floorPlanBytes =
+    typeof data.floorPlanBytes === "number" && !isNaN(data.floorPlanBytes) && isFinite(data.floorPlanBytes)
+      ? Math.max(0, data.floorPlanBytes)
+      : 0;
+  const floorPlanCount =
+    typeof data.floorPlanCount === "number" && !isNaN(data.floorPlanCount) && isFinite(data.floorPlanCount)
+      ? Math.max(0, Math.floor(data.floorPlanCount))
+      : 0;
+
+  const usagePercent =
+    typeof data.usagePercent === "number" && !isNaN(data.usagePercent) && isFinite(data.usagePercent)
+      ? Math.min(100, Math.max(0, data.usagePercent))
+      : quotaBytes > 0
+        ? Math.min(100, Math.max(0, (usageBytes / quotaBytes) * 100))
+        : 0;
+
+  const floorPlanPercentOfUsage =
+    typeof data.floorPlanPercentOfUsage === "number" && !isNaN(data.floorPlanPercentOfUsage) && isFinite(data.floorPlanPercentOfUsage)
+      ? Math.min(100, Math.max(0, data.floorPlanPercentOfUsage))
+      : usageBytes > 0
+        ? Math.min(100, Math.max(0, (floorPlanBytes / usageBytes) * 100))
+        : 0;
+
+  const floorPlanPercentOfQuota =
+    typeof data.floorPlanPercentOfQuota === "number" && !isNaN(data.floorPlanPercentOfQuota) && isFinite(data.floorPlanPercentOfQuota)
+      ? Math.min(100, Math.max(0, data.floorPlanPercentOfQuota))
+      : quotaBytes > 0
+        ? Math.min(100, Math.max(0, (floorPlanBytes / quotaBytes) * 100))
+        : 0;
+
+  const isEstimateAvailable =
+    typeof data.isEstimateAvailable === "boolean" ? data.isEstimateAvailable : false;
+
+  return {
+    usageBytes,
+    quotaBytes,
+    usagePercent,
+    floorPlanBytes,
+    floorPlanCount,
+    floorPlanPercentOfUsage,
+    floorPlanPercentOfQuota,
+    isEstimateAvailable,
+  };
+}
+
+export const parseStorageStats = parseOfflineStorageStats;
+
+/**
+ * Hydrates offline storage stats from localStorage cache.
+ * Catches SyntaxError or malformed JSON, resetting the corrupted cache to default metrics
+ * and logging a diagnostic warning.
+ */
+export function hydrateOfflineStorageStats(
+  storageKey = STORAGE_STATS_CACHE_KEY,
+): OfflineStorageStats {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return { ...DEFAULT_OFFLINE_STORAGE_STATS };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return { ...DEFAULT_OFFLINE_STORAGE_STATS };
+    }
+    return parseOfflineStorageStats(raw);
+  } catch (err) {
+    console.warn(
+      `[StorageStats] Failed hydrating storage stats from localStorage key '${storageKey}'; resetting to defaults:`,
+      err instanceof Error ? err.message : err,
+    );
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch {
+      // Ignore removal errors
+    }
+    return { ...DEFAULT_OFFLINE_STORAGE_STATS };
+  }
+}
+
+export const hydrateStorageStats = hydrateOfflineStorageStats;
+
+/**
+ * Saves offline storage stats to localStorage cache.
+ */
+export function saveOfflineStorageStats(
+  stats: OfflineStorageStats,
+  storageKey = STORAGE_STATS_CACHE_KEY,
+): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(stats));
+  } catch (err) {
+    console.warn("[StorageStats] Failed saving storage stats to localStorage:", err);
+  }
+}
+
 /**
  * Formats a byte number into a human-readable string (B, KB, MB, GB).
  */
@@ -158,7 +308,7 @@ export async function getCachedFloorPlanStorageStats(): Promise<OfflineStorageSt
   const floorPlanPercentOfQuota =
     quotaBytes > 0 ? Math.min(100, Math.max(0, (floorPlanBytes / quotaBytes) * 100)) : 0;
 
-  return {
+  const stats: OfflineStorageStats = {
     usageBytes,
     quotaBytes,
     usagePercent,
@@ -168,4 +318,7 @@ export async function getCachedFloorPlanStorageStats(): Promise<OfflineStorageSt
     floorPlanPercentOfQuota,
     isEstimateAvailable,
   };
+
+  saveOfflineStorageStats(stats);
+  return stats;
 }
