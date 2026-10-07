@@ -143,3 +143,39 @@ describe("downloadICS", () => {
     jest.restoreAllMocks();
   });
 });
+
+describe("getCalendarUrls (#4595)", () => {
+  it("generates correct query parameters for Google Calendar and Outlook quick add URLs", () => {
+    const { getCalendarUrls } = require("@/lib/calendar");
+    const { googleUrl, outlookUrl, start, end } = getCalendarUrls(
+      "Indie Desk Hub",
+      "42 Market Street, Austin",
+      "2026-07-20",
+      "14:30",
+      60,
+    );
+
+    // Verify Google Calendar link structure and query params
+    const google = new URL(googleUrl);
+    expect(google.origin).toBe("https://calendar.google.com");
+    expect(google.pathname).toBe("/calendar/render");
+    expect(google.searchParams.get("action")).toBe("TEMPLATE");
+    expect(google.searchParams.get("text")).toBe("Booking at Indie Desk Hub");
+    expect(google.searchParams.get("dates")).toBe(`${start}/${end}`);
+    expect(google.searchParams.get("details")).toBe("Hot desk booking at Indie Desk Hub");
+    expect(google.searchParams.get("location")).toBe("42 Market Street, Austin");
+
+    // Verify Outlook Web link structure and query params
+    const outlook = new URL(outlookUrl);
+    expect(outlook.origin).toBe("https://outlook.live.com");
+    expect(outlook.pathname).toBe("/calendar/0/deeplink/compose");
+    expect(outlook.searchParams.get("path")).toBe("/calendar/action/compose");
+    expect(outlook.searchParams.get("rru")).toBe("addevent");
+    expect(outlook.searchParams.get("subject")).toBe("Booking at Indie Desk Hub");
+    expect(outlook.searchParams.get("startdt")).toBe(start);
+    expect(outlook.searchParams.get("enddt")).toBe(end);
+    expect(outlook.searchParams.get("body")).toBe("Hot desk booking at Indie Desk Hub");
+    expect(outlook.searchParams.get("location")).toBe("42 Market Street, Austin");
+  });
+});
+
