@@ -401,6 +401,16 @@ export const xrAnchorQuerySchema = z.object({
   venueId: z.string().min(1),
 });
 
+export const expenseAllocationSchema = z.object({
+  bookingId: z.string().optional(),
+  venueName: z.string().min(1, "Valid venue name is required"),
+  category: z.string().optional(),
+  department: z.string().optional(),
+  costCenter: z.string().optional(),
+  amount: z.number().positive("Amount must be greater than zero"),
+});
+
+export type ExpenseAllocationInput = z.infer<typeof expenseAllocationSchema>;
 export type XRAnchorCreate = z.infer<typeof xrAnchorCreateSchema>;
 export type XRAnchorUpdate = z.infer<typeof xrAnchorUpdateSchema>;
 export type XRAnchorQuery = z.infer<typeof xrAnchorQuerySchema>;

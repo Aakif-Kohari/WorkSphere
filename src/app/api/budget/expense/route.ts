@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { workspaceBudgetService } from "@/lib/billing/budgetService";
+import { expenseAllocationSchema, validateRequest } from "@/lib/validations";
 
 /**
  * POST /api/budget/expense
@@ -12,14 +13,16 @@ export async function POST(request: NextRequest) {
     const effectiveUserId = userId || "guest-user";
 
     const body = await request.json().catch(() => ({}));
-    const { bookingId, venueName, category, department, costCenter, amount } = body;
+    const validation = validateRequest(expenseAllocationSchema, body);
 
-    if (!venueName || typeof amount !== "number" || amount <= 0) {
+    if (!validation.success) {
       return NextResponse.json(
-        { error: "Valid venue name and positive expense amount are required." },
+        { error: validation.error },
         { status: 400 },
       );
     }
+
+    const { bookingId, venueName, category, department, costCenter, amount } = validation.data;
 
     const expense = workspaceBudgetService.addExpense(effectiveUserId, {
       bookingId,
