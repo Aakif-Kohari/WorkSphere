@@ -285,6 +285,7 @@ export function MicCalibrationWizard({
   const handleReset = () => {
     const defaultProf = resetMicCalibration();
     setProfile(defaultProf);
+    setPeakDb(40);
   };
 
   const getMeterColor = (db: number) => {
@@ -706,12 +707,32 @@ export function MicCalibrationWizard({
                   <span className="text-zinc-700 dark:text-zinc-300">
                     Decibel Offset (dB)
                   </span>
-                  <span className="font-mono text-blue-600 dark:text-blue-400">
-                    {profile.offsetDb > 0
-                      ? `+${profile.offsetDb}`
-                      : profile.offsetDb}{" "}
-                    dB
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-blue-600 dark:text-blue-400">
+                      {profile.offsetDb > 0
+                        ? `+${profile.offsetDb}`
+                        : profile.offsetDb}{" "}
+                      dB
+                    </span>
+                    {profile.offsetDb !== 0 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setProfile((prev) => ({
+                            ...prev,
+                            offsetDb: 0,
+                            profileType: "custom",
+                          }))
+                        }
+                        title="Reset offset to 0 dB"
+                        aria-label="Reset decibel offset to 0 dB"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 bg-zinc-200/70 dark:bg-zinc-700/70 hover:bg-zinc-300 dark:hover:bg-zinc-600 rounded-lg transition-colors"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Reset</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <input
                   type="range"
@@ -832,14 +853,28 @@ export function MicCalibrationWizard({
                   </div>
                 )}
               </div>
+
+              <div className="flex items-center justify-between p-3 bg-zinc-50 dark:bg-zinc-800/30 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Need to restore default settings?
+                </span>
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 bg-zinc-200/70 dark:bg-zinc-700/70 hover:bg-zinc-300 dark:hover:bg-zinc-600 rounded-xl transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset Calibration</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
 
         {/* Wizard Footer Navigation */}
         <div className="flex items-center justify-between pt-4 border-t border-zinc-200 dark:border-zinc-800 shrink-0">
-          <div>
-            {step > 1 ? (
+          <div className="flex items-center gap-2">
+            {step > 1 && (
               <button
                 type="button"
                 onClick={() => setStep((prev) => (prev - 1) as 1 | 2 | 3 | 4)}
@@ -847,16 +882,17 @@ export function MicCalibrationWizard({
               >
                 Back
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleReset}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Reset Defaults</span>
-              </button>
             )}
+            <button
+              type="button"
+              onClick={handleReset}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-colors"
+              title="Reset all calibration settings to factory defaults"
+              aria-label="Reset calibration to factory defaults"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset Defaults</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-2">
