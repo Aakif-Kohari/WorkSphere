@@ -6,6 +6,8 @@
  * availability notifications with time-limited exclusive claim windows.
  */
 
+import { randomBytes } from "crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   isValidBookingDate,
@@ -22,8 +24,43 @@ import type {
 } from "./types";
 
 const CLAIM_WINDOW_MINUTES = 15; // User has 15 minutes to claim an offered seat
+const CLAIM_MAX_RETRIES = 3; // Serializable transactions can abort; retry a few times
 
 const dispatcher = new NotificationDispatcher();
+
+type ClaimFailureCode =
+  | "NOT_FOUND"
+  | "NOT_CLAIMABLE"
+  | "EXPIRED"
+  | "SEAT_UNAVAILABLE";
+
+/**
+ * Domain error thrown inside the claim transaction. Throwing (rather than
+ * returning) rolls the whole transaction back, so a failed claim can never
+ * leave a half-written booking or a half-updated waitlist entry behind.
+ */
+class WaitlistClaimError extends Error {
+  code: ClaimFailureCode;
+
+  constructor(code: ClaimFailureCode, message: string) {
+    super(message);
+    this.name = "WaitlistClaimError";
+    this.code = code;
+  }
+}
+
+function isTransientTransactionError(err: any): boolean {
+  return (
+    err?.code === "P2028" ||
+    err?.code === "P2034" ||
+    err?.code === "40001" ||
+    err?.code === "40P01" ||
+    err?.meta?.code === "40001" ||
+    err?.meta?.code === "40P01" ||
+    Boolean(err?.message?.includes?.("deadlock")) ||
+    Boolean(err?.message?.includes?.("serialization"))
+  );
+}
 
 /**
  * Places a user on the waitlist for a venue's seats at a given date/time.
@@ -256,9 +293,12 @@ export async function notifyNextInWaitlist(
 
   const claimExpiresAt = new Date(Date.now() + CLAIM_WINDOW_MINUTES * 60 * 1000);
 
-  // Transition candidate to NOTIFIED status with expiration window
-  await prisma.venueSeatWaitlist.update({
-    where: { id: candidate.id },
+  // Transition candidate to NOTIFIED status with expiration window.
+  // This is a compare-and-set on the status: if a concurrent worker already
+  // notified (or the user cancelled) this entry, we must not offer the same
+  // person a second seat or resurrect a cancelled entry.
+  const transitioned = await prisma.venueSeatWaitlist.updateMany({
+    where: { id: candidate.id, status: "ACTIVE" },
     data: {
       status: "NOTIFIED",
       notifiedAt: new Date(),
@@ -266,6 +306,9 @@ export async function notifyNextInWaitlist(
       seatId: freedSeatId || candidate.seatId,
     },
   });
+  if (transitioned.count !== 1) {
+    return { notified: false };
+  }
 
   // Dispatch WebPush / Push Notification
   try {
@@ -297,103 +340,224 @@ export async function notifyNextInWaitlist(
 
 /**
  * Claims an offered seat from the waitlist, converting it into a confirmed Booking.
+ *
+ * The whole claim runs in a single Serializable transaction that follows the
+ * same locking/conflict protocol as POST /api/reservations/book:
+ *
+ *  1. The waitlist row is locked and re-read, and the NOTIFIED -> CLAIMED
+ *     transition is a compare-and-set, so a double click / two devices can only
+ *     ever produce one booking.
+ *  2. Candidate seats are row-locked (FOR UPDATE) and checked against every
+ *     CONFIRMED/PENDING booking in the conflict window, so a seat that was
+ *     booked while the offer was pending (or already taken by an earlier
+ *     claimer) is never handed out a second time.
+ *  3. Booking creation and the waitlist status change commit atomically.
  */
 export async function claimWaitlistSeat(
   waitlistId: string,
   userId: string,
 ): Promise<ClaimWaitlistSeatResult> {
-  const entry = await prisma.venueSeatWaitlist.findFirst({
-    where: {
-      id: waitlistId,
-      userId,
-    },
-    include: {
-      venue: true,
-      user: true,
-      seat: true,
-    },
-  });
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await prisma.$transaction(
+        async (tx) => {
+          // Serialise concurrent claims of the same entry.
+          await tx.$queryRaw`SELECT id FROM "VenueSeatWaitlist" WHERE id = ${waitlistId} AND "userId" = ${userId} FOR UPDATE`;
 
-  if (!entry) {
-    return { success: false, waitlistId, error: "Waitlist entry not found." };
-  }
+          const entry = await tx.venueSeatWaitlist.findFirst({
+            where: { id: waitlistId, userId },
+            include: { user: true },
+          });
 
-  if (entry.status !== "NOTIFIED") {
-    return {
-      success: false,
-      waitlistId,
-      error: `Entry is in ${entry.status} status and cannot be claimed.`,
-    };
-  }
+          if (!entry) {
+            throw new WaitlistClaimError("NOT_FOUND", "Waitlist entry not found.");
+          }
 
-  if (entry.claimExpiresAt && entry.claimExpiresAt < new Date()) {
-    await prisma.venueSeatWaitlist.update({
-      where: { id: waitlistId },
-      data: { status: "EXPIRED" },
-    });
-    // Immediately offer to next person in line
-    notifyNextInWaitlist(entry.venueId, entry.date, entry.time, entry.duration);
-    return {
-      success: false,
-      waitlistId,
-      error: "Your claim window has expired.",
-    };
-  }
+          if (entry.status !== "NOTIFIED") {
+            throw new WaitlistClaimError(
+              "NOT_CLAIMABLE",
+              `Entry is in ${entry.status} status and cannot be claimed.`,
+            );
+          }
 
-  // Find an available seat if not already assigned
-  let targetSeatId = entry.seatId;
-  let targetSeatNumber: string | undefined = entry.seat?.seatNumber;
+          if (entry.claimExpiresAt && entry.claimExpiresAt < new Date()) {
+            throw new WaitlistClaimError("EXPIRED", "Your claim window has expired.");
+          }
 
-  if (!targetSeatId) {
-    const availableSeat = await prisma.venueSeat.findFirst({
-      where: {
-        venueId: entry.venueId,
-        isEnabled: true,
-        ...(entry.requiresQuiet ? { isQuietZone: true } : {}),
-      },
-    });
-    if (availableSeat) {
-      targetSeatId = availableSeat.id;
-      targetSeatNumber = availableSeat.seatNumber;
+          const timeZone = entry.timeZone || "UTC";
+
+          // Seats that satisfy this entry's preferences. A specific seat on the
+          // entry always wins; otherwise honour every stated preference.
+          const candidateWhere: Prisma.VenueSeatWhereInput = entry.seatId
+            ? { id: entry.seatId, venueId: entry.venueId, isEnabled: true }
+            : {
+                venueId: entry.venueId,
+                isEnabled: true,
+                ...(entry.seatType ? { type: entry.seatType } : {}),
+                ...(entry.requiresQuiet ? { isQuietZone: true } : {}),
+                ...(entry.requiresOutlets ? { amenities: { has: "outlets" } } : {}),
+              };
+
+          const candidateIds = (
+            await tx.venueSeat.findMany({
+              where: candidateWhere,
+              select: { id: true },
+              orderBy: { id: "asc" }, // stable lock order avoids deadlocks
+            })
+          ).map((seat) => seat.id);
+
+          let targetSeat: { id: string; seatNumber: string } | null = null;
+
+          if (candidateIds.length > 0) {
+            // Row-lock the candidates for the rest of the transaction.
+            await tx.$queryRaw`SELECT id FROM "VenueSeat" WHERE id IN (${Prisma.join(candidateIds)}) ORDER BY id FOR UPDATE`;
+
+            const seats = await tx.venueSeat.findMany({
+              where: { id: { in: candidateIds } },
+              orderBy: { seatNumber: "asc" },
+            });
+
+            const existing = await tx.booking.findMany({
+              where: {
+                seatId: { in: candidateIds },
+                // A conflicting booking can be stored under a neighbouring date
+                // (it runs past midnight, or was made in another timezone).
+                date: { in: conflictDateWindow(entry.date) },
+                status: { in: ["CONFIRMED", "PENDING"] },
+              },
+              select: {
+                seatId: true,
+                date: true,
+                time: true,
+                duration: true,
+                timeZone: true,
+              },
+            });
+
+            const takenSeatIds = new Set(
+              findConflictingBookings(
+                {
+                  date: entry.date,
+                  time: entry.time,
+                  timeZone,
+                  duration: entry.duration,
+                },
+                existing,
+              )
+                .map((booking) => booking.seatId)
+                .filter((seatId): seatId is string => Boolean(seatId)),
+            );
+
+            targetSeat = seats.find((seat) => !takenSeatIds.has(seat.id)) ?? null;
+          } else if (!entry.seatId) {
+            // Legacy venues without a seat map can still be booked seatless.
+            // If the venue *has* seats but none match, that is a real conflict.
+            const enabledSeats = await tx.venueSeat.count({
+              where: { venueId: entry.venueId, isEnabled: true },
+            });
+            if (enabledSeats > 0) {
+              throw new WaitlistClaimError(
+                "SEAT_UNAVAILABLE",
+                "No seat matching your preferences is available any more.",
+              );
+            }
+          }
+
+          const needsSeat = candidateIds.length > 0 || Boolean(entry.seatId);
+          if (needsSeat && !targetSeat) {
+            throw new WaitlistClaimError(
+              "SEAT_UNAVAILABLE",
+              "That seat was just reserved by someone else.",
+            );
+          }
+
+          // Compare-and-set: only one concurrent claim can win this transition.
+          const marked = await tx.venueSeatWaitlist.updateMany({
+            where: { id: waitlistId, status: "NOTIFIED" },
+            data: { status: "CLAIMED", claimedAt: new Date() },
+          });
+          if (marked.count !== 1) {
+            throw new WaitlistClaimError(
+              "NOT_CLAIMABLE",
+              "This waitlist offer has already been claimed.",
+            );
+          }
+
+          const booking = await tx.booking.create({
+            data: {
+              userId,
+              venueId: entry.venueId,
+              date: entry.date,
+              time: entry.time,
+              duration: entry.duration,
+              timeZone,
+              customerEmail: entry.user.email || "waitlist@worksphere.app",
+              status: "CONFIRMED",
+              confirmationId: `WS-${randomBytes(4).toString("hex").toUpperCase()}`,
+              seatId: targetSeat?.id ?? null,
+              seatNumber: targetSeat?.seatNumber ?? null,
+            },
+          });
+
+          return {
+            success: true,
+            waitlistId,
+            bookingId: booking.id,
+            confirmationId: booking.confirmationId,
+            seatId: targetSeat?.id,
+            seatNumber: targetSeat?.seatNumber,
+          } as ClaimWaitlistSeatResult;
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (err: any) {
+      if (err instanceof WaitlistClaimError) {
+        if (err.code === "EXPIRED") {
+          await expireEntryAndOfferToNext(waitlistId);
+        }
+        return { success: false, waitlistId, error: err.message };
+      }
+
+      if (isTransientTransactionError(err) && attempt < CLAIM_MAX_RETRIES) {
+        const backoff = Math.min(2 ** (attempt + 1) * 100 + Math.random() * 50, 2000);
+        await new Promise((resolve) => setTimeout(resolve, backoff));
+        continue;
+      }
+
+      throw err;
     }
   }
+}
 
-  const confirmationId = `WS-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-
-  // Create confirmed booking
-  const booking = await prisma.booking.create({
-    data: {
-      userId,
-      venueId: entry.venueId,
-      date: entry.date,
-      time: entry.time,
-      duration: entry.duration,
-      timeZone: entry.timeZone || "UTC",
-      customerEmail: entry.user.email || "waitlist@worksphere.app",
-      status: "CONFIRMED",
-      confirmationId,
-      seatId: targetSeatId,
-      seatNumber: targetSeatNumber,
-    },
-  });
-
-  // Mark waitlist as CLAIMED
-  await prisma.venueSeatWaitlist.update({
+/**
+ * Marks a lapsed NOTIFIED entry as EXPIRED (compare-and-set, so it only
+ * happens once) and offers the same seat to the next person in line.
+ */
+async function expireEntryAndOfferToNext(waitlistId: string): Promise<void> {
+  const entry = await prisma.venueSeatWaitlist.findUnique({
     where: { id: waitlistId },
-    data: {
-      status: "CLAIMED",
-      claimedAt: new Date(),
-    },
   });
+  if (!entry) return;
 
-  return {
-    success: true,
-    waitlistId,
-    bookingId: booking.id,
-    confirmationId: booking.confirmationId,
-    seatId: targetSeatId || undefined,
-    seatNumber: targetSeatNumber,
-  };
+  const { count } = await prisma.venueSeatWaitlist.updateMany({
+    where: { id: waitlistId, status: "NOTIFIED" },
+    data: { status: "EXPIRED" },
+  });
+  if (count !== 1) return;
+
+  try {
+    // Pass the seat that was offered so seat preferences are honoured and the
+    // next waiter is offered the same seat (matches expireStaleWaitlistOffers).
+    await notifyNextInWaitlist(
+      entry.venueId,
+      entry.date,
+      entry.time,
+      entry.duration,
+      entry.seatId,
+    );
+  } catch (err) {
+    console.error("Failed to offer expired waitlist seat to next in line:", err);
+  }
 }
 
 /**
@@ -407,16 +571,36 @@ export async function expireStaleWaitlistOffers(): Promise<number> {
     },
   });
 
+  let expiredCount = 0;
+
   for (const entry of expiredEntries) {
-    await prisma.venueSeatWaitlist.update({
-      where: { id: entry.id },
+    // Compare-and-set: concurrent sweeps (cron, notifyNextInWaitlist, claim)
+    // may all see the same stale row, but only one may expire it and hand the
+    // seat to the next person. Otherwise two waiters get offered the same seat.
+    const { count } = await prisma.venueSeatWaitlist.updateMany({
+      where: { id: entry.id, status: "NOTIFIED" },
       data: { status: "EXPIRED" },
     });
-    // Trigger notification for the next person in line
-    notifyNextInWaitlist(entry.venueId, entry.date, entry.time, entry.duration, entry.seatId);
+    if (count !== 1) continue;
+    expiredCount++;
+
+    // Awaited (and guarded) so the hand-off is not dropped when a serverless
+    // runtime freezes after the response, and a failure cannot become an
+    // unhandled promise rejection.
+    try {
+      await notifyNextInWaitlist(
+        entry.venueId,
+        entry.date,
+        entry.time,
+        entry.duration,
+        entry.seatId,
+      );
+    } catch (err) {
+      console.error("Failed to offer expired waitlist seat to next in line:", err);
+    }
   }
 
-  return expiredEntries.length;
+  return expiredCount;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
