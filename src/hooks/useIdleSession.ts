@@ -59,28 +59,42 @@ export function useIdleSession(options: UseIdleSessionOptions = {}): UseIdleSess
   const lastActiveRef = useRef<number>(Date.now());
   const warningStartRef = useRef<number | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Silently refresh token on server
   const silentTokenRefresh = useCallback(async (): Promise<boolean> => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsRefreshing(true);
     try {
       const res = await fetch("/api/auth/session/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
+        signal: controller.signal,
       });
       return res.ok;
     } catch {
       return false;
     } finally {
       setIsRefreshing(false);
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
     }
   }, []);
 
   // Graceful sign out and redirection to sign-in without unhandled errors
   const signOut = useCallback(async () => {
+    abortControllerRef.current?.abort();
     setShowWarning(false);
     onExpired?.();
+
+    try {
+      channelRef.current?.postMessage({ type: "LOGOUT" });
+    } catch {
+      // Ignore channel errors
+    }
 
     try {
       await fetch("/api/auth/session/logout", {
@@ -169,6 +183,18 @@ export function useIdleSession(options: UseIdleSessionOptions = {}): UseIdleSess
         channel.onmessage = (event) => {
           if (event.data?.type === "ACTIVITY_RESET" && typeof event.data.timestamp === "number") {
             handleSync(event.data.timestamp);
+          } else if (event.data?.type === "LOGOUT") {
+            abortControllerRef.current?.abort();
+            setShowWarning(false);
+            onExpired?.();
+            try {
+              router.push(redirectUrl);
+              router.refresh();
+            } catch {
+              if (typeof window !== "undefined") {
+                window.location.href = redirectUrl;
+              }
+            }
           }
         };
       }
@@ -177,10 +203,25 @@ export function useIdleSession(options: UseIdleSessionOptions = {}): UseIdleSess
     }
 
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_LAST_ACTIVE_KEY && e.newValue) {
-        const ts = parseInt(e.newValue, 10);
-        if (!isNaN(ts)) {
-          handleSync(ts);
+      if (e.key === STORAGE_LAST_ACTIVE_KEY) {
+        if (e.newValue) {
+          const ts = parseInt(e.newValue, 10);
+          if (!isNaN(ts)) {
+            handleSync(ts);
+          }
+        } else {
+          // Key removed = logged out in another tab
+          abortControllerRef.current?.abort();
+          setShowWarning(false);
+          onExpired?.();
+          try {
+            router.push(redirectUrl);
+            router.refresh();
+          } catch {
+            if (typeof window !== "undefined") {
+              window.location.href = redirectUrl;
+            }
+          }
         }
       }
     };
@@ -188,10 +229,11 @@ export function useIdleSession(options: UseIdleSessionOptions = {}): UseIdleSess
     window.addEventListener("storage", handleStorage);
     return () => {
       window.removeEventListener("storage", handleStorage);
+      abortControllerRef.current?.abort();
       channelRef.current?.close();
       channelRef.current = null;
     };
-  }, [enabled, silentTokenRefresh, warningDurationMs]);
+  }, [enabled, onExpired, redirectUrl, router, silentTokenRefresh, warningDurationMs]);
 
   // Listen to user interaction events
   useEffect(() => {
