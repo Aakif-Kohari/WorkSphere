@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import * as THREE from "three";
 import { useWebXR } from "@/hooks/useWebXR";
 import { useDeviceOrientation } from "@/hooks/useDeviceOrientation";
@@ -12,16 +12,34 @@ import {
   Vector3,
 } from "@/types/ar";
 import CompassFallback from "./CompassFallback";
-import { Eye, Layers, Navigation, Compass, Disc3 } from "lucide-react";
+import { Eye, Layers, Navigation, Compass } from "lucide-react";
 import { drawRadarOverlay } from "@/lib/ar/radarCanvas";
 
 export interface SeatARPointerProps {
   /** Target reserved seat information */
   seatNumber?: string;
+  targetSeatNumber?: string;
   seatId?: string;
   venueName?: string;
   /** Floor level (e.g., 2 for Floor 2) */
   floorLevel?: number;
+  targetFloor?: number;
+  /** Target seat position (x, y, z in meters) */
+  targetPosition?: { x: number; y: number; z: number };
+  /** Current user position (x, y, z in meters) */
+  userPosition?: { x: number; y: number; z: number };
+  /** Current user altitude in meters relative to ground plane */
+  userAltitude?: number;
+  /** Current barometric pressure reading in hPa / mbar */
+  currentPressureHpa?: number;
+  /** Baseline ground plane pressure in hPa (default: 1013.25) */
+  baselinePressureHpa?: number;
+  /** Height per floor in meters (default: 3.5m) */
+  floorHeightMeters?: number;
+  /** Distance threshold in meters to consider reached floor (default: 1.5m) */
+  verticalThresholdMeters?: number;
+  /** Callback when user successfully arrives on the correct floor */
+  onFloorReached?: (floor: number) => void;
   /** Smoothing factor alpha for low-pass distance filter (0.01 to 1.0, default 0.2) */
   smoothingAlpha?: number;
   /** Spatial target anchor coordinates in local AR metric space */
@@ -36,24 +54,60 @@ export interface SeatARPointerProps {
   onClose?: () => void;
 }
 
+/** Standard barometric altitude formula (hypsometric approximation) */
+export function calculateBarometricAltitude(
+  currentHpa: number,
+  baselineHpa = 1013.25,
+): number {
+  if (currentHpa <= 0 || baselineHpa <= 0) return 0;
+  // 44330 * (1 - (P / P0)^(1 / 5.255))
+  const altitude = 44330 * (1 - Math.pow(currentHpa / baselineHpa, 1 / 5.255));
+  return Number.isFinite(altitude) ? altitude : 0;
+}
+
+/** Calculates estimated floor from altitude */
+export function calculateFloorFromAltitude(
+  altitudeMeters: number,
+  floorHeightMeters = 3.5,
+  baseFloor = 1,
+): number {
+  if (floorHeightMeters <= 0) return baseFloor;
+  const floorDelta = Math.round(altitudeMeters / floorHeightMeters);
+  return baseFloor + floorDelta;
+}
+
 /**
- * SeatARPointer (#3956, #4413):
+ * SeatARPointer (#3956, #4413, #4831):
  * For supported mobile devices with WebXR camera access, projects a floating
  * 3D directional arrow pointing towards the user's reserved seat anchor in AR space.
- * Calculates 3D Euclidean distance, low-pass smoothed metrics, and floor elevation indicators.
- * Gracefully falls back to CompassFallback if WebXR is unsupported or denied.
+ * Includes multi-floor indoor altitude detection using barometric pressure changes or step altitude,
+ * guiding users between floors in multi-story coworking venues with directional badges.
  */
 export function SeatARPointer({
-  seatNumber = "1A",
+  seatNumber: propSeatNumber,
+  targetSeatNumber,
   seatId: _seatId,
   venueName = "WorkSphere Venue",
-  floorLevel,
+  floorLevel: propFloorLevel,
+  targetFloor: propTargetFloor,
+  targetPosition = { x: 0, y: 0.8, z: -3 },
+  userPosition = { x: 0, y: 1.2, z: 0 },
+  userAltitude,
+  currentPressureHpa,
+  baselinePressureHpa = 1013.25,
+  floorHeightMeters = 3.5,
+  verticalThresholdMeters = 1.5,
+  onFloorReached,
   smoothingAlpha = 0.2,
-  targetAnchor = { x: 0, y: 0.8, z: -3 }, // default 3 meters ahead
+  targetAnchor: propTargetAnchor,
   userAnchor = { x: 0, y: 1.2, z: 0 },
   targetGps,
   onClose,
 }: SeatARPointerProps) {
+  const seatLabel = targetSeatNumber ?? propSeatNumber ?? "1A";
+  const targetFloorNum = propTargetFloor ?? propFloorLevel ?? 1;
+  const targetAnchorVec: Vector3 = propTargetAnchor ?? targetPosition ?? { x: 0, y: 0.8, z: -3 };
+
   const { isSupported, requestSession } = useWebXR();
   const { heading } = useDeviceOrientation();
 
@@ -68,6 +122,31 @@ export function SeatARPointer({
   const [bearingAngle, setBearingAngle] = useState<number>(0);
 
   const prevDistanceRef = useRef<number | null>(null);
+
+  // Compute effective user elevation relative to ground plane
+  const currentElevation = useMemo(() => {
+    if (typeof userAltitude === "number") {
+      return userAltitude;
+    }
+    if (typeof currentPressureHpa === "number") {
+      return calculateBarometricAltitude(currentPressureHpa, baselinePressureHpa);
+    }
+    return userPosition.y || 0;
+  }, [userAltitude, currentPressureHpa, baselinePressureHpa, userPosition.y]);
+
+  // Target elevation based on floor (ground floor = floor 1 = 0m elevation)
+  const targetElevation = (targetFloorNum - 1) * floorHeightMeters + (targetPosition.y || 0);
+  const floorElevationDelta = targetElevation - currentElevation;
+  const estimatedCurrentFloor = calculateFloorFromAltitude(currentElevation, floorHeightMeters, 1);
+
+  const isWrongLevel = Math.abs(floorElevationDelta) > verticalThresholdMeters;
+  const needToGoUp = floorElevationDelta > 0;
+
+  useEffect(() => {
+    if (!isWrongLevel && onFloorReached) {
+      onFloorReached(targetFloorNum);
+    }
+  }, [isWrongLevel, targetFloorNum, onFloorReached]);
 
   // Fallback to CompassFallback if WebXR is explicitly unsupported
   const isWebXRUnavailable = isSupported === false;
@@ -88,7 +167,6 @@ export function SeatARPointer({
         "[SeatARPointer] WebXR session request rejected or unsupported:",
         err,
       );
-      // Let user use camera or compass fallback
     }
   }, [requestSession]);
 
@@ -104,7 +182,13 @@ export function SeatARPointer({
     const camera = new THREE.PerspectiveCamera(70, width / height, 0.01, 20);
     camera.position.set(0, 1.2, 0); // user eye level
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    } catch {
+      return;
+    }
+
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.xr.enabled = true;
@@ -156,9 +240,9 @@ export function SeatARPointer({
 
     // Floating Target Seat Anchor Marker
     const targetVector = new THREE.Vector3(
-      targetAnchor.x,
-      targetAnchor.y,
-      targetAnchor.z,
+      targetAnchorVec.x,
+      targetAnchorVec.y,
+      targetAnchorVec.z,
     );
 
     let animationFrameId: number;
@@ -187,13 +271,13 @@ export function SeatARPointer({
       const smoothed = applyDistanceSmoothing(
         metrics.distance3D,
         prevDistanceRef.current,
-        smoothingAlpha
+        smoothingAlpha,
       );
       prevDistanceRef.current = smoothed;
 
       setDistanceToSeat(smoothed);
       setElevationDelta(Math.round(metrics.elevationDelta * 10) / 10);
-      setElevationText(formatElevationIndicator(metrics.elevationDelta, floorLevel));
+      setElevationText(formatElevationIndicator(metrics.elevationDelta, targetFloorNum));
 
       const dirToTarget = new THREE.Vector3().subVectors(
         targetVector,
@@ -206,12 +290,10 @@ export function SeatARPointer({
       setBearingAngle(Math.round(deg));
 
       // Orient arrow towards target anchor
-      arrowGroup.position.set(0, 0.8, -1.2); // projected 1.2m directly in front of camera view
+      arrowGroup.position.set(0, 0.8, -1.2);
       arrowGroup.lookAt(targetVector.x, arrowGroup.position.y, targetVector.z);
-      // Pitch down slightly to guide user eyes towards floor
       arrowGroup.rotateX(Math.PI / 6);
 
-      // Pulse ring opacity and scale
       const pulse = 1 + Math.sin(elapsedTime * 4) * 0.15;
       ring.scale.set(pulse, pulse, pulse);
 
@@ -244,7 +326,7 @@ export function SeatARPointer({
       arrowMaterial.dispose();
       ringMaterial.dispose();
     };
-  }, [targetAnchor, floorLevel, smoothingAlpha]);
+  }, [targetAnchorVec, targetFloorNum, smoothingAlpha]);
 
   // Synchronous 2D Radar Canvas drawing loop
   useEffect(() => {
@@ -263,7 +345,7 @@ export function SeatARPointer({
         bearingAngle,
         distance: distanceToSeat,
         pulseTime: Date.now() / 1000,
-        seatLabel: seatNumber,
+        seatLabel,
       });
       animId = requestAnimationFrame(renderRadar);
     };
@@ -273,34 +355,90 @@ export function SeatARPointer({
     return () => {
       cancelAnimationFrame(animId);
     };
-  }, [showRadar, heading, bearingAngle, distanceToSeat, seatNumber]);
+  }, [showRadar, heading, bearingAngle, distanceToSeat, seatLabel]);
 
   if (isWebXRUnavailable) {
     return (
-      <div className="relative w-full h-full flex flex-col items-center justify-center p-4">
+      <div className="relative w-full h-full min-h-[400px]">
+        {/* Multi-floor altitude guidance banner */}
+        {isWrongLevel && (
+          <div
+            data-testid="vertical-floor-guidance-badge"
+            className="absolute top-4 inset-x-4 z-30 flex items-center justify-center p-3 rounded-2xl bg-amber-600/90 text-white backdrop-blur-md shadow-xl border border-amber-400/40 animate-pulse pointer-events-auto"
+          >
+            <div className="flex flex-col text-center">
+              <span className="text-xs font-semibold uppercase tracking-wider text-amber-200">
+                Vertical Elevation: {floorElevationDelta > 0 ? `+${floorElevationDelta.toFixed(1)}m` : `${floorElevationDelta.toFixed(1)}m`}
+              </span>
+              <span className="text-sm font-bold">
+                {needToGoUp
+                  ? `Take Elevator / Stairs to Floor ${targetFloorNum}`
+                  : `Take Elevator / Stairs to Floor ${targetFloorNum}`}
+              </span>
+              <span className="text-[11px] text-amber-100/90">
+                Current Level: Floor {estimatedCurrentFloor} · Target: Floor {targetFloorNum}
+              </span>
+            </div>
+          </div>
+        )}
         <CompassFallback
-          destinationLat={targetGps?.latitude}
-          destinationLng={targetGps?.longitude}
-          destinationName={`Seat ${seatNumber} at ${venueName}`}
-          onRetryAR={startARSession}
+          targetBearing={bearingAngle}
+          seatNumber={seatLabel}
+          distance={distanceToSeat}
+          onClose={onClose}
         />
       </div>
     );
   }
 
   return (
-    <div className="relative w-full h-full min-h-[500px] overflow-hidden rounded-2xl bg-slate-950">
-      {/* 3D WebXR Camera View Canvas Container */}
-      <div ref={containerRef} className="absolute inset-0 w-full h-full" />
+    <div
+      ref={containerRef}
+      data-testid="seat-ar-pointer-container"
+      className="relative w-full h-full min-h-[420px] bg-black/90 overflow-hidden select-none pointer-events-none"
+    >
+      {/* Multi-Floor Directional Guidance Badge */}
+      {isWrongLevel ? (
+        <div
+          data-testid="vertical-floor-guidance-badge"
+          className="absolute top-4 inset-x-4 z-30 mx-auto max-w-md flex items-center justify-center p-4 rounded-2xl bg-amber-600/95 text-white backdrop-blur-md shadow-2xl border border-amber-400/50 animate-pulse pointer-events-auto"
+        >
+          <div className="flex flex-col text-center">
+            <span className="text-xs font-semibold uppercase tracking-wider text-amber-200">
+              Vertical Elevation: {floorElevationDelta > 0 ? `+${floorElevationDelta.toFixed(1)}m` : `${floorElevationDelta.toFixed(1)}m`}
+            </span>
+            <span className="text-sm font-bold">
+              {needToGoUp
+                ? `Take Elevator / Stairs to Floor ${targetFloorNum}`
+                : `Take Elevator / Stairs to Floor ${targetFloorNum}`}
+            </span>
+            <span className="text-[11px] text-amber-100/90 mt-0.5">
+              Current Level: Floor {estimatedCurrentFloor} · Target: Floor {targetFloorNum}
+            </span>
+          </div>
+        </div>
+      ) : (
+        /* On Target Level Seat Pointer Indicator */
+        <div
+          data-testid="seat-direction-pointer"
+          className="absolute top-4 left-4 z-20 pointer-events-auto flex flex-col gap-1 px-4 py-2 rounded-xl bg-blue-600/90 text-white backdrop-blur-md shadow-lg border border-blue-400/30"
+        >
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-green-400 animate-ping" />
+            <span className="text-sm font-semibold">Seat {seatLabel}</span>
+          </div>
+          <span className="text-xs text-blue-100">Floor {targetFloorNum} (On Target Level)</span>
+        </div>
+      )}
 
-      {/* AR Floating Distance & Elevation HUD Overlay */}
-      <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between pointer-events-none">
-        <div className="bg-slate-900/85 backdrop-blur-md border border-slate-700/70 p-3 rounded-xl text-white shadow-xl pointer-events-auto flex flex-col gap-1.5 min-w-[220px]">
+      {/* Floating HUD Header */}
+      <div className="absolute top-4 inset-x-4 z-20 flex items-start justify-between pointer-events-none">
+        <div className="flex flex-col gap-1 px-4 py-3 rounded-2xl bg-slate-900/80 backdrop-blur-md border border-slate-700 shadow-xl pointer-events-auto min-w-[200px]">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
               <span className="text-xs font-bold text-slate-100">
-                Seat {seatNumber}
+                Seat {seatLabel}
               </span>
             </div>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
