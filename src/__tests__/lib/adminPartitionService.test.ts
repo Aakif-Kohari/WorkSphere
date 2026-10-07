@@ -257,4 +257,61 @@ describe("bulkArchiveVenuePartitions", () => {
     expect(result.success).toBe(false);
     expect(result.freedBytes).toBe(0);
   });
+
+  it("returns per-table status summaries for partial batches", async () => {
+    mockTx.$queryRawUnsafe.mockImplementation(async (sql: string, name?: string) => {
+      if (sql.includes("pg_inherits")) {
+        return name === "WifiTelemetry_y2025m02" ? [{ parent: "WifiTelemetry" }] : [];
+      }
+      if (sql.includes("relkind = 'r'")) return [];
+      return [{ size: 2048 }];
+    });
+
+    const result = await bulkArchiveVenuePartitions(
+      ["WifiTelemetry_y2025m02", "Invalid_Name_123"],
+      "admin-1",
+    );
+
+    expect(result.tableSummaries).toBeDefined();
+    expect(result.tableSummaries).toHaveLength(2);
+    expect(result.tableSummaries?.[0]).toMatchObject({
+      name: "WifiTelemetry_y2025m02",
+      parentTable: "WifiTelemetry",
+      status: "PROCESSED",
+      action: "ARCHIVE",
+      freedBytes: 2048,
+    });
+    expect(result.tableSummaries?.[1]).toMatchObject({
+      name: "Invalid_Name_123",
+      status: "FAILED",
+      action: "ARCHIVE",
+    });
+  });
+
+  it("rolls back all operations in atomic mode if a detach fails halfway", async () => {
+    useCatalog({ attachedParent: "WifiTelemetry", size: 4096 });
+    let detachCount = 0;
+    mockTx.$executeRawUnsafe.mockImplementation(async (sql: string) => {
+      if (String(sql).includes("DETACH PARTITION")) {
+        detachCount++;
+        if (detachCount === 2) {
+          throw new Error("canceling statement due to lock timeout");
+        }
+      }
+      return 0;
+    });
+
+    const result = await bulkArchiveVenuePartitions(
+      ["WifiTelemetry_y2025m01", "WifiTelemetry_y2025m02"],
+      "admin-1",
+      { atomic: true },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.processed).toEqual([]);
+    expect(result.freedBytes).toBe(0);
+    expect(result.failed).toHaveLength(2);
+    expect(result.tableSummaries?.every((t) => t.status === "FAILED")).toBe(true);
+    expect(mockPrisma.adminAuditLog.create).not.toHaveBeenCalled();
+  });
 });

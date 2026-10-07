@@ -30,11 +30,21 @@ export interface VenuePartitionSummary {
   partitions: VenuePartitionDetails[];
 }
 
+export interface TableStatusSummary {
+  name: string;
+  parentTable: string;
+  status: "PROCESSED" | "FAILED" | "SKIPPED";
+  action: "ARCHIVE" | "DELETE";
+  error?: string;
+  freedBytes?: number;
+}
+
 export interface BulkPartitionOperationResult {
   success: boolean;
   action: "ARCHIVE" | "DELETE";
   processed: string[];
   failed: { name: string; error: string }[];
+  tableSummaries?: TableStatusSummary[];
   freedBytes: number;
   freedSizePretty: string;
   timestamp: string;
@@ -353,58 +363,189 @@ export async function getAllVenuePartitions(): Promise<VenuePartitionSummary> {
 /**
  * Bulk archives a list of partitions by detaching from public parent and moving to archive schema.
  */
+export interface BulkPartitionOperationOptions {
+  /**
+   * If true, runs all partition detach/drop operations within a single atomic transaction.
+   * If any partition detach fails (e.g. exclusive lock timeout), the entire batch rolls back.
+   * Defaults to false (each partition operation runs in its own transactional boundary).
+   */
+  atomic?: boolean;
+}
+
+/**
+ * Bulk archives a list of partitions by detaching from public parent and moving to archive schema.
+ */
 export async function bulkArchiveVenuePartitions(
   partitionNames: string[],
   adminId?: string,
+  options?: BulkPartitionOperationOptions,
 ): Promise<BulkPartitionOperationResult> {
   const processed: string[] = [];
   const failed: { name: string; error: string }[] = [];
+  const tableSummaries: TableStatusSummary[] = [];
   let freedBytes = 0;
 
-  for (const name of partitionNames) {
-    if (!isSafePartitionName(name)) {
-      failed.push({ name, error: "Invalid or unsafe partition name format" });
-      continue;
-    }
-
+  if (options?.atomic) {
     try {
-      // Everything that can fail runs inside the transaction without any
-      // swallowed errors: in PostgreSQL a failed statement aborts the whole
-      // transaction, so catching it and carrying on cannot work.
-      const size = await prisma.$transaction(async (tx) => {
-        const location = await locatePartition(tx, name);
-
-        if (!location.attachedParent) {
-          if (location.archivedIn.length > 0) {
-            return 0; // Already archived: nothing to do.
+      await prisma.$transaction(async (tx) => {
+        for (const name of partitionNames) {
+          const parentTable = inferParentTable(name);
+          if (!isSafePartitionName(name)) {
+            const err = "Invalid or unsafe partition name format";
+            failed.push({ name, error: err });
+            tableSummaries.push({
+              name,
+              parentTable,
+              status: "FAILED",
+              action: "ARCHIVE",
+              error: err,
+            });
+            throw new Error(`[BulkArchive] ${err}: ${name}`);
           }
-          throw new Error(
-            `"${name}" is not an attached partition of a supported table`,
+
+          const location = await locatePartition(tx, name);
+          if (!location.attachedParent) {
+            if (location.archivedIn.length > 0) {
+              processed.push(name);
+              tableSummaries.push({
+                name,
+                parentTable,
+                status: "PROCESSED",
+                action: "ARCHIVE",
+                freedBytes: 0,
+              });
+              continue;
+            }
+            const err = `"${name}" is not an attached partition of a supported table`;
+            failed.push({ name, error: err });
+            tableSummaries.push({
+              name,
+              parentTable,
+              status: "FAILED",
+              action: "ARCHIVE",
+              error: err,
+            });
+            throw new Error(err);
+          }
+
+          const targetSchema =
+            location.attachedParent === "PushNotificationLog"
+              ? "push_notification_archive"
+              : "telemetry_archive";
+
+          await tx.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${targetSchema}"`);
+          const partitionSize = await relationSize(tx, "public", name);
+          await tx.$executeRawUnsafe(
+            `ALTER TABLE "public"."${location.attachedParent}" DETACH PARTITION "public"."${name}"`,
           );
+          await tx.$executeRawUnsafe(
+            `ALTER TABLE "public"."${name}" SET SCHEMA "${targetSchema}"`,
+          );
+
+          freedBytes += partitionSize;
+          processed.push(name);
+          tableSummaries.push({
+            name,
+            parentTable: location.attachedParent,
+            status: "PROCESSED",
+            action: "ARCHIVE",
+            freedBytes: partitionSize,
+          });
         }
-
-        const targetSchema =
-          location.attachedParent === "PushNotificationLog"
-            ? "push_notification_archive"
-            : "telemetry_archive";
-
-        await tx.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${targetSchema}"`);
-        const partitionSize = await relationSize(tx, "public", name);
-        await tx.$executeRawUnsafe(
-          `ALTER TABLE "public"."${location.attachedParent}" DETACH PARTITION "public"."${name}"`,
-        );
-        await tx.$executeRawUnsafe(
-          `ALTER TABLE "public"."${name}" SET SCHEMA "${targetSchema}"`,
-        );
-        return partitionSize;
       });
-
-      // Only counted once the transaction has committed.
-      freedBytes += size;
-      processed.push(name);
     } catch (err: any) {
-      console.error(`[BulkArchive] Failed to archive ${name}:`, err);
-      failed.push({ name, error: err?.message || "Database operation failed" });
+      console.error("[BulkArchive] Atomic batch transaction failed and rolled back:", err);
+      // Entire transaction rolled back safely without leaving orphaned state
+      return {
+        success: false,
+        action: "ARCHIVE",
+        processed: [],
+        failed: partitionNames.map((n) => ({
+          name: n,
+          error: failed.find((f) => f.name === n)?.error || err?.message || "Transaction rolled back due to error",
+        })),
+        tableSummaries: partitionNames.map((n) => ({
+          name: n,
+          parentTable: inferParentTable(n),
+          status: "FAILED",
+          action: "ARCHIVE",
+          error: failed.find((f) => f.name === n)?.error || err?.message || "Transaction rolled back due to error",
+        })),
+        freedBytes: 0,
+        freedSizePretty: formatPartitionBytes(0),
+        timestamp: new Date().toISOString(),
+      };
+    }
+  } else {
+    for (const name of partitionNames) {
+      const parentTable = inferParentTable(name);
+      if (!isSafePartitionName(name)) {
+        const errorMsg = "Invalid or unsafe partition name format";
+        failed.push({ name, error: errorMsg });
+        tableSummaries.push({
+          name,
+          parentTable,
+          status: "FAILED",
+          action: "ARCHIVE",
+          error: errorMsg,
+        });
+        continue;
+      }
+
+      try {
+        // Everything that can fail runs inside the transaction without any
+        // swallowed errors: in PostgreSQL a failed statement aborts the whole
+        // transaction, so catching it and carrying on cannot work.
+        const size = await prisma.$transaction(async (tx) => {
+          const location = await locatePartition(tx, name);
+
+          if (!location.attachedParent) {
+            if (location.archivedIn.length > 0) {
+              return 0; // Already archived: nothing to do.
+            }
+            throw new Error(
+              `"${name}" is not an attached partition of a supported table`,
+            );
+          }
+
+          const targetSchema =
+            location.attachedParent === "PushNotificationLog"
+              ? "push_notification_archive"
+              : "telemetry_archive";
+
+          await tx.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${targetSchema}"`);
+          const partitionSize = await relationSize(tx, "public", name);
+          await tx.$executeRawUnsafe(
+            `ALTER TABLE "public"."${location.attachedParent}" DETACH PARTITION "public"."${name}"`,
+          );
+          await tx.$executeRawUnsafe(
+            `ALTER TABLE "public"."${name}" SET SCHEMA "${targetSchema}"`,
+          );
+          return partitionSize;
+        });
+
+        // Only counted once the transaction has committed.
+        freedBytes += size;
+        processed.push(name);
+        tableSummaries.push({
+          name,
+          parentTable,
+          status: "PROCESSED",
+          action: "ARCHIVE",
+          freedBytes: size,
+        });
+      } catch (err: any) {
+        console.error(`[BulkArchive] Failed to archive ${name}:`, err);
+        const errorMsg = err?.message || "Database operation failed";
+        failed.push({ name, error: errorMsg });
+        tableSummaries.push({
+          name,
+          parentTable,
+          status: "FAILED",
+          action: "ARCHIVE",
+          error: errorMsg,
+        });
+      }
     }
   }
 
@@ -422,6 +563,7 @@ export async function bulkArchiveVenuePartitions(
             freedBytes,
             processed,
             failed,
+            tableSummaries,
           }),
         },
       });
@@ -435,6 +577,7 @@ export async function bulkArchiveVenuePartitions(
     action: "ARCHIVE",
     processed,
     failed,
+    tableSummaries,
     freedBytes,
     freedSizePretty: formatPartitionBytes(freedBytes),
     timestamp: new Date().toISOString(),
@@ -447,51 +590,158 @@ export async function bulkArchiveVenuePartitions(
 export async function bulkDeleteVenuePartitions(
   partitionNames: string[],
   adminId?: string,
+  options?: BulkPartitionOperationOptions,
 ): Promise<BulkPartitionOperationResult> {
   const processed: string[] = [];
   const failed: { name: string; error: string }[] = [];
+  const tableSummaries: TableStatusSummary[] = [];
   let freedBytes = 0;
 
-  for (const name of partitionNames) {
-    if (!isSafePartitionName(name)) {
-      failed.push({ name, error: "Invalid or unsafe partition name format" });
-      continue;
-    }
-
+  if (options?.atomic) {
     try {
-      const size = await prisma.$transaction(async (tx) => {
-        const location = await locatePartition(tx, name);
+      await prisma.$transaction(async (tx) => {
+        for (const name of partitionNames) {
+          const parentTable = inferParentTable(name);
+          if (!isSafePartitionName(name)) {
+            const err = "Invalid or unsafe partition name format";
+            failed.push({ name, error: err });
+            tableSummaries.push({
+              name,
+              parentTable,
+              status: "FAILED",
+              action: "DELETE",
+              error: err,
+            });
+            throw new Error(`[BulkDelete] ${err}: ${name}`);
+          }
 
-        if (!location.attachedParent && location.archivedIn.length === 0) {
-          throw new Error(
-            `"${name}" is neither an attached partition of a supported table nor an archived partition; refusing to drop it`,
-          );
+          const location = await locatePartition(tx, name);
+          if (!location.attachedParent && location.archivedIn.length === 0) {
+            const err = `"${name}" is neither an attached partition of a supported table nor an archived partition; refusing to drop it`;
+            failed.push({ name, error: err });
+            tableSummaries.push({
+              name,
+              parentTable,
+              status: "FAILED",
+              action: "DELETE",
+              error: err,
+            });
+            throw new Error(err);
+          }
+
+          let partitionSize = 0;
+          if (location.attachedParent) {
+            partitionSize += await relationSize(tx, "public", name);
+            await tx.$executeRawUnsafe(
+              `ALTER TABLE "public"."${location.attachedParent}" DETACH PARTITION "public"."${name}"`,
+            );
+            await tx.$executeRawUnsafe(`DROP TABLE "public"."${name}" CASCADE`);
+          }
+
+          for (const schema of location.archivedIn) {
+            partitionSize += await relationSize(tx, schema, name);
+            await tx.$executeRawUnsafe(`DROP TABLE "${schema}"."${name}" CASCADE`);
+          }
+
+          freedBytes += partitionSize;
+          processed.push(name);
+          tableSummaries.push({
+            name,
+            parentTable,
+            status: "PROCESSED",
+            action: "DELETE",
+            freedBytes: partitionSize,
+          });
         }
-
-        let partitionSize = 0;
-
-        if (location.attachedParent) {
-          partitionSize += await relationSize(tx, "public", name);
-          await tx.$executeRawUnsafe(
-            `ALTER TABLE "public"."${location.attachedParent}" DETACH PARTITION "public"."${name}"`,
-          );
-          await tx.$executeRawUnsafe(`DROP TABLE "public"."${name}" CASCADE`);
-        }
-
-        for (const schema of location.archivedIn) {
-          partitionSize += await relationSize(tx, schema, name);
-          await tx.$executeRawUnsafe(`DROP TABLE "${schema}"."${name}" CASCADE`);
-        }
-
-        return partitionSize;
       });
-
-      // Only counted once the transaction has committed.
-      freedBytes += size;
-      processed.push(name);
     } catch (err: any) {
-      console.error(`[BulkDelete] Failed to drop partition ${name}:`, err);
-      failed.push({ name, error: err?.message || "Database drop failed" });
+      console.error("[BulkDelete] Atomic batch transaction failed and rolled back:", err);
+      return {
+        success: false,
+        action: "DELETE",
+        processed: [],
+        failed: partitionNames.map((n) => ({
+          name: n,
+          error: failed.find((f) => f.name === n)?.error || err?.message || "Transaction rolled back due to error",
+        })),
+        tableSummaries: partitionNames.map((n) => ({
+          name: n,
+          parentTable: inferParentTable(n),
+          status: "FAILED",
+          action: "DELETE",
+          error: failed.find((f) => f.name === n)?.error || err?.message || "Transaction rolled back due to error",
+        })),
+        freedBytes: 0,
+        freedSizePretty: formatPartitionBytes(0),
+        timestamp: new Date().toISOString(),
+      };
+    }
+  } else {
+    for (const name of partitionNames) {
+      const parentTable = inferParentTable(name);
+      if (!isSafePartitionName(name)) {
+        const errorMsg = "Invalid or unsafe partition name format";
+        failed.push({ name, error: errorMsg });
+        tableSummaries.push({
+          name,
+          parentTable,
+          status: "FAILED",
+          action: "DELETE",
+          error: errorMsg,
+        });
+        continue;
+      }
+
+      try {
+        const size = await prisma.$transaction(async (tx) => {
+          const location = await locatePartition(tx, name);
+
+          if (!location.attachedParent && location.archivedIn.length === 0) {
+            throw new Error(
+              `"${name}" is neither an attached partition of a supported table nor an archived partition; refusing to drop it`,
+            );
+          }
+
+          let partitionSize = 0;
+
+          if (location.attachedParent) {
+            partitionSize += await relationSize(tx, "public", name);
+            await tx.$executeRawUnsafe(
+              `ALTER TABLE "public"."${location.attachedParent}" DETACH PARTITION "public"."${name}"`,
+            );
+            await tx.$executeRawUnsafe(`DROP TABLE "public"."${name}" CASCADE`);
+          }
+
+          for (const schema of location.archivedIn) {
+            partitionSize += await relationSize(tx, schema, name);
+            await tx.$executeRawUnsafe(`DROP TABLE "${schema}"."${name}" CASCADE`);
+          }
+
+          return partitionSize;
+        });
+
+        // Only counted once the transaction has committed.
+        freedBytes += size;
+        processed.push(name);
+        tableSummaries.push({
+          name,
+          parentTable,
+          status: "PROCESSED",
+          action: "DELETE",
+          freedBytes: size,
+        });
+      } catch (err: any) {
+        console.error(`[BulkDelete] Failed to drop partition ${name}:`, err);
+        const errorMsg = err?.message || "Database drop failed";
+        failed.push({ name, error: errorMsg });
+        tableSummaries.push({
+          name,
+          parentTable,
+          status: "FAILED",
+          action: "DELETE",
+          error: errorMsg,
+        });
+      }
     }
   }
 
@@ -509,6 +759,7 @@ export async function bulkDeleteVenuePartitions(
             freedBytes,
             processed,
             failed,
+            tableSummaries,
           }),
         },
       });
@@ -522,6 +773,7 @@ export async function bulkDeleteVenuePartitions(
     action: "DELETE",
     processed,
     failed,
+    tableSummaries,
     freedBytes,
     freedSizePretty: formatPartitionBytes(freedBytes),
     timestamp: new Date().toISOString(),

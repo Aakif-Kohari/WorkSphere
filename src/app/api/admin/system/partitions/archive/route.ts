@@ -24,7 +24,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await bulkArchiveVenuePartitions(partitions, admin.id);
+    const atomic = Boolean(body.atomic);
+    const result = await bulkArchiveVenuePartitions(partitions, admin.id, { atomic });
 
     return NextResponse.json(result, { status: 200 });
   } catch (error: any) {
