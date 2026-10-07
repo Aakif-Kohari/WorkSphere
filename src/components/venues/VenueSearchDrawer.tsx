@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import {
   X,
   Search,
@@ -138,6 +139,19 @@ export function VenueSearchDrawer({
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [isSavingPreset, setIsSavingPreset] = useState(false);
   const [newPresetName, setNewPresetName] = useState("");
+
+  const pathname = usePathname();
+  const prevPathnameRef = useRef(pathname);
+
+  // Automatically close mobile drawer when route path changes
+  useEffect(() => {
+    if (prevPathnameRef.current !== pathname) {
+      prevPathnameRef.current = pathname;
+      if (isOpen) {
+        onClose();
+      }
+    }
+  }, [pathname, isOpen, onClose]);
 
   useEffect(() => {
     setPresets(loadFilterPresets());
