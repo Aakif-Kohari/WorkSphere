@@ -43,6 +43,11 @@ function getDefaultColor(index: number): string {
 }
 
 function shapeMapToData(map: Y.Map<unknown>): ShapeData {
+  const isDeleted = (map.get("deleted") as boolean) ?? false;
+  const deletedAt = map.get("deletedAt") as number | undefined;
+  const updatedAt = map.get("updatedAt") as number | undefined;
+  const clock = (map.get("clock") as number) ?? updatedAt ?? deletedAt;
+
   return {
     id: map.get("id") as string,
     type: map.get("type") as ToolType,
@@ -51,6 +56,10 @@ function shapeMapToData(map: Y.Map<unknown>): ShapeData {
     width: map.get("width") as number,
     opacity: map.get("opacity") as number,
     userId: map.get("userId") as string,
+    deleted: isDeleted,
+    deletedAt,
+    updatedAt,
+    clock,
   };
 }
 
@@ -179,9 +188,22 @@ export function useMeshCanvasWhiteboard(
     shapesRef.current = shapes;
 
     const updateSnapshots = () => {
-      setShapeSnapshots(shapes.toArray().map(shapeMapToData));
+      const activeShapes: ShapeData[] = [];
+      for (const map of shapes.toArray()) {
+        const data = shapeMapToData(map);
+        const isDeleted = (map.get("deleted") as boolean) ?? false;
+        const delClock =
+          (map.get("deletedAt") as number) ??
+          (map.get("clock") as number) ??
+          0;
+        const editClock = (map.get("updatedAt") as number) ?? 0;
+        if (!isDeleted || editClock > delClock) {
+          activeShapes.push(data);
+        }
+      }
+      setShapeSnapshots(activeShapes);
     };
-    shapes.observe(updateSnapshots);
+    shapes.observeDeep(updateSnapshots);
     updateSnapshots();
 
     const um = new Y.UndoManager(shapes, {
@@ -279,7 +301,7 @@ export function useMeshCanvasWhiteboard(
     awareness?.on("change", handleAwarenessChange);
 
     return () => {
-      shapes.unobserve(updateSnapshots);
+      shapes.unobserveDeep(updateSnapshots);
       awareness?.off("change", handleAwarenessChange);
       unsubDocUpdateRef.current?.();
       um.destroy();
@@ -303,7 +325,32 @@ export function useMeshCanvasWhiteboard(
       const doc = docRef.current;
       if (!shapes || !doc) return;
 
+      const now = data.clock ?? data.updatedAt ?? Date.now();
+
       doc.transact(() => {
+        for (let i = 0; i < shapes.length; i++) {
+          const map = shapes.get(i);
+          if (map.get("id") === data.id) {
+            const isDeleted = (map.get("deleted") as boolean) ?? false;
+            const delClock =
+              (map.get("deletedAt") as number) ??
+              (map.get("clock") as number) ??
+              0;
+            if (!isDeleted || now > delClock) {
+              map.set("type", data.type);
+              map.set("points", data.points.slice());
+              map.set("color", data.color);
+              map.set("width", data.width);
+              map.set("opacity", data.opacity);
+              map.set("userId", data.userId);
+              map.set("deleted", false);
+              map.set("updatedAt", now);
+              map.set("clock", now);
+            }
+            return;
+          }
+        }
+
         const map = new Y.Map<unknown>();
         map.set("id", data.id);
         map.set("type", data.type);
@@ -312,6 +359,9 @@ export function useMeshCanvasWhiteboard(
         map.set("width", data.width);
         map.set("opacity", data.opacity);
         map.set("userId", data.userId);
+        map.set("deleted", false);
+        map.set("updatedAt", now);
+        map.set("clock", now);
         shapes.push([map]);
       }, localUserId);
     },
@@ -324,10 +374,28 @@ export function useMeshCanvasWhiteboard(
       const doc = docRef.current;
       if (!shapes || !doc) return;
 
+      const now = updates.clock ?? updates.updatedAt ?? Date.now();
+
       doc.transact(() => {
         for (let i = 0; i < shapes.length; i++) {
           const map = shapes.get(i);
           if (map.get("id") === id) {
+            const isDeleted = (map.get("deleted") as boolean) ?? false;
+            const delClock = (map.get("deletedAt") as number) ?? 0;
+            const curClock =
+              (map.get("clock") as number) ??
+              (map.get("updatedAt") as number) ??
+              0;
+
+            // Adopt Last-Write-Wins (LWW) element tombstone semantics:
+            // guarantee that a deletion clock always supersedes previous edits.
+            if (isDeleted && now <= delClock) {
+              return;
+            }
+            if (now < curClock) {
+              return;
+            }
+
             if (updates.points !== undefined) {
               map.set("points", updates.points.slice());
             }
@@ -336,6 +404,11 @@ export function useMeshCanvasWhiteboard(
             if (updates.opacity !== undefined) {
               map.set("opacity", updates.opacity);
             }
+            if (updates.deleted !== undefined) {
+              map.set("deleted", updates.deleted);
+            }
+            map.set("updatedAt", now);
+            map.set("clock", now);
             break;
           }
         }
@@ -350,11 +423,20 @@ export function useMeshCanvasWhiteboard(
       const doc = docRef.current;
       if (!shapes || !doc) return;
 
+      const now = Date.now();
+
       doc.transact(() => {
         for (let i = 0; i < shapes.length; i++) {
           const map = shapes.get(i);
           if (map.get("id") === id) {
-            shapes.delete(i, 1);
+            const curClock =
+              (map.get("clock") as number) ??
+              (map.get("updatedAt") as number) ??
+              0;
+            const delClock = Math.max(now, curClock + 1);
+            map.set("deleted", true);
+            map.set("deletedAt", delClock);
+            map.set("clock", delClock);
             break;
           }
         }
@@ -376,8 +458,20 @@ export function useMeshCanvasWhiteboard(
     const doc = docRef.current;
     if (!shapes || !doc || shapes.length === 0) return;
 
+    const now = Date.now();
+
     doc.transact(() => {
-      shapes.delete(0, shapes.length);
+      for (let i = 0; i < shapes.length; i++) {
+        const map = shapes.get(i);
+        const curClock =
+          (map.get("clock") as number) ??
+          (map.get("updatedAt") as number) ??
+          0;
+        const delClock = Math.max(now, curClock + 1);
+        map.set("deleted", true);
+        map.set("deletedAt", delClock);
+        map.set("clock", delClock);
+      }
     }, localUserId);
   }, [localUserId]);
 
