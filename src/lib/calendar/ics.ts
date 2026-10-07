@@ -23,11 +23,11 @@ export function foldIcsLine(line: string): string {
   const parts: string[] = [];
   let isFirst = true;
   let currentPart = "";
-  let currentBytes = 0;
+  let currentBytes = isFirst ? 0 : 1;
 
   for (const char of line) {
     const charBytes = encoder.encode(char).length;
-    const limit = isFirst ? 75 : 74;
+    const limit = 75;
 
     if (currentBytes + charBytes > limit) {
       if (isFirst) {
@@ -37,7 +37,7 @@ export function foldIcsLine(line: string): string {
         parts.push(" " + currentPart);
       }
       currentPart = char;
-      currentBytes = charBytes;
+      currentBytes = (isFirst ? 0 : 1) + charBytes;
     } else {
       currentPart += char;
       currentBytes += charBytes;
