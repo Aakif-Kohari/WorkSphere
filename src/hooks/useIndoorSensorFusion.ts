@@ -97,9 +97,13 @@ export function useIndoorSensorFusion(
 
   // Manual step simulation (useful for testing or desktop navigation)
   const simulateStep = useCallback(
-    (stepLength = 0.75, headingDeg?: number) => {
+    (_stepLength = 0.75, headingDeg?: number) => {
       if (!engineRef.current) return;
-      const currentH = headingDeg !== undefined ? (headingDeg * Math.PI) / 180 : state.heading;
+      const targetHeadingDeg =
+        headingDeg !== undefined
+          ? headingDeg
+          : state.headingDegrees ?? (state.heading * 180) / Math.PI;
+
       // Synthesize an IMU sample with vertical acceleration swing
       const now = Date.now();
       feedImuSample({
@@ -108,7 +112,7 @@ export function useIndoorSensorFusion(
         ay: 0,
         az: 12.5, // peak acceleration
         gz: 0,
-        headingDeg: headingDeg ?? state.headingDegrees,
+        headingDeg: targetHeadingDeg,
       });
       feedImuSample({
         timestamp: now + 150,
@@ -116,7 +120,7 @@ export function useIndoorSensorFusion(
         ay: 0,
         az: 7.2, // valley acceleration
         gz: 0,
-        headingDeg: headingDeg ?? state.headingDegrees,
+        headingDeg: targetHeadingDeg,
       });
     },
     [feedImuSample, state.heading, state.headingDegrees]
