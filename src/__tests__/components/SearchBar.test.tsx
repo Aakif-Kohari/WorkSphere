@@ -55,8 +55,9 @@ describe("SearchBar component (#4401, #4404)", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("clears search input and refocuses search bar when clear button is clicked", () => {
-    render(<SearchBar initialQuery="Library" />);
+  it("clears search input, calls onSearch, and refocuses search bar when clear button is clicked", () => {
+    const onSearch = jest.fn();
+    render(<SearchBar initialQuery="Library" onSearch={onSearch} />);
 
     const input = screen.getByTestId("search-bar-input");
     expect(input).toHaveValue("Library");
@@ -70,6 +71,7 @@ describe("SearchBar component (#4401, #4404)", () => {
     });
 
     expect(input).toHaveValue("");
+    expect(onSearch).toHaveBeenCalledWith("");
     expect(
       screen.queryByTestId("search-bar-clear-btn"),
     ).not.toBeInTheDocument();
@@ -90,22 +92,24 @@ describe("SearchBar component (#4401, #4404)", () => {
     expect(focusSpy).toHaveBeenCalled();
   });
 
-  it("clears search input and refocuses when pressing Escape key while input is focused", () => {
-    render(<SearchBar initialQuery="Coworking Space" />);
+  it("clears search input, triggers onSearch, and blurs input when pressing Escape key", () => {
+    const onSearch = jest.fn();
+    render(<SearchBar initialQuery="Coworking Space" onSearch={onSearch} />);
 
     const input = screen.getByTestId("search-bar-input");
     expect(input).toHaveValue("Coworking Space");
 
-    const focusSpy = jest.spyOn(input, "focus");
+    const blurSpy = jest.spyOn(input, "blur");
     act(() => {
       fireEvent.keyDown(input, { key: "Escape" });
     });
 
     expect(input).toHaveValue("");
+    expect(onSearch).toHaveBeenCalledWith("");
     expect(
       screen.queryByTestId("search-bar-clear-btn"),
     ).not.toBeInTheDocument();
-    expect(focusSpy).toHaveBeenCalled();
+    expect(blurSpy).toHaveBeenCalled();
   });
 
   it("closes results dropdown on Escape key when query is empty", () => {

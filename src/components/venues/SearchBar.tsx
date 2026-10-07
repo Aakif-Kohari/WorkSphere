@@ -8,6 +8,7 @@ import { AmenityFilterPills } from "./AmenityFilterPills";
 export interface SearchBarProps {
   placeholder?: string;
   onSelect?: (venue: VenueSearchResult) => void;
+  onSearch?: (query: string) => void;
   className?: string;
   debounceMs?: number;
   initialQuery?: string;
@@ -22,6 +23,7 @@ export interface SearchBarProps {
 export function SearchBar({
   placeholder = "Search venues by name, address, or tag...",
   onSelect,
+  onSearch,
   className = "",
   debounceMs = 250,
   initialQuery = "",
@@ -113,6 +115,7 @@ export function SearchBar({
     }
     cursorRef.current = { start: null, end: null };
     clear();
+    onSearch?.("");
     setIsOpen(true);
     inputRef.current?.focus();
   };
@@ -120,7 +123,11 @@ export function SearchBar({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {
       e.preventDefault();
-      handleClear();
+      cursorRef.current = { start: null, end: null };
+      clear();
+      onSearch?.("");
+      setIsOpen(false);
+      inputRef.current?.blur();
     }
   };
 
