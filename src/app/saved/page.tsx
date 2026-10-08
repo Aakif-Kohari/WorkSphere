@@ -5,7 +5,9 @@ import Link from "next/link";
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowUpDown,
   Bookmark,
+  ChevronDown,
   Download,
   Heart,
   Search,
@@ -16,6 +18,8 @@ import { useSavedVenues, type SavedVenue } from "@/hooks/useSavedVenues";
 import { SavedVenueCard, TagFilter } from "@/components/saved-venues";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SavedVenueCardSkeleton } from "@/components/ui/skeleton";
+
+export type SortOption = "recently_added" | "alphabetical" | "highest_rated";
 
 function exportCollectionAsCSV(favorites: SavedVenue[]) {
   const headers = [
@@ -192,6 +196,7 @@ export default function SavedVenuesPage() {
 
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<SortOption>("recently_added");
   const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
@@ -208,7 +213,7 @@ export default function SavedVenuesPage() {
   }, []);
 
   const filteredFavorites = useMemo(() => {
-    let result = favorites;
+    let result = [...favorites];
 
     if (selectedTagIds.length > 0) {
       result = result.filter((f) =>
@@ -227,8 +232,28 @@ export default function SavedVenuesPage() {
       );
     }
 
+    result.sort((a, b) => {
+      if (sortBy === "alphabetical") {
+        return a.venue.name.localeCompare(b.venue.name, undefined, {
+          sensitivity: "base",
+        });
+      }
+      if (sortBy === "highest_rated") {
+        const ratingA = a.venue.rating ?? -1;
+        const ratingB = b.venue.rating ?? -1;
+        if (ratingB !== ratingA) {
+          return ratingB - ratingA;
+        }
+        return a.venue.name.localeCompare(b.venue.name);
+      }
+      // "recently_added"
+      const dateA = new Date(a.createdAt || 0).getTime();
+      const dateB = new Date(b.createdAt || 0).getTime();
+      return dateB - dateA;
+    });
+
     return result;
-  }, [favorites, selectedTagIds, searchQuery]);
+  }, [favorites, selectedTagIds, searchQuery, sortBy]);
 
   const toggleTag = useCallback((tagId: string) => {
     setSelectedTagIds((prev) =>
@@ -241,10 +266,13 @@ export default function SavedVenuesPage() {
   const clearFilters = useCallback(() => {
     setSelectedTagIds([]);
     setSearchQuery("");
+    setSortBy("recently_added");
   }, []);
 
   const hasActiveFilters =
-    selectedTagIds.length > 0 || searchQuery.trim().length > 0;
+    selectedTagIds.length > 0 ||
+    searchQuery.trim().length > 0 ||
+    sortBy !== "recently_added";
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
@@ -351,6 +379,26 @@ export default function SavedVenuesPage() {
               onToggleTag={toggleTag}
               onClear={() => setSelectedTagIds([])}
             />
+
+            {/* Sort Dropdown */}
+            <div className="relative">
+              <label htmlFor="favorites-sort" className="sr-only">
+                Sort favorites
+              </label>
+              <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+              <select
+                id="favorites-sort"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                className="appearance-none pl-9 pr-8 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm font-medium text-zinc-700 dark:text-zinc-300 outline-none hover:bg-zinc-50 dark:hover:bg-zinc-800/80 focus:border-[var(--primary-accent)] focus:ring-2 focus:ring-[var(--primary-accent)] focus:ring-offset-2 dark:focus:ring-offset-zinc-950 transition-colors cursor-pointer"
+                aria-label="Sort favorites"
+              >
+                <option value="recently_added">Recently Added</option>
+                <option value="alphabetical">Alphabetical</option>
+                <option value="highest_rated">Highest Rated</option>
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+            </div>
 
             {/* Clear all */}
             {hasActiveFilters && (
