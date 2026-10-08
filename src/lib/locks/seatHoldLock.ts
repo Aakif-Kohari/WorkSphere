@@ -32,6 +32,72 @@ export interface AcquireLockResult {
 // In-memory fallback for local development or when Upstash Redis is unconfigured
 const memoryLocks = new Map<string, SeatLockData>();
 
+/**
+ * Atomic acquire / renew.
+ *
+ * KEYS[1] = lock key
+ * ARGV[1] = requesting userId
+ * ARGV[2] = JSON payload for a brand-new lock
+ * ARGV[3] = TTL in seconds
+ *
+ * Returns { 1, payload } when the caller now holds the lock (fresh acquire or
+ * renewal by the same user) and { 0, currentPayload } when someone else holds it.
+ *
+ * Doing the existence check, the ownership check and the write inside one
+ * script is what makes this a real lock: with separate SET NX / GET / SET round
+ * trips the key can expire (and be taken by another user) between the calls, and
+ * the renewing user then silently overwrites the new owner's lock.
+ */
+export const SEAT_LOCK_ACQUIRE_LUA = `
+local current = redis.call('GET', KEYS[1])
+if not current then
+  redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+  return { 1, ARGV[2] }
+end
+local ok, decoded = pcall(cjson.decode, current)
+if ok and type(decoded) == 'table' and decoded.userId == ARGV[1] then
+  local renewed = cjson.decode(ARGV[2])
+  renewed.version = (tonumber(decoded.version) or 1) + 1
+  if decoded.heldAt then renewed.heldAt = decoded.heldAt end
+  local encoded = cjson.encode(renewed)
+  redis.call('SET', KEYS[1], encoded, 'EX', tonumber(ARGV[3]))
+  return { 1, encoded }
+end
+return { 0, current }
+`;
+
+/**
+ * Atomic compare-and-delete.
+ *
+ * KEYS[1] = lock key, ARGV[1] = userId that wants to release.
+ * Only deletes the key if it is still owned by that user, so a holder whose
+ * lock already expired can never delete the lock of whoever acquired it next.
+ */
+export const SEAT_LOCK_RELEASE_LUA = `
+local current = redis.call('GET', KEYS[1])
+if not current then return 0 end
+local ok, decoded = pcall(cjson.decode, current)
+if ok and type(decoded) == 'table' and decoded.userId == ARGV[1] then
+  redis.call('DEL', KEYS[1])
+  return 1
+end
+return 0
+`;
+
+function parseLockValue(raw: unknown): SeatLockData | null {
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw) as SeatLockData;
+    } catch {
+      return null;
+    }
+  }
+  if (raw && typeof raw === "object") {
+    return raw as SeatLockData;
+  }
+  return null;
+}
+
 function getLockKey(venueId: string, seatId: string): string {
   return `seat:hold:${venueId}:${seatId}`;
 }
@@ -77,34 +143,21 @@ export async function acquireSeatWebLock(
         version: 1,
       };
 
-      // Atomic SET IF NOT EXISTS with TTL
-      const acquired = await redis.set(key, JSON.stringify(lockPayload), {
-        nx: true,
-        ex: clampedTtl,
-      });
+      // Single atomic round trip: acquire if free, renew if we already own it,
+      // otherwise report the current holder.
+      const rawResult = await redis.eval(
+        SEAT_LOCK_ACQUIRE_LUA,
+        [key],
+        [userId, JSON.stringify(lockPayload), String(clampedTtl)],
+      );
 
-      if (acquired === "OK") {
-        return { success: true, lock: lockPayload };
-      }
+      const [flag, rawLock] = Array.isArray(rawResult)
+        ? rawResult
+        : [0, null];
+      const currentLock = parseLockValue(rawLock);
 
-      // Lock is held by someone else, or by the same user renewing lease
-      const rawCurrent = await redis.get<string | SeatLockData>(key);
-      let currentLock: SeatLockData | null = null;
-      if (typeof rawCurrent === "string") {
-        try {
-          currentLock = JSON.parse(rawCurrent);
-        } catch {
-          currentLock = null;
-        }
-      } else if (rawCurrent && typeof rawCurrent === "object") {
-        currentLock = rawCurrent as SeatLockData;
-      }
-
-      if (currentLock && currentLock.userId === userId) {
-        // Same user renewing hold
-        lockPayload.version = (currentLock.version || 1) + 1;
-        await redis.set(key, JSON.stringify(lockPayload), { ex: clampedTtl });
-        return { success: true, lock: lockPayload };
+      if (Number(flag) === 1) {
+        return { success: true, lock: currentLock ?? lockPayload };
       }
 
       const remainingSec = currentLock
@@ -166,23 +219,9 @@ export async function releaseSeatWebLock(
 
   if (redis) {
     try {
-      const rawCurrent = await redis.get<string | SeatLockData>(key);
-      let currentLock: SeatLockData | null = null;
-      if (typeof rawCurrent === "string") {
-        try {
-          currentLock = JSON.parse(rawCurrent);
-        } catch {
-          currentLock = null;
-        }
-      } else if (rawCurrent && typeof rawCurrent === "object") {
-        currentLock = rawCurrent as SeatLockData;
-      }
-
-      if (currentLock && currentLock.userId === userId) {
-        await redis.del(key);
-        return true;
-      }
-      return false;
+      // Atomic compare-and-delete: never removes a lock owned by someone else.
+      const released = await redis.eval(SEAT_LOCK_RELEASE_LUA, [key], [userId]);
+      return Number(released) === 1;
     } catch (err) {
       console.warn("[SeatLock] Redis release failed, falling back to memory:", err);
     }

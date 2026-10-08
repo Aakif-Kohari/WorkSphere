@@ -357,22 +357,25 @@ export class ExtendedKalmanFilter6D {
   }
 
   /**
-   * Applies inertial step displacement update directly to position & velocity.
+   * Applies a detected step as a discrete displacement of the position.
+   *
+   * The step detector fires at the END of a stride, so the displacement has
+   * already happened. It is applied exactly once, and the velocity state is
+   * cleared. Seeding the velocity from the step (as `dx / dt`) made `predict()`
+   * integrate the same displacement again on every following IMU sample, so
+   * the reported position ran far ahead of the real one (about 10x at 25 Hz and
+   * about 19x at 100 Hz, because the extra distance grows with the sample rate).
    */
-  applyStep(stepLength: number, headingRad: number, dtSeconds = 0.5): void {
+  applyStep(stepLength: number, headingRad: number): void {
     const h = normalizeAngle(headingRad);
     this.x[4] = h; // Update heading
 
-    const dx = stepLength * Math.cos(h);
-    const dy = stepLength * Math.sin(h);
+    this.x[0] += stepLength * Math.cos(h);
+    this.x[1] += stepLength * Math.sin(h);
 
-    this.x[0] += dx;
-    this.x[1] += dy;
-
-    if (dtSeconds > 0) {
-      this.x[2] = dx / dtSeconds;
-      this.x[3] = dy / dtSeconds;
-    }
+    // Nothing is left over for predict() to integrate.
+    this.x[2] = 0;
+    this.x[3] = 0;
 
     // Slightly increase position variance after step
     this.P[0] += 0.05 * stepLength ** 2;
@@ -823,7 +826,7 @@ export class IndoorPdrEngine {
       const headingRad = this.currentHeadingRad;
 
       // Update EKF with inertial step displacement
-      this.ekf.applyStep(stepLength, headingRad, dtSeconds);
+      this.ekf.applyStep(stepLength, headingRad);
 
       const state = this.ekf.getState();
       this.totalDistance += stepLength;

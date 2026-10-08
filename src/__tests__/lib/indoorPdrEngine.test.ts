@@ -147,20 +147,39 @@ describe("Indoor PDR Engine & Extended Kalman Filter", () => {
       expect(state.vy).toBe(0);
     });
 
-    test("predict step updates position based on velocity and damps velocity", () => {
+    test("applyStep moves the position once and leaves no velocity for predict to re-integrate", () => {
       const ekf = new ExtendedKalmanFilter6D({ x: 0, y: 0, heading: 0 });
-      // Apply initial displacement
-      ekf.applyStep(1.0, 0, 1.0); // SL=1.0m, Heading=0 rad (East), dt=1s -> vx=1.0
+      ekf.applyStep(1.0, 0); // SL=1.0m, Heading=0 rad (East)
 
-      const stateBefore = ekf.getState();
-      expect(stateBefore.x).toBe(1.0);
-      expect(stateBefore.vx).toBe(1.0);
+      const afterStep = ekf.getState();
+      expect(afterStep.x).toBe(1.0);
+      expect(afterStep.vx).toBe(0);
+      expect(afterStep.vy).toBe(0);
 
-      // Prediction step for 1 second
+      // The step displacement already happened. Running the filter forward at a
+      // typical IMU rate must not carry the position any further.
+      for (let i = 0; i < 500; i++) ekf.predict(0.02, 0);
+      expect(ekf.getState().x).toBeCloseTo(1.0, 9);
+    });
+
+    test("applyStep displaces along the given heading", () => {
+      const ekf = new ExtendedKalmanFilter6D({ x: 1, y: 1, heading: 0 });
+      ekf.applyStep(2.0, Math.PI / 2); // North (+Y)
+
+      const state = ekf.getState();
+      expect(state.x).toBeCloseTo(1.0, 9);
+      expect(state.y).toBeCloseTo(3.0, 9);
+      expect(state.heading).toBeCloseTo(Math.PI / 2, 9);
+    });
+
+    test("predict still integrates a velocity the filter actually holds", () => {
+      const ekf = new ExtendedKalmanFilter6D({ x: 0, y: 0, heading: 0 });
+      (ekf as unknown as { x: Float64Array }).x[2] = 1.0; // vx = 1 m/s
+
       ekf.predict(1.0, 0);
-      const stateAfter = ekf.getState();
-      expect(stateAfter.x).toBeGreaterThan(1.0);
-      expect(stateAfter.vx).toBeLessThan(1.0); // Damped
+      const state = ekf.getState();
+      expect(state.x).toBeCloseTo(1.0, 9);
+      expect(state.vx).toBeLessThan(1.0); // Damped
     });
 
     test("updatePosition fuses measurement and reduces uncertainty", () => {
@@ -331,6 +350,80 @@ describe("Indoor PDR Engine & Extended Kalman Filter", () => {
       const traj = engine.getTrajectory();
       expect(traj.length).toBe(1);
       expect(traj[0].x).toBe(0);
+    });
+  });
+
+  describe("Dead-reckoned distance accuracy (regression)", () => {
+    /**
+     * Straight walk East at a given IMU rate. A step used to also seed a velocity
+     * that predict() kept integrating, so the filter reported a position many
+     * times the distance actually walked, and the error grew with the IMU rate.
+     */
+    function walkEast(hz: number, seconds: number) {
+      const engine = new IndoorPdrEngine({ x: 0, y: 0, heading: 0 });
+      const t0 = 1_000_000;
+      let steps = 0;
+      for (let i = 0; i < hz * seconds; i++) {
+        const t = i / hz;
+        const res = engine.processImuSample({
+          timestamp: t0 + (i * 1000) / hz,
+          ax: 0,
+          ay: 0,
+          az: 9.80665 + 7.0 * Math.sin(2 * Math.PI * 2 * t), // ~2 steps/s
+          gx: 0,
+          gy: 0,
+          gz: 0,
+          headingDeg: 0,
+        });
+        if (res) steps++;
+      }
+      return { engine, steps };
+    }
+
+    test.each([25, 50, 60, 100])(
+      "position equals the summed step lengths at %d Hz",
+      (hz) => {
+        const { engine, steps } = walkEast(hz, 20);
+        const state = engine.getState();
+
+        expect(steps).toBeGreaterThanOrEqual(30);
+        expect(state.totalDistance).toBeGreaterThan(10);
+        // Heading is due East, so x is exactly the distance walked (to rounding).
+        expect(Math.abs(state.x - state.totalDistance)).toBeLessThan(0.05);
+        expect(Math.abs(state.y)).toBeLessThan(0.05);
+      },
+    );
+
+    test("stays where it is when the user stops walking", () => {
+      const { engine } = walkEast(50, 10);
+
+      const holdStill = (startMs: number, samples: number) => {
+        let t = startMs;
+        for (let i = 0; i < samples; i++) {
+          t += 20;
+          engine.processImuSample({
+            timestamp: t,
+            ax: 0,
+            ay: 0,
+            az: 9.80665,
+            gx: 0,
+            gy: 0,
+            gz: 0,
+            headingDeg: 0,
+          });
+        }
+        return t;
+      };
+
+      // Let the detector finish the stride in progress, then measure.
+      const settledAt = holdStill(5_000_000, 100);
+      const before = engine.getState();
+      holdStill(settledAt, 250); // 5 more seconds standing still
+      const after = engine.getState();
+
+      expect(after.x).toBeCloseTo(before.x, 2);
+      expect(after.y).toBeCloseTo(before.y, 2);
+      expect(after.stepCount).toBe(before.stepCount);
     });
   });
 });
