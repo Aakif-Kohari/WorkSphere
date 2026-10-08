@@ -15,7 +15,11 @@ import {
   type ShapeData,
   type RemoteCursor,
   type CanvasWhiteboardState,
+  type WhiteboardParticipant,
+  type UseCanvasWhiteboardOptions,
   PRESET_COLORS,
+  IDLE_TIMEOUT_MS,
+  HEARTBEAT_INTERVAL_MS,
 } from "@/hooks/useCanvasWhiteboard";
 
 /**
@@ -55,7 +59,7 @@ function shapeMapToData(map: Y.Map<unknown>): ShapeData {
 
 export function useMeshCanvasWhiteboard(
   canvasId: string | null,
-  options?: { userName?: string; userColor?: string; userId?: string },
+  options?: UseCanvasWhiteboardOptions,
 ): CanvasWhiteboardState {
   const { getToken } = useAuth();
   const [token, setToken] = useState<string | null>(null);
@@ -81,6 +85,8 @@ export function useMeshCanvasWhiteboard(
 
   const [shapeSnapshots, setShapeSnapshots] = useState<ShapeData[]>([]);
   const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([]);
+  const [participants, setParticipants] = useState<WhiteboardParticipant[]>([]);
+  const lastActiveAtRef = useRef<number>(Date.now());
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
@@ -90,6 +96,7 @@ export function useMeshCanvasWhiteboard(
 
   const userName = options?.userName ?? "Anonymous";
   const userColor = options?.userColor ?? getDefaultColor(0);
+  const userAvatar = options?.userAvatar;
   const localUserId = options?.userId ?? "anonymous";
 
   const meshRoomId = canvasId ? `canvas-${canvasId}` : "canvas-none";
@@ -127,6 +134,21 @@ export function useMeshCanvasWhiteboard(
         .catch(() => setToken(null));
     }
   }, [canvasId, getToken]);
+
+  const touchActivity = useCallback(() => {
+    lastActiveAtRef.current = Date.now();
+    const p = providerRef.current;
+    if (!p) return;
+    const aw = p.awareness;
+    const current = aw?.getLocalState() as Record<string, unknown> | null;
+    if (current && current.status !== "active") {
+      aw.setLocalState({
+        ...current,
+        status: "active",
+        lastActiveAt: Date.now(),
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (!canvasId || token === undefined) return;
@@ -265,11 +287,18 @@ export function useMeshCanvasWhiteboard(
     };
 
     const awareness = newProvider?.awareness;
+    const initNow = Date.now();
+    lastActiveAtRef.current = initNow;
+
     awareness?.setLocalState({
       x: 0,
       y: 0,
+      userId: localUserId,
       name: userName,
+      avatar: userAvatar,
       color: userColor,
+      lastActiveAt: initNow,
+      status: "active",
     });
 
     const handleAwarenessChange = () => {
@@ -278,25 +307,68 @@ export function useMeshCanvasWhiteboard(
         number,
         any,
       ][];
+      const curTime = Date.now();
       const cursors: RemoteCursor[] = [];
+      const participantsList: WhiteboardParticipant[] = [];
+
       for (const [clientId, state] of states) {
-        if (clientId === awareness.clientID) continue;
+        if (!state) continue;
         const s = state as Record<string, unknown>;
-        if (typeof s.x === "number" && typeof s.y === "number") {
-          cursors.push({
-            userId: `user-${clientId}`,
-            x: s.x as number,
-            y: s.y as number,
-            name: (s.name as string) ?? "Unknown",
-            color: (s.color as string) ?? getDefaultColor(clientId),
+
+        if (clientId !== awareness.clientID) {
+          if (typeof s.x === "number" && typeof s.y === "number") {
+            cursors.push({
+              userId: (s.userId as string) ?? `user-${clientId}`,
+              x: s.x as number,
+              y: s.y as number,
+              name: (s.name as string) ?? "Unknown",
+              color: (s.color as string) ?? getDefaultColor(clientId),
+            });
+          }
+        }
+
+        const lastActive =
+          typeof s.lastActiveAt === "number" ? s.lastActiveAt : curTime;
+        const isIdle =
+          curTime - lastActive > IDLE_TIMEOUT_MS || s.status === "idle";
+
+        participantsList.push({
+          clientId,
+          userId:
+            (s.userId as string) ??
+            (clientId === awareness.clientID ? localUserId : `user-${clientId}`),
+          name: (s.name as string) ?? "Unknown",
+          avatar: typeof s.avatar === "string" ? s.avatar : undefined,
+          color: (s.color as string) ?? getDefaultColor(clientId),
+          lastActiveAt: lastActive,
+          status: isIdle ? "idle" : "active",
+        });
+      }
+
+      setRemoteCursors(cursors);
+      setParticipants(participantsList);
+    };
+
+    awareness?.on("change", handleAwarenessChange);
+    handleAwarenessChange();
+
+    const heartbeatTimer = setInterval(() => {
+      if (!awareness) return;
+      const currentTime = Date.now();
+      if (currentTime - lastActiveAtRef.current > IDLE_TIMEOUT_MS) {
+        const local = awareness.getLocalState() as Record<string, unknown> | null;
+        if (local && local.status !== "idle") {
+          awareness.setLocalState({
+            ...local,
+            status: "idle",
           });
         }
       }
-      setRemoteCursors(cursors);
-    };
-    awareness?.on("change", handleAwarenessChange);
+      handleAwarenessChange();
+    }, HEARTBEAT_INTERVAL_MS);
 
     return () => {
+      clearInterval(heartbeatTimer);
       shapes.unobserveDeep(updateSnapshots);
       awareness?.off("change", handleAwarenessChange);
       unsubDocUpdateRef.current?.();
@@ -313,10 +385,19 @@ export function useMeshCanvasWhiteboard(
       providerRef.current = null;
       unsubDocUpdateRef.current = null;
     };
-  }, [canvasId, token, userName, userColor, localUserId, mesh.sendToAll]);
+  }, [
+    canvasId,
+    token,
+    userName,
+    userColor,
+    userAvatar,
+    localUserId,
+    mesh.sendToAll,
+  ]);
 
   const addShape = useCallback(
     (data: ShapeData) => {
+      touchActivity();
       const shapes = shapesRef.current;
       const doc = docRef.current;
       if (!shapes || !doc) return;
@@ -571,6 +652,7 @@ export function useMeshCanvasWhiteboard(
   }, []);
 
   const clearCanvas = useCallback(() => {
+    touchActivity();
     const shapes = shapesRef.current;
     const doc = docRef.current;
     if (!shapes || !doc || shapes.length === 0) return;
@@ -590,17 +672,27 @@ export function useMeshCanvasWhiteboard(
         map.set("clock", delClock);
       }
     }, localUserId);
-  }, [localUserId]);
+  }, [localUserId, touchActivity]);
 
-  const updateCursor = useCallback((x: number, y: number) => {
-    const p = providerRef.current;
-    if (!p) return;
-    const aw = p.awareness;
-    const state = aw.getLocalState() as Record<string, unknown> | null;
-    if (state) {
-      aw.setLocalState({ ...state, x, y });
-    }
-  }, []);
+  const updateCursor = useCallback(
+    (x: number, y: number) => {
+      touchActivity();
+      const p = providerRef.current;
+      if (!p) return;
+      const aw = p.awareness;
+      const state = aw?.getLocalState() as Record<string, unknown> | null;
+      if (state) {
+        aw.setLocalState({
+          ...state,
+          x,
+          y,
+          status: "active",
+          lastActiveAt: Date.now(),
+        });
+      }
+    },
+    [touchActivity],
+  );
 
   return {
     addShape,
@@ -611,6 +703,7 @@ export function useMeshCanvasWhiteboard(
     flushStrokeBuffer,
     shapeSnapshots,
     remoteCursors,
+    participants,
     tool,
     color,
     strokeWidth,

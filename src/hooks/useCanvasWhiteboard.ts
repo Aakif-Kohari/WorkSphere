@@ -30,6 +30,16 @@ export interface RemoteCursor {
   color: string;
 }
 
+export interface WhiteboardParticipant {
+  clientId: number;
+  userId: string;
+  name: string;
+  avatar?: string;
+  color: string;
+  lastActiveAt: number;
+  status: "active" | "idle";
+}
+
 export interface CanvasWhiteboardState {
   addShape: (shape: ShapeData) => void;
   updateShape: (id: string, updates: Partial<ShapeData>) => void;
@@ -39,6 +49,7 @@ export interface CanvasWhiteboardState {
   flushStrokeBuffer?: (id?: string) => void;
   shapeSnapshots: ShapeData[];
   remoteCursors: RemoteCursor[];
+  participants: WhiteboardParticipant[];
   tool: ToolType;
   color: string;
   colors?: readonly string[];
@@ -58,6 +69,16 @@ export interface CanvasWhiteboardState {
 }
 
 const PARTYKIT_HOST = process.env.NEXT_PUBLIC_PARTYKIT_URL ?? "127.0.0.1:1999";
+
+/**
+ * Inactivity timeout before marking a participant as idle (#3471).
+ */
+export const IDLE_TIMEOUT_MS = 45000;
+
+/**
+ * Periodic interval checking local and remote participant idle state (#3471).
+ */
+export const HEARTBEAT_INTERVAL_MS = 5000;
 
 /**
  * 60fps throttle window (~16.6ms) for stroke point dispatch buffering (#4918).
@@ -110,9 +131,16 @@ export type StrokeHistoryAction =
   | { type: "delete"; shape: ShapeData }
   | { type: "clear"; shapes: ShapeData[] };
 
+export interface UseCanvasWhiteboardOptions {
+  userName?: string;
+  userColor?: string;
+  userId?: string;
+  userAvatar?: string;
+}
+
 export function useCanvasWhiteboard(
   canvasId: string | null,
-  options?: { userName?: string; userColor?: string; userId?: string },
+  options?: UseCanvasWhiteboardOptions,
 ): CanvasWhiteboardState {
   const { getToken } = useAuth();
   const [token, setToken] = useState<string | null>(null);
@@ -136,6 +164,8 @@ export function useCanvasWhiteboard(
 
   const [shapeSnapshots, setShapeSnapshots] = useState<ShapeData[]>([]);
   const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([]);
+  const [participants, setParticipants] = useState<WhiteboardParticipant[]>([]);
+  const lastActiveAtRef = useRef<number>(Date.now());
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
@@ -159,6 +189,21 @@ export function useCanvasWhiteboard(
 
     setCanUndo(umUndo || localUndo);
     setCanRedo(umRedo || localRedo);
+  }, []);
+
+  const touchActivity = useCallback(() => {
+    lastActiveAtRef.current = Date.now();
+    const p = providerRef.current;
+    if (!p) return;
+    const aw = p.awareness;
+    const current = aw?.getLocalState() as Record<string, unknown> | null;
+    if (current && current.status !== "active") {
+      aw.setLocalState({
+        ...current,
+        status: "active",
+        lastActiveAt: Date.now(),
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -254,12 +299,19 @@ export function useCanvasWhiteboard(
     const awareness = newProvider?.awareness;
     const userName = options?.userName ?? "Anonymous";
     const userColor = options?.userColor ?? getDefaultColor(0);
+    const userAvatar = options?.userAvatar;
+    const initNow = Date.now();
+    lastActiveAtRef.current = initNow;
 
     awareness?.setLocalState({
       x: 0,
       y: 0,
+      userId: localUserId,
       name: userName,
+      avatar: userAvatar,
       color: userColor,
+      lastActiveAt: initNow,
+      status: "active",
     });
 
     const handleAwarenessChange = () => {
@@ -268,23 +320,65 @@ export function useCanvasWhiteboard(
         number,
         any,
       ][];
+      const curTime = Date.now();
       const cursors: RemoteCursor[] = [];
+      const participantsList: WhiteboardParticipant[] = [];
+
       for (const [clientId, state] of states) {
-        if (clientId === awareness.clientID) continue;
+        if (!state) continue;
         const s = state as Record<string, unknown>;
-        if (typeof s.x === "number" && typeof s.y === "number") {
-          cursors.push({
-            userId: `user-${clientId}`,
-            x: s.x as number,
-            y: s.y as number,
-            name: (s.name as string) ?? "Unknown",
-            color: (s.color as string) ?? getDefaultColor(clientId),
+
+        if (clientId !== awareness.clientID) {
+          if (typeof s.x === "number" && typeof s.y === "number") {
+            cursors.push({
+              userId: (s.userId as string) ?? `user-${clientId}`,
+              x: s.x as number,
+              y: s.y as number,
+              name: (s.name as string) ?? "Unknown",
+              color: (s.color as string) ?? getDefaultColor(clientId),
+            });
+          }
+        }
+
+        const lastActive =
+          typeof s.lastActiveAt === "number" ? s.lastActiveAt : curTime;
+        const isIdle =
+          curTime - lastActive > IDLE_TIMEOUT_MS || s.status === "idle";
+
+        participantsList.push({
+          clientId,
+          userId:
+            (s.userId as string) ??
+            (clientId === awareness.clientID ? localUserId : `user-${clientId}`),
+          name: (s.name as string) ?? "Unknown",
+          avatar: typeof s.avatar === "string" ? s.avatar : undefined,
+          color: (s.color as string) ?? getDefaultColor(clientId),
+          lastActiveAt: lastActive,
+          status: isIdle ? "idle" : "active",
+        });
+      }
+
+      setRemoteCursors(cursors);
+      setParticipants(participantsList);
+    };
+
+    awareness?.on("change", handleAwarenessChange);
+    handleAwarenessChange();
+
+    const heartbeatTimer = setInterval(() => {
+      if (!awareness) return;
+      const currentTime = Date.now();
+      if (currentTime - lastActiveAtRef.current > IDLE_TIMEOUT_MS) {
+        const local = awareness.getLocalState() as Record<string, unknown> | null;
+        if (local && local.status !== "idle") {
+          awareness.setLocalState({
+            ...local,
+            status: "idle",
           });
         }
       }
-      setRemoteCursors(cursors);
-    };
-    awareness?.on("change", handleAwarenessChange);
+      handleAwarenessChange();
+    }, HEARTBEAT_INTERVAL_MS);
 
     return () => {
       if (throttleTimerRef.current !== null) {
@@ -300,6 +394,7 @@ export function useCanvasWhiteboard(
       }
       strokeBufferRef.current.clear();
 
+      clearInterval(heartbeatTimer);
       shapes.unobserveDeep(updateSnapshots);
       awareness?.off("change", handleAwarenessChange);
       um.destroy();
@@ -314,10 +409,19 @@ export function useCanvasWhiteboard(
       undoManagerRef.current = null;
       providerRef.current = null;
     };
-  }, [canvasId, token, options?.userName, options?.userColor, localUserId, updateUndoState]);
+  }, [
+    canvasId,
+    token,
+    options?.userName,
+    options?.userColor,
+    options?.userAvatar,
+    localUserId,
+    updateUndoState,
+  ]);
 
   const addShape = useCallback(
     (data: ShapeData) => {
+      touchActivity();
       const shapes = shapesRef.current;
       const doc = docRef.current;
       const now = data.clock ?? data.updatedAt ?? Date.now();
@@ -379,6 +483,7 @@ export function useCanvasWhiteboard(
 
   const applyShapePoints = useCallback(
     (id: string, points: number[]) => {
+      touchActivity();
       const shapes = shapesRef.current;
       const doc = docRef.current;
       const now = Date.now();
@@ -501,6 +606,7 @@ export function useCanvasWhiteboard(
 
   const updateShape = useCallback(
     (id: string, updates: Partial<ShapeData>) => {
+      touchActivity();
       // Throttle high-frequency point updates during active strokes (#4918)
       const keys = Object.keys(updates);
       if (
@@ -586,6 +692,7 @@ export function useCanvasWhiteboard(
 
   const deleteShape = useCallback(
     (id: string) => {
+      touchActivity();
       const shapes = shapesRef.current;
       const doc = docRef.current;
       const now = Date.now();
@@ -700,6 +807,7 @@ export function useCanvasWhiteboard(
   }, [updateUndoState]);
 
   const clearCanvas = useCallback(() => {
+    touchActivity();
     const shapes = shapesRef.current;
     const doc = docRef.current;
     const now = Date.now();
@@ -738,17 +846,27 @@ export function useCanvasWhiteboard(
       localRedoStackRef.current = [];
       updateUndoState();
     }
-  }, [localUserId, updateUndoState]);
+  }, [localUserId, touchActivity, updateUndoState]);
 
-  const updateCursor = useCallback((x: number, y: number) => {
-    const p = providerRef.current;
-    if (!p) return;
-    const aw = p.awareness;
-    const state = aw.getLocalState() as Record<string, unknown> | null;
-    if (state) {
-      aw.setLocalState({ ...state, x, y });
-    }
-  }, []);
+  const updateCursor = useCallback(
+    (x: number, y: number) => {
+      touchActivity();
+      const p = providerRef.current;
+      if (!p) return;
+      const aw = p.awareness;
+      const state = aw?.getLocalState() as Record<string, unknown> | null;
+      if (state) {
+        aw.setLocalState({
+          ...state,
+          x,
+          y,
+          status: "active",
+          lastActiveAt: Date.now(),
+        });
+      }
+    },
+    [touchActivity],
+  );
 
   return {
     addShape,
@@ -759,6 +877,7 @@ export function useCanvasWhiteboard(
     flushStrokeBuffer,
     shapeSnapshots,
     remoteCursors,
+    participants,
     tool,
     color,
     colors: PRESET_COLORS,
