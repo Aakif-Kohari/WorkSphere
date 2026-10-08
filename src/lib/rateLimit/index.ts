@@ -381,6 +381,24 @@ export function getRateLimitHeaders(
   return headers;
 }
 
+/**
+ * Parses a Retry-After header value into whole seconds to wait.
+ * Supports integer seconds and HTTP-date formats.
+ */
+export function parseRetryAfterHeader(
+  headerValue: string | null | undefined,
+  fallbackSeconds = 60,
+): number {
+  if (!headerValue) return fallbackSeconds;
+  const parsedInt = parseInt(headerValue, 10);
+  if (!isNaN(parsedInt)) return Math.max(1, parsedInt);
+  const dateMs = Date.parse(headerValue);
+  if (!isNaN(dateMs)) {
+    return Math.max(1, Math.ceil((dateMs - Date.now()) / 1000));
+  }
+  return fallbackSeconds;
+}
+
 export function createRateLimitResponse(
   result: TieredRateLimitResult,
 ): NextResponse {
