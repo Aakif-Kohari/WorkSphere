@@ -67,6 +67,31 @@ export function clearRecentlyViewedVenues(): void {
   }
 }
 
+export function recordRecentlyViewedVenue(
+  venue: RecentlyViewedVenue,
+): RecentlyViewedVenue[] {
+  if (typeof window === "undefined" || !venue || !venue.id) return [];
+  try {
+    const recentlyViewed = getRecentlyViewedVenues();
+
+    // Deduplicate history array before prepending the active venue ID
+    const deduplicated = recentlyViewed.filter(
+      (item) => item && typeof item === "object" && item.id !== venue.id,
+    );
+
+    const updated = [venue, ...deduplicated].slice(0, MAX_RECENTLY_VIEWED);
+
+    localStorage.setItem(
+      RECENTLY_VIEWED_STORAGE_KEY,
+      JSON.stringify(updated),
+    );
+    return updated;
+  } catch (error) {
+    console.error("Failed to save recently viewed venue to localStorage:", error);
+    return [];
+  }
+}
+
 interface RecentlyViewedTrackerProps {
   venue: RecentlyViewedVenue;
 }
@@ -74,21 +99,8 @@ interface RecentlyViewedTrackerProps {
 export function RecentlyViewedTracker({ venue }: RecentlyViewedTrackerProps) {
   useEffect(() => {
     if (!venue || !venue.id) return;
-    try {
-      const recentlyViewed = getRecentlyViewedVenues();
 
-      const updated = [
-        venue,
-        ...recentlyViewed.filter((item) => item.id !== venue.id),
-      ].slice(0, MAX_RECENTLY_VIEWED);
-
-      localStorage.setItem(
-        RECENTLY_VIEWED_STORAGE_KEY,
-        JSON.stringify(updated),
-      );
-    } catch (error) {
-      console.error("Failed to save recently viewed venue to localStorage:", error);
-    }
+    recordRecentlyViewedVenue(venue);
 
     // Persist full payload in IndexedDB (for offline access)
     saveRecentlyViewedVenueOffline(venue).catch((error) => {
