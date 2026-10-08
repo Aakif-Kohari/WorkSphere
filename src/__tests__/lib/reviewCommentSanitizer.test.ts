@@ -1,4 +1,12 @@
-import { sanitizeReviewComment } from "@/lib/reviewCommentSanitizer";
+import {
+  sanitizeReviewComment,
+  validateReviewComment,
+  filterAllowedHtml,
+  stripScriptAndEventHandlers,
+  maskProfanity,
+  MIN_COMMENT_LENGTH,
+  MAX_COMMENT_LENGTH,
+} from "@/lib/reviewCommentSanitizer";
 
 describe("sanitizeReviewComment", () => {
   it("leaves ordinary text untouched", () => {
@@ -86,5 +94,113 @@ describe("sanitizeReviewComment", () => {
         "# Review\n> **Great** [spot](http://x.co)\n```\nunclosed",
       ),
     ).toBe("Review\nGreat spot\nunclosed");
+  });
+});
+
+describe("Review Comment Sanitization & Moderation (#5045)", () => {
+  describe("Allowed HTML Formatting Tags", () => {
+    it("preserves allowed <b> and <i> tags", () => {
+      const input = "This venue has <b>fast WiFi</b> and <i>comfortable seating</i>.";
+      const sanitized = sanitizeReviewComment(input, { allowFormatting: true });
+      expect(sanitized).toBe(
+        "This venue has <b>fast WiFi</b> and <i>comfortable seating</i>."
+      );
+    });
+
+    it("sanitizes safe anchor tags with https URLs and enforces rel/target attributes", () => {
+      const input =
+        'Check their speedtest at <a href="https://fast.com">SpeedTest</a>.';
+      const sanitized = sanitizeReviewComment(input, { allowFormatting: true });
+      expect(sanitized).toBe(
+        'Check their speedtest at <a href="https://fast.com" target="_blank" rel="noopener noreferrer">SpeedTest</a>.'
+      );
+    });
+
+    it("strips disallowed HTML tags like <div>, <span>, <img>, and <button> while retaining text", () => {
+      const input =
+        '<div>Great cafe! <span>Quiet corner.</span> <img src="pic.jpg"/></div>';
+      const sanitized = sanitizeReviewComment(input, { allowFormatting: true });
+      expect(sanitized).toBe("Great cafe! Quiet corner.");
+    });
+  });
+
+  describe("Script Tag and Inline Event Handler Stripping", () => {
+    it("strips <script> tags and enclosed executable code completely", () => {
+      const input =
+        'Awesome coffee!<script>alert("XSS Attack!");</script> Highly recommended.';
+      const sanitized = sanitizeReviewComment(input, { allowFormatting: true });
+      expect(sanitized).not.toContain("<script>");
+      expect(sanitized).not.toContain("alert");
+      expect(sanitized).toBe("Awesome coffee! Highly recommended.");
+    });
+
+    it("strips dangerous inline DOM event handlers (onerror, onload, onclick)", () => {
+      const input =
+        '<b onclick="stealTokens()">Bold text</b> <img src=x onerror="fetchMalicious()"/>';
+      const sanitized = sanitizeReviewComment(input, { allowFormatting: true });
+      expect(sanitized).not.toContain("onclick");
+      expect(sanitized).not.toContain("onerror");
+      expect(sanitized).not.toContain("stealTokens");
+      expect(sanitized).toBe("<b>Bold text</b>");
+    });
+
+    it("disallows javascript: URI schemes in href attributes", () => {
+      const input =
+        '<a href="javascript:alert(document.cookie)">Malicious Link</a>';
+      const sanitized = sanitizeReviewComment(input, { allowFormatting: true });
+      expect(sanitized).not.toContain("javascript:");
+      expect(sanitized).toBe("Malicious Link");
+    });
+  });
+
+  describe("Profanity Masking Rules", () => {
+    it("masks recognized prohibited terms with asterisks matching term length", () => {
+      const input = "The manager was a complete asshole and the service was shit.";
+      const { maskedText, flaggedWords } = maskProfanity(input);
+
+      expect(maskedText).toBe(
+        "The manager was a complete ******* and the service was ****."
+      );
+      expect(flaggedWords).toContain("asshole");
+      expect(flaggedWords).toContain("shit");
+    });
+
+    it("does not false-positive on words containing substrings (e.g. Scunthorpe or classic)", () => {
+      const input = "We enjoyed classic espresso near Scunthorpe.";
+      const { maskedText, flaggedWords } = maskProfanity(input);
+      expect(maskedText).toBe("We enjoyed classic espresso near Scunthorpe.");
+      expect(flaggedWords).toHaveLength(0);
+    });
+  });
+
+  describe("Character Length Constraints", () => {
+    it("rejects comments shorter than MIN_COMMENT_LENGTH (3 characters)", () => {
+      const shortComment = "ok";
+      const result = validateReviewComment(shortComment);
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toContain(
+        `Review comment must be at least ${MIN_COMMENT_LENGTH} characters.`
+      );
+    });
+
+    it("truncates or flags comments exceeding MAX_COMMENT_LENGTH (1000 characters)", () => {
+      const longComment = "a".repeat(1050);
+      const result = validateReviewComment(longComment);
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toContain(
+        `Review comment cannot exceed ${MAX_COMMENT_LENGTH} characters.`
+      );
+
+      const sanitized = sanitizeReviewComment(longComment, { allowFormatting: true });
+      expect(sanitized.length).toBe(MAX_COMMENT_LENGTH);
+    });
+
+    it("accepts valid comments within length constraints", () => {
+      const validComment = "Great environment to get work done with fast WiFi!";
+      const result = validateReviewComment(validComment);
+      expect(result.isValid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+      expect(result.sanitized).toBe(validComment);
+    });
   });
 });
