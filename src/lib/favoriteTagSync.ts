@@ -387,8 +387,13 @@ export async function processTagMutationsQueue(): Promise<void> {
               }
             }
 
-            await dequeueTagMutation(action.id);
-            actions.shift();
+            const attempts = await incrementTagMutationRetryCount(action.id);
+            if (attempts !== null && attempts >= MAX_SYNC_RETRIES) {
+              await dequeueTagMutation(action.id);
+              actions.shift();
+            } else {
+              break;
+            }
             continue;
           }
 
