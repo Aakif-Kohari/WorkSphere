@@ -9,7 +9,7 @@ import {
 } from "react";
 import * as Y from "yjs";
 import YPartyKitProvider from "y-partykit/provider";
-import { Bold, Italic, Loader2, Underline, Wifi, WifiOff } from "lucide-react";
+import { Bold, Italic, Loader2, Trash2, Underline, Wifi, WifiOff } from "lucide-react";
 import { applyYTextDiff } from "@/lib/crdt/applyYTextDiff";
 import {
   enqueueNotesUpdate,
@@ -203,6 +203,33 @@ export function GroupNotesEditor({
     [conflicts, roomId, syncEditorFromYText, toast],
   );
 
+  const lastDeletedTextRef = useRef<string | null>(null);
+
+  const handleDeleteNotes = useCallback(() => {
+    const ytext = yTextRef.current;
+    const editor = editorRef.current;
+    if (!ytext || !editor) return;
+    const previousText = ytext.toString() || editor.innerText;
+    if (!previousText.trim()) return;
+
+    lastDeletedTextRef.current = previousText;
+    applyYTextDiff(ytext, "");
+    editor.innerText = "";
+
+    toast("Group notes deleted", "info", {
+      label: "Undo",
+      onClick: () => {
+        if (lastDeletedTextRef.current !== null) {
+          const restored = lastDeletedTextRef.current;
+          applyYTextDiff(ytext, restored);
+          editor.innerText = restored;
+          lastDeletedTextRef.current = null;
+          toast("Notes restored", "success");
+        }
+      },
+    });
+  }, [toast]);
+
   return (
     <div className="flex w-full flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
       <div className="flex items-center justify-between border-b border-zinc-100 pb-3 dark:border-zinc-800">
@@ -226,15 +253,20 @@ export function GroupNotesEditor({
         </div>
       </div>
 
-      <div className="flex gap-1">
-        <FormatButton label="Bold" onClick={() => execFormat("bold")}>
-          <Bold className="h-3.5 w-3.5" />
-        </FormatButton>
-        <FormatButton label="Italic" onClick={() => execFormat("italic")}>
-          <Italic className="h-3.5 w-3.5" />
-        </FormatButton>
-        <FormatButton label="Underline" onClick={() => execFormat("underline")}>
-          <Underline className="h-3.5 w-3.5" />
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1">
+          <FormatButton label="Bold" onClick={() => execFormat("bold")}>
+            <Bold className="h-3.5 w-3.5" />
+          </FormatButton>
+          <FormatButton label="Italic" onClick={() => execFormat("italic")}>
+            <Italic className="h-3.5 w-3.5" />
+          </FormatButton>
+          <FormatButton label="Underline" onClick={() => execFormat("underline")}>
+            <Underline className="h-3.5 w-3.5" />
+          </FormatButton>
+        </div>
+        <FormatButton label="Clear notes" onClick={handleDeleteNotes}>
+          <Trash2 className="h-3.5 w-3.5 text-zinc-400 hover:text-red-500 transition-colors" />
         </FormatButton>
       </div>
 

@@ -11,7 +11,8 @@ import * as Y from "yjs";
 import YPartyKitProvider from "y-partykit/provider";
 import usePartySocket from "partysocket/react";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { Cloud, CloudOff, FileText, Loader2 } from "lucide-react";
+import { Cloud, CloudOff, FileText, Loader2, Trash2 } from "lucide-react";
+import { useToast } from "@/components/ui/Toast";
 import { applyYTextDiff } from "@/lib/crdt/applyYTextDiff";
 import {
   MAX_COLLECTION_NOTES_LENGTH,
@@ -104,6 +105,36 @@ export function CollaborativeNotes({
   const snapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
+  const { toast } = useToast();
+  const lastDeletedTextRef = useRef<string | null>(null);
+
+  const handleDeleteNotes = useCallback(() => {
+    if (!canEdit || !text) return;
+    const previousText = text;
+    lastDeletedTextRef.current = previousText;
+
+    setText("");
+    const ytext = ytextRef.current;
+    if (ytext) {
+      applyYTextDiff(ytext, "");
+    }
+
+    toast("Notes deleted", "info", {
+      label: "Undo",
+      onClick: () => {
+        if (lastDeletedTextRef.current !== null) {
+          const restored = lastDeletedTextRef.current;
+          setText(restored);
+          const currentYtext = ytextRef.current;
+          if (currentYtext) {
+            applyYTextDiff(currentYtext, restored);
+          }
+          lastDeletedTextRef.current = null;
+          toast("Notes restored", "success");
+        }
+      },
+    });
+  }, [canEdit, text, toast]);
 
   const roomName = collectionNotesRoom(resolvedFolderId);
   const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST || "127.0.0.1:1999";
@@ -478,6 +509,17 @@ export function CollaborativeNotes({
             <FileText className="w-4 h-4 text-zinc-500" aria-hidden="true" />
             <span>Collection notes</span>
           </label>
+          {canEdit && text.length > 0 && (
+            <button
+              type="button"
+              onClick={handleDeleteNotes}
+              aria-label="Delete notes"
+              title="Delete notes"
+              className="p-1 rounded-md text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
         {/* Collaborators Avatar Chips and Status */}
@@ -624,9 +666,23 @@ export function CollaborativeNotes({
         }
         className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 read-only:bg-zinc-50 dark:read-only:bg-zinc-900/50"
       />
-      <p className="mt-1 text-xs text-zinc-400 text-right">
-        {text.length}/{MAX_COLLECTION_NOTES_LENGTH}
-      </p>
+      <div className="flex items-center justify-between mt-1 text-xs text-zinc-400">
+        <div>
+          {canEdit && text.length > 0 && (
+            <button
+              type="button"
+              onClick={handleDeleteNotes}
+              className="inline-flex items-center gap-1 text-zinc-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>Clear notes</span>
+            </button>
+          )}
+        </div>
+        <p>
+          {text.length}/{MAX_COLLECTION_NOTES_LENGTH}
+        </p>
+      </div>
     </section>
   );
 }
