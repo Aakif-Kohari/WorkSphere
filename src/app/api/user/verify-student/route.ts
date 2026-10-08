@@ -40,22 +40,59 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { proof, publicSignals, witness } = body;
+    const {
+      proof,
+      publicSignals,
+      nullifierHash: explicitNullifierHash,
+      root: explicitRoot,
+      epoch: explicitEpoch,
+      witness,
+    } = body;
 
-    if (!proof || !publicSignals || !Array.isArray(publicSignals)) {
+    // Validate that proof and publicSignals are provided
+    if (!proof || !publicSignals || !Array.isArray(publicSignals) || publicSignals.length === 0) {
       return NextResponse.json(
-        { error: "Missing proof or publicSignals" },
+        { error: "Missing proof or publicSignals in request body" },
         { status: 400 },
       );
     }
 
-    // ── Multi-Campus Merkle Membership Proof (#3480) ────────────────────────
-    // When publicSignals contains [root, epoch], verify against active university Merkle root
-    if (publicSignals.length >= 2) {
-      const root = String(publicSignals[0]);
-      const epoch = Number(publicSignals[1]) || 2026;
+    // ── Extract Signals: Root, Epoch, Nullifier Hash ───────────────────────
+    let root = explicitRoot ? String(explicitRoot) : String(publicSignals[0]);
+    let epoch = explicitEpoch ? Number(explicitEpoch) : 2026;
+    let nullifierHash: string | null = explicitNullifierHash
+      ? String(explicitNullifierHash)
+      : null;
 
-      // 1. Verify that the root matches an active university Merkle root stored in DB
+    if (!nullifierHash && publicSignals.length >= 3) {
+      const sig1 = String(publicSignals[1]);
+      const sig2 = String(publicSignals[2]);
+      if (sig1.length <= 6 && !isNaN(Number(sig1))) {
+        epoch = Number(sig1);
+        nullifierHash = sig2;
+      } else if (sig2.length <= 6 && !isNaN(Number(sig2))) {
+        epoch = Number(sig2);
+        nullifierHash = sig1;
+      } else {
+        nullifierHash = sig2;
+      }
+    } else if (!nullifierHash && publicSignals.length === 2) {
+      if (!isNaN(Number(publicSignals[1])) && Number(publicSignals[1]) < 100000) {
+        epoch = Number(publicSignals[1]);
+      } else {
+        nullifierHash = String(publicSignals[1]);
+      }
+    } else if (!nullifierHash && publicSignals.length === 1 && !explicitRoot) {
+      nullifierHash = String(publicSignals[0]);
+    }
+
+    if (explicitEpoch) {
+      epoch = Number(explicitEpoch);
+    }
+
+    // ── 1. University Domain Hash / Merkle Root Validation ─────────────────
+    // If multi-signal or explicit root is present, check against accredited university Merkle roots
+    if (publicSignals.length >= 2 || explicitRoot) {
       const isRootActive = await isUniversityMerkleRootActive(root, epoch);
       if (!isRootActive) {
         return NextResponse.json(
@@ -63,69 +100,78 @@ export async function POST(req: Request) {
           { status: 400 },
         );
       }
-
-      // 2. Load student membership verification key
-      const studentVKeyPath = path.join(
-        process.cwd(),
-        "public",
-        "zkp",
-        "student_membership_vkey.json",
-      );
-      const fallbackVKeyPath = path.join(
-        process.cwd(),
-        "public",
-        "zkp",
-        "verification_key.json",
-      );
-      const vKeyPath = fs.existsSync(studentVKeyPath)
-        ? studentVKeyPath
-        : fallbackVKeyPath;
-
-      if (!fs.existsSync(vKeyPath)) {
-        return NextResponse.json(
-          { error: "Verification key not found" },
-          { status: 500 },
-        );
-      }
-
-      const vKey = JSON.parse(fs.readFileSync(vKeyPath, "utf-8"));
-
-      // 3. Verify Groth16 zero-knowledge proof
-      const isValid = await snarkjs.groth16.verify(vKey, publicSignals, proof);
-      if (!isValid) {
-        return NextResponse.json(
-          { error: "Invalid zero-knowledge proof" },
-          { status: 400 },
-        );
-      }
-
-      // 4. Update user in Prisma
-      await prisma.user.update({
-        where: { id: userId },
-        data: { isVerifiedStudent: true },
-      });
-
-      return NextResponse.json({ success: true, verified: true });
     }
 
-    // ── Single-Signal Proof Verification (Legacy / Token Commitment) ────────
+    // ── 2. Nullifier Replay Attack Prevention ──────────────────────────────
+    // Check if nullifier hash has been previously spent in the database
+    if (nullifierHash) {
+      const existingClaim = await prisma.studentClaimNullifier.findUnique({
+        where: { nullifierHash },
+      });
+
+      if (existingClaim) {
+        return NextResponse.json(
+          {
+            error: "Nullifier already used",
+            message: "This nullifier hash has already been spent for anonymous student perk claims.",
+            code: "NULLIFIER_ALREADY_SPENT",
+          },
+          { status: 409 },
+        );
+      }
+    }
+
+    // ── 3. Load Groth16 Verification Key (verification_key.json) ───────────
     const vKeyPath = path.join(
       process.cwd(),
       "public",
       "zkp",
       "verification_key.json",
     );
-    if (!fs.existsSync(vKeyPath)) {
+    const studentPassVKeyPath = path.join(
+      process.cwd(),
+      "public",
+      "zkp",
+      "student_access_pass_vkey.json",
+    );
+    const studentMembershipVKeyPath = path.join(
+      process.cwd(),
+      "public",
+      "zkp",
+      "student_membership_vkey.json",
+    );
+
+    let keyToLoad = vKeyPath;
+    if (publicSignals.length === 3 && fs.existsSync(studentPassVKeyPath)) {
+      keyToLoad = studentPassVKeyPath;
+    } else if (publicSignals.length === 2 && fs.existsSync(studentMembershipVKeyPath)) {
+      keyToLoad = studentMembershipVKeyPath;
+    } else if (fs.existsSync(vKeyPath)) {
+      keyToLoad = vKeyPath;
+    } else if (fs.existsSync(studentMembershipVKeyPath)) {
+      keyToLoad = studentMembershipVKeyPath;
+    }
+
+    if (!fs.existsSync(keyToLoad)) {
       return NextResponse.json(
         { error: "Verification key not found" },
         { status: 500 },
       );
     }
 
-    const vKey = JSON.parse(fs.readFileSync(vKeyPath, "utf-8"));
+    const vKey = JSON.parse(fs.readFileSync(keyToLoad, "utf-8"));
 
-    // Verify the proof
-    const isValid = await snarkjs.groth16.verify(vKey, publicSignals, proof);
+    // ── 4. Verify Proof using snarkjs Groth16 ──────────────────────────────
+    let isValid = false;
+    try {
+      isValid = await snarkjs.groth16.verify(vKey, publicSignals, proof);
+    } catch (verifyError) {
+      console.error("[VERIFY_STUDENT_GROTH16_ERROR]", verifyError);
+      return NextResponse.json(
+        { error: "Malformed or invalid proof signals" },
+        { status: 400 },
+      );
+    }
 
     if (!isValid) {
       return NextResponse.json(
@@ -134,30 +180,66 @@ export async function POST(req: Request) {
       );
     }
 
-    // Check Revocation Merkle Tree
-    const credentialHash = publicSignals[0];
-    const currentWitness = witness || generateWitness(credentialHash);
-    const currentRoot = await getCurrentMerkleRoot();
-    const revoked = verifyMerkleProof(
-      credentialHash,
-      currentWitness,
-      currentRoot,
-    );
-
-    if (revoked) {
-      return NextResponse.json(
-        { error: "Credential revoked" },
-        { status: 403 },
+    // ── Single-Signal Revocation Check (Legacy fallback) ────────────────────
+    if (publicSignals.length === 1 && witness) {
+      const credentialHash = publicSignals[0];
+      const currentWitness = witness || generateWitness(credentialHash);
+      const currentRoot = await getCurrentMerkleRoot();
+      const revoked = verifyMerkleProof(
+        credentialHash,
+        currentWitness,
+        currentRoot,
       );
+
+      if (revoked) {
+        return NextResponse.json(
+          { error: "Credential revoked" },
+          { status: 403 },
+        );
+      }
     }
 
-    // Update user in Prisma
-    await prisma.user.update({
-      where: { id: userId },
-      data: { isVerifiedStudent: true },
-    });
+    // ── 5. Database Nullifier Tracking & User Status Update ────────────────
+    if (nullifierHash) {
+      try {
+        await prisma.$transaction([
+          prisma.studentClaimNullifier.create({
+            data: {
+              nullifierHash,
+              epoch: Number(epoch) || 2026,
+            },
+          }),
+          prisma.user.update({
+            where: { id: userId },
+            data: { isVerifiedStudent: true },
+          }),
+        ]);
+      } catch (err: any) {
+        if (err?.code === "P2002" || err?.message?.includes("Unique constraint")) {
+          return NextResponse.json(
+            {
+              error: "Nullifier already used",
+              message: "This nullifier hash has already been spent for anonymous student perk claims.",
+              code: "NULLIFIER_ALREADY_SPENT",
+            },
+            { status: 409 },
+          );
+        }
+        throw err;
+      }
+    } else {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { isVerifiedStudent: true },
+      });
+    }
 
-    return NextResponse.json({ success: true, verified: true });
+    return NextResponse.json({
+      success: true,
+      verified: true,
+      nullifierHash: nullifierHash ?? undefined,
+      epoch,
+    });
   } catch (error) {
     console.error("[VERIFY_STUDENT]", error);
     return NextResponse.json(
