@@ -283,8 +283,8 @@ export function getVenueHoursStatus(
     const openMin = timeToMinutes(rawOpen);
     const closeMin = timeToMinutes(rawClose);
 
-    // All day
-    if ((openMin === 0 && closeMin === 1440) || (openMin === 0 && closeMin === 0)) {
+    // All day / 24-hour operating span
+    if (openMin === closeMin || (openMin === 0 && closeMin === 1440)) {
       return {
         isOpen: true,
         badgeText: "Open 24 Hours",

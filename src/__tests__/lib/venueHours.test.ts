@@ -124,6 +124,27 @@ describe("venueHours utility", () => {
         expect(status.status).toBe("24/7");
       }
     });
+
+    it("evaluates identical start and end times as 24-hour open span", () => {
+      const times = [
+        new Date(2026, 9, 8, 4, 15),
+        new Date(2026, 9, 8, 8, 0),
+        new Date(2026, 9, 8, 14, 30),
+        new Date(2026, 9, 8, 23, 0),
+      ];
+
+      for (const time of times) {
+        const status1 = getVenueHoursStatus("08:00 - 08:00", time);
+        expect(status1.isOpen).toBe(true);
+        expect(status1.status).toBe("24/7");
+        expect(status1.badgeText).toBe("Open 24 Hours");
+
+        const status2 = getVenueHoursStatus("09:30 - 09:30", time);
+        expect(status2.isOpen).toBe(true);
+        expect(status2.status).toBe("24/7");
+        expect(status2.badgeText).toBe("Open 24 Hours");
+      }
+    });
   });
 
   describe("Weekend & Structured weekly schedule", () => {
