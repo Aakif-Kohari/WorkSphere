@@ -201,7 +201,10 @@ describe("formatWalkingTimeBadge", () => {
   });
 
   it("switches from meters to kilometers at the 1 km boundary", () => {
+    expect(formatWalkingTimeBadge(0.95)).toBe("12 min walk · 950m");
+    expect(formatWalkingTimeBadge(0.99)).toBe("13 min walk · 990m");
     expect(formatWalkingTimeBadge(0.999)).toBe("13 min walk · 999m");
+    expect(formatWalkingTimeBadge(0.9995)).toBe("13 min walk · 1.0km");
     expect(formatWalkingTimeBadge(1)).toBe("13 min walk · 1.0km");
   });
 

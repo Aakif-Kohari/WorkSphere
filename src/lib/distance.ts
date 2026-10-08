@@ -104,6 +104,8 @@ export function formatWalkingTimeBadge(
     const miles = km * 0.621371;
     return `${mins} min walk · ${miles.toFixed(1)}mi`;
   }
-  const distance = km >= 1 ? `${km.toFixed(1)}km` : `${Math.round(km * 1000)}m`;
+  const meters = Math.round(km * 1000);
+  const distance =
+    meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${meters}m`;
   return `${mins} min walk · ${distance}`;
 }
