@@ -88,6 +88,8 @@ export interface QueuedVenueReview {
   reviewId?: string; // Existing review ID if updating
   baseVenueUpdatedAt?: string;
   baseReviewUpdatedAt?: string;
+  baseVersionTimestamp?: string;
+  baseVersion?: string;
   data: {
     wifiQuality: number;
     hasOutlets: boolean;

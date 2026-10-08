@@ -22,6 +22,8 @@ export interface QueuedVenueReview {
   reviewId?: string; // Existing review ID if updating
   baseVenueUpdatedAt?: string;
   baseReviewUpdatedAt?: string;
+  baseVersionTimestamp?: string;
+  baseVersion?: string;
   data: {
     wifiQuality: number;
     hasOutlets: boolean;
@@ -301,8 +303,15 @@ export async function queueOfflineReview(
     const db = await openReviewDB();
     const id = item.id || generateClientReviewId();
 
+    const baseVersionTimestamp =
+      item.baseVersionTimestamp ||
+      item.baseReviewUpdatedAt ||
+      item.baseVenueUpdatedAt;
+
     const queuedReview: QueuedVenueReview = {
       ...item,
+      baseVersionTimestamp,
+      baseVersion: item.baseVersion || baseVersionTimestamp,
       id,
       createdAt: Date.now(),
       retryCount: 0,
@@ -511,6 +520,11 @@ export async function flushPendingReviewsClientFallback(
         headers["x-csrf-token"] = csrfToken;
       }
 
+      const baseVersionTimestamp =
+        item.baseVersionTimestamp ||
+        item.baseReviewUpdatedAt ||
+        item.baseVenueUpdatedAt;
+
       const res = await fetch(
         `/api/venues/${encodeURIComponent(item.venueId)}/reviews`,
         {
@@ -522,7 +536,9 @@ export async function flushPendingReviewsClientFallback(
             idempotencyKey: item.id,
             reviewId: item.reviewId,
             baseVenueUpdatedAt: item.baseVenueUpdatedAt,
-            baseReviewUpdatedAt: item.baseReviewUpdatedAt,
+            baseReviewUpdatedAt: item.baseReviewUpdatedAt || baseVersionTimestamp,
+            baseVersion: item.baseVersion || baseVersionTimestamp,
+            baseVersionTimestamp,
           }),
         },
       );
@@ -613,11 +629,129 @@ export async function flushPendingReviewsClientFallback(
 }
 
 /**
- * Resolve a review conflict deterministically: "KEEP_LOCAL" or "USE_REMOTE".
+ * Detects whether a concurrent remote update occurred by comparing
+ * client baseVersionTimestamp against server updatedAt.
+ */
+export function detectConcurrentUpdate(
+  baseVersionTimestamp?: string,
+  serverUpdatedAt?: string,
+): boolean {
+  if (!baseVersionTimestamp || !serverUpdatedAt) return false;
+  return new Date(serverUpdatedAt).getTime() > new Date(baseVersionTimestamp).getTime();
+}
+
+export interface ThreeWayMergeOptions {
+  baseData?: Partial<QueuedVenueReview["data"]>;
+  baseVersionTimestamp?: string;
+  serverUpdatedAt?: string;
+  preferNewer?: boolean;
+}
+
+/**
+ * Applies three-way merge or preserves newer edits between local queued edits and server review.
+ */
+export function applyThreeWayMerge(
+  localData: QueuedVenueReview["data"],
+  serverReview: Record<string, unknown>,
+  options: ThreeWayMergeOptions = {},
+): QueuedVenueReview["data"] {
+  const merged: QueuedVenueReview["data"] = { ...localData };
+  const baseData = options.baseData;
+  const isServerNewer =
+    options.preferNewer !== false &&
+    detectConcurrentUpdate(
+      options.baseVersionTimestamp,
+      options.serverUpdatedAt || (serverReview.updatedAt as string),
+    );
+
+  const allKeys = Array.from(
+    new Set([
+      ...Object.keys(localData),
+      ...Object.keys(serverReview),
+      ...(baseData ? Object.keys(baseData) : []),
+    ]),
+  ) as (keyof QueuedVenueReview["data"])[];
+
+  for (const key of allKeys) {
+    if (
+      key === ("id" as any) ||
+      key === ("createdAt" as any) ||
+      key === ("updatedAt" as any) ||
+      key === ("venueId" as any) ||
+      key === ("userId" as any)
+    ) {
+      continue;
+    }
+
+    const localVal = localData[key];
+    const serverVal = serverReview[key as string] as any;
+    const baseVal = baseData ? baseData[key] : undefined;
+
+    if (serverVal === undefined) {
+      if (localVal !== undefined) {
+        (merged as any)[key] = localVal;
+      }
+      continue;
+    }
+
+    if (localVal === undefined) {
+      (merged as any)[key] = serverVal;
+      continue;
+    }
+
+    // Both defined:
+    if (baseData && baseVal !== undefined) {
+      const localChanged =
+        JSON.stringify(localVal) !== JSON.stringify(baseVal);
+      const serverChanged =
+        JSON.stringify(serverVal) !== JSON.stringify(baseVal);
+
+      if (serverChanged && !localChanged) {
+        // Server changed, local did not -> preserve server update
+        (merged as any)[key] = serverVal;
+      } else if (!serverChanged && localChanged) {
+        // Local changed, server did not -> keep local edit
+        (merged as any)[key] = localVal;
+      } else if (serverChanged && localChanged) {
+        // Both changed:
+        if (isServerNewer && key !== "comment") {
+          (merged as any)[key] = serverVal;
+        } else if (
+          key === "comment" &&
+          typeof localVal === "string" &&
+          typeof serverVal === "string"
+        ) {
+          (merged as any)[key] =
+            localVal === serverVal
+              ? localVal
+              : `${localVal} (Server update: ${serverVal})`;
+        } else {
+          (merged as any)[key] = isServerNewer ? serverVal : localVal;
+        }
+      }
+    } else {
+      // Without base data: if server is newer, preserve server update
+      if (isServerNewer) {
+        (merged as any)[key] = serverVal;
+      } else {
+        (merged as any)[key] = localVal !== undefined ? localVal : serverVal;
+      }
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Resolve a review conflict deterministically: "KEEP_LOCAL", "USE_REMOTE", "MERGE_NEWER", or "THREE_WAY_MERGE".
  */
 export async function resolveReviewConflict(
   id: string,
-  resolution: "KEEP_LOCAL" | "USE_REMOTE",
+  resolution: "KEEP_LOCAL" | "USE_REMOTE" | "MERGE_NEWER" | "THREE_WAY_MERGE",
+  options?: {
+    baseData?: Partial<QueuedVenueReview["data"]>;
+    preferNewer?: boolean;
+  },
 ): Promise<boolean> {
   const reviews = await getQueuedReviews();
   const item = reviews.find((r) => r.id === id);
@@ -628,7 +762,22 @@ export async function resolveReviewConflict(
     return true;
   }
 
-  // KEEP_LOCAL -> submit with forceOverwrite
+  const serverReview = (item.conflictDetails?.serverReview || {}) as Record<string, unknown>;
+  const serverUpdatedAt = (serverReview.updatedAt as string) || undefined;
+  const baseVersionTimestamp = item.baseVersionTimestamp || item.baseReviewUpdatedAt;
+
+  let payloadData: QueuedVenueReview["data"] = item.data;
+
+  if (resolution === "MERGE_NEWER" || resolution === "THREE_WAY_MERGE") {
+    payloadData = applyThreeWayMerge(item.data, serverReview, {
+      baseData: options?.baseData,
+      baseVersionTimestamp,
+      serverUpdatedAt,
+      preferNewer: options?.preferNewer ?? true,
+    });
+  }
+
+  // KEEP_LOCAL or MERGE -> submit with forceOverwrite
   let csrfToken = "";
   try {
     const csrfRes = await fetch("/api/auth/csrf-token");
@@ -653,7 +802,7 @@ export async function resolveReviewConflict(
       headers,
       credentials: "same-origin",
       body: JSON.stringify({
-        ...item.data,
+        ...payloadData,
         idempotencyKey: item.id,
         forceOverwrite: true,
       }),
@@ -720,6 +869,11 @@ export interface OfflineReviewSubmissionInput {
   rating?: number;
   comment?: string;
   data?: QueuedVenueReview["data"];
+  reviewId?: string;
+  baseVenueUpdatedAt?: string;
+  baseReviewUpdatedAt?: string;
+  baseVersionTimestamp?: string;
+  baseVersion?: string;
 }
 
 export interface OfflineReviewSubmissionResult {
@@ -751,6 +905,11 @@ export async function submitReviewWithOfflineSync(
     const queued = await queueOfflineReview({
       venueId: input.venueId,
       venueName: input.venueName,
+      reviewId: input.reviewId,
+      baseVenueUpdatedAt: input.baseVenueUpdatedAt,
+      baseReviewUpdatedAt: input.baseReviewUpdatedAt,
+      baseVersionTimestamp: input.baseVersionTimestamp || input.baseReviewUpdatedAt,
+      baseVersion: input.baseVersion,
       data: reviewData,
     });
 

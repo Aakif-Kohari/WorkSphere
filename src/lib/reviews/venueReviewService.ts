@@ -203,10 +203,15 @@ export class VenueReviewService {
 
     const {
       venue: venueData,
-      baseReviewUpdatedAt,
+      baseReviewUpdatedAt: rawBaseReviewUpdatedAt,
       baseVenueUpdatedAt,
       baseReview,
+      baseVersion,
+      baseVersionTimestamp,
     } = body || {};
+
+    const baseReviewUpdatedAt =
+      rawBaseReviewUpdatedAt || baseVersionTimestamp || baseVersion;
 
     // 3. Moderate comment content
     const moderation = this.moderator.moderateComment(comment);
