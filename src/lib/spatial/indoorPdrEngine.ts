@@ -160,11 +160,25 @@ export function calculateRssiDistance(
   txPower = -59,
   pathLossExp = 2.5,
 ): number {
-  if (rssi >= 0 || !Number.isFinite(rssi)) {
+  if (
+    !Number.isFinite(rssi) ||
+    rssi >= 0 ||
+    !Number.isFinite(txPower) ||
+    !Number.isFinite(pathLossExp) ||
+    pathLossExp <= 0
+  ) {
     return 0.1;
   }
-  const exponent = (txPower - rssi) / (10 * pathLossExp);
+  const safeTxPower = Number.isFinite(txPower) ? txPower : -59;
+  const safePathLoss = Number.isFinite(pathLossExp) && pathLossExp > 0 ? pathLossExp : 2.5;
+  const exponent = (safeTxPower - rssi) / (10 * safePathLoss);
+  if (!Number.isFinite(exponent)) {
+    return 0.1;
+  }
   const rawDist = Math.pow(10, exponent);
+  if (!Number.isFinite(rawDist)) {
+    return 0.1;
+  }
   return Math.max(0.1, Math.min(100, Math.round(rawDist * 100) / 100));
 }
 
@@ -177,7 +191,7 @@ export function calculateRssiDistance(
 export function solveTrilateration(
   beacons: BeaconReading[],
 ): PositionEstimate | null {
-  if (!beacons || beacons.length < 3) {
+  if (!beacons || !Array.isArray(beacons) || beacons.length < 3) {
     return null;
   }
 
@@ -185,6 +199,7 @@ export function solveTrilateration(
   const valid = beacons
     .filter(
       (b) =>
+        b &&
         Number.isFinite(b.x) &&
         Number.isFinite(b.y) &&
         Number.isFinite(b.rssi) &&
@@ -198,7 +213,8 @@ export function solveTrilateration(
         b.txPower ?? -59,
         b.pathLossExponent ?? 2.5,
       ),
-    }));
+    }))
+    .filter((b) => Number.isFinite(b.d) && b.d > 0);
 
   if (valid.length < 3) return null;
 
@@ -227,19 +243,23 @@ export function solveTrilateration(
 
   const det = row1_x * row2_y - row1_y * row2_x;
 
-  if (Math.abs(det) < 1e-6) {
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-6) {
     // Collinear or degenerate: fall back to weighted centroid
     let sumWeight = 0;
     let wx = 0;
     let wy = 0;
     for (const b of valid) {
       const w = 1.0 / Math.max(0.1, b.d * b.d);
-      sumWeight += w;
-      wx += b.x * w;
-      wy += b.y * w;
+      if (Number.isFinite(w) && w > 0) {
+        sumWeight += w;
+        wx += b.x * w;
+        wy += b.y * w;
+      }
     }
+    if (sumWeight <= 0 || !Number.isFinite(sumWeight)) return null;
     const x = wx / sumWeight;
     const y = wy / sumWeight;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
     return {
       x: Math.round(x * 100) / 100,
       y: Math.round(y * 100) / 100,
@@ -251,6 +271,10 @@ export function solveTrilateration(
   const estX = (row2_y * rhs1 - row1_y * rhs2) / det;
   const estY = (-row2_x * rhs1 + row1_x * rhs2) / det;
 
+  if (!Number.isFinite(estX) || !Number.isFinite(estY)) {
+    return null;
+  }
+
   // Calculate geometric residual error
   let residualSum = 0;
   for (const b of valid) {
@@ -258,12 +282,13 @@ export function solveTrilateration(
     residualSum += Math.abs(calcDist - b.d);
   }
   const residuals = residualSum / valid.length;
+  const safeResiduals = Number.isFinite(residuals) ? residuals : 1.0;
 
   return {
     x: Math.round(estX * 100) / 100,
     y: Math.round(estY * 100) / 100,
-    estimatedAccuracy: Math.max(1.0, Math.round(residuals * 100) / 100),
-    residuals: Math.round(residuals * 100) / 100,
+    estimatedAccuracy: Math.max(1.0, Math.round(safeResiduals * 100) / 100),
+    residuals: Math.round(safeResiduals * 100) / 100,
   };
 }
 
@@ -898,7 +923,13 @@ export class IndoorPdrEngine {
    * @returns boolean true if range update was accepted by EKF
    */
   processSingleBeaconRssi(beacon: BeaconReading): boolean {
-    if (!beacon || !Number.isFinite(beacon.rssi) || beacon.rssi >= 0) {
+    if (
+      !beacon ||
+      !Number.isFinite(beacon.x) ||
+      !Number.isFinite(beacon.y) ||
+      !Number.isFinite(beacon.rssi) ||
+      beacon.rssi >= 0
+    ) {
       return false;
     }
 
@@ -908,8 +939,16 @@ export class IndoorPdrEngine {
       beacon.pathLossExponent ?? 2.5,
     );
 
+    if (!Number.isFinite(distance) || distance <= 0) {
+      return false;
+    }
+
     // Variance grows with distance due to log-distance shadow fading
     const rVariance = Math.max(1.0, Math.pow(0.25 * distance, 2) + 1.5);
+    if (!Number.isFinite(rVariance) || rVariance <= 0) {
+      return false;
+    }
+
     const accepted = this.ekf.updateRange(beacon.x, beacon.y, distance, rVariance);
 
     if (accepted) {
