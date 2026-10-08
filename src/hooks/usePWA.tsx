@@ -6,6 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 import { purgeStaleWeights } from "@/lib/federated/weightDb";
 import { useWorkerTokenRefresh } from "@/hooks/useWorkerTokenRefresh";
 import { flushPendingReviewsClientFallback } from "@/lib/offlineReviewSync";
+import { useReviewConflictWorker } from "@/hooks/useReviewConflictWorker";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -104,6 +105,7 @@ export function SyncManager() {
   useSyncWorker();
   usePeriodicAvailabilitySync();
   usePeriodicFavoriteVenuesSync();
+  useReviewConflictWorker();
 
   useEffect(() => {
     // Non-blocking purge of stale federated learning model weights on startup
