@@ -332,6 +332,7 @@ export default async function VenuePage({ params }: PageProps) {
             {/* Collaborative venue notes */}
             <CollaborativeNotes
               roomId={venue.id}
+              venueName={venue.name}
               placeholder={`Shared notes for ${venue.name}...`}
             />
             <div className="pt-6 border-t border-zinc-100 dark:border-zinc-800 space-y-4">

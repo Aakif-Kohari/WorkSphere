@@ -9,7 +9,7 @@ import {
 } from "react";
 import * as Y from "yjs";
 import YPartyKitProvider from "y-partykit/provider";
-import { Bold, Italic, Loader2, Trash2, Underline, Wifi, WifiOff } from "lucide-react";
+import { Bold, Italic, Loader2, Trash2, Underline, Wifi, WifiOff, FileDown } from "lucide-react";
 import { applyYTextDiff } from "@/lib/crdt/applyYTextDiff";
 import {
   enqueueNotesUpdate,
@@ -28,6 +28,7 @@ export type GroupNotesEditorProps = {
   placeholder?: string;
   /** Shared Y.Text key inside the document */
   textKey?: string;
+  venueName?: string;
 };
 
 type ConnStatus = "connecting" | "connected" | "offline";
@@ -40,6 +41,7 @@ export function GroupNotesEditor({
   roomId,
   placeholder = "Start writing group notes…",
   textKey = "group-notes",
+  venueName,
 }: GroupNotesEditorProps) {
   const [status, setStatus] = useState<ConnStatus>("connecting");
   const [pendingOutbox, setPendingOutbox] = useState(0);
@@ -230,6 +232,55 @@ export function GroupNotesEditor({
     });
   }, [toast]);
 
+  const handleExportMarkdown = useCallback(() => {
+    const ytext = yTextRef.current;
+    const editor = editorRef.current;
+    const content = ytext?.toString() || editor?.innerText || "";
+
+    if (!content.trim()) {
+      toast("No notes to export yet", "warning");
+      return;
+    }
+
+    const title = venueName || "Venue Notes";
+    const dateStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    const markdownDoc = [
+      `# ${title}`,
+      `> Exported from WorkSphere Collaborative Notes on ${dateStr}`,
+      `> Room ID: \`${roomId}\``,
+      "",
+      "---",
+      "",
+      content,
+      "",
+    ].join("\n");
+
+    const blob = new Blob([markdownDoc], {
+      type: "text/markdown;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const sanitizedTitle = (venueName || roomId)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    link.href = url;
+    link.download = `${sanitizedTitle || "venue"}-notes-${new Date().toISOString().split("T")[0]}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast("Exported venue notes as Markdown (.md) file", "success");
+  }, [roomId, toast, venueName]);
+
   return (
     <div className="flex w-full flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
       <div className="flex items-center justify-between border-b border-zinc-100 pb-3 dark:border-zinc-800">
@@ -265,9 +316,14 @@ export function GroupNotesEditor({
             <Underline className="h-3.5 w-3.5" />
           </FormatButton>
         </div>
-        <FormatButton label="Clear notes" onClick={handleDeleteNotes}>
-          <Trash2 className="h-3.5 w-3.5 text-zinc-400 hover:text-red-500 transition-colors" />
-        </FormatButton>
+        <div className="flex items-center gap-1">
+          <FormatButton label="Export Markdown (.md)" onClick={handleExportMarkdown}>
+            <FileDown className="h-3.5 w-3.5 text-zinc-500 hover:text-indigo-600 dark:text-zinc-400 dark:hover:text-indigo-400 transition-colors" />
+          </FormatButton>
+          <FormatButton label="Clear notes" onClick={handleDeleteNotes}>
+            <Trash2 className="h-3.5 w-3.5 text-zinc-400 hover:text-red-500 transition-colors" />
+          </FormatButton>
+        </div>
       </div>
 
       <div

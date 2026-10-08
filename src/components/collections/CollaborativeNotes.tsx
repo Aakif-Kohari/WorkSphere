@@ -11,7 +11,7 @@ import * as Y from "yjs";
 import YPartyKitProvider from "y-partykit/provider";
 import usePartySocket from "partysocket/react";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { Cloud, CloudOff, FileText, Loader2, Trash2 } from "lucide-react";
+import { Cloud, CloudOff, FileText, Loader2, Trash2, FileDown } from "lucide-react";
 import { useToast } from "@/components/ui/Toast";
 import { applyYTextDiff } from "@/lib/crdt/applyYTextDiff";
 import {
@@ -135,6 +135,51 @@ export function CollaborativeNotes({
       },
     });
   }, [canEdit, text, toast]);
+
+  const handleExportMarkdown = useCallback(() => {
+    if (!text.trim()) {
+      toast("No notes to export yet", "warning");
+      return;
+    }
+
+    const title = folderId ? `Collection Notes (${folderId})` : "Collaborative Notes";
+    const dateStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    const markdownDoc = [
+      `# ${title}`,
+      `> Exported from WorkSphere on ${dateStr}`,
+      `> Target: \`${resolvedFolderId}\``,
+      "",
+      "---",
+      "",
+      text,
+      "",
+    ].join("\n");
+
+    const blob = new Blob([markdownDoc], {
+      type: "text/markdown;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const sanitizedId = resolvedFolderId
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    link.href = url;
+    link.download = `notes-${sanitizedId || "collection"}-${new Date().toISOString().split("T")[0]}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast("Exported notes as Markdown (.md) file", "success");
+  }, [folderId, resolvedFolderId, text, toast]);
 
   const roomName = collectionNotesRoom(resolvedFolderId);
   const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST || "127.0.0.1:1999";
@@ -667,7 +712,17 @@ export function CollaborativeNotes({
         className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 read-only:bg-zinc-50 dark:read-only:bg-zinc-900/50"
       />
       <div className="flex items-center justify-between mt-1 text-xs text-zinc-400">
-        <div>
+        <div className="flex items-center gap-3">
+          {text.length > 0 && (
+            <button
+              type="button"
+              onClick={handleExportMarkdown}
+              className="inline-flex items-center gap-1 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+            >
+              <FileDown className="w-3 h-3" />
+              <span>Export .md</span>
+            </button>
+          )}
           {canEdit && text.length > 0 && (
             <button
               type="button"
