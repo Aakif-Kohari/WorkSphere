@@ -15,6 +15,8 @@ import {
   normalizeBookingTime,
   conflictDateWindow,
   findConflictingBookings,
+  bookingInterval,
+  intervalsOverlap,
 } from "@/lib/booking";
 import { NotificationDispatcher } from "@/lib/notifications/dispatcher";
 import type {
@@ -240,17 +242,35 @@ export async function cancelWaitlistEntry(
 
 /**
  * Checks and notifies the next eligible user in the waitlist when a seat becomes free.
+ *
+ * Eligibility is decided on real instants, not on the raw `date`/`time`
+ * strings: a waiter is only offered the seat when the interval they asked for
+ * (in their own timezone) overlaps the interval that was freed (in the freed
+ * booking's timezone) and, when the freed seat is known, that seat has no other
+ * active booking inside the waiter's interval.
  */
 export async function notifyNextInWaitlist(
   venueId: string,
   date: string,
   time: string,
-  _freedDuration: number = 60,
+  freedDuration: number = 60,
   freedSeatId?: string | null,
+  freedTimeZone?: string | null,
 ): Promise<{ notified: boolean; waitlistId?: string; userId?: string }> {
   // First expire any stale notified entries whose claim window lapsed
   await expireStaleWaitlistOffers();
 
+  const freedInterval = bookingInterval(
+    { date, time, timeZone: freedTimeZone, duration: freedDuration },
+    "UTC",
+  );
+  if (!freedInterval) {
+    return { notified: false };
+  }
+
+  // A waiter's wall-clock date can differ from the freed booking's date when
+  // the two were made in different timezones or run past midnight, so fetch a
+  // window of neighbouring dates and compare real instants below.
   const dates = conflictDateWindow(date);
 
   for (let attempt = 0; ; attempt++) {
@@ -263,7 +283,6 @@ export async function notifyNextInWaitlist(
             SELECT id FROM "VenueSeatWaitlist"
             WHERE "venueId" = ${venueId}
               AND "date" IN (${Prisma.join(dates)})
-              AND "time" = ${time}
               AND "status" = 'ACTIVE'
             ORDER BY "createdAt" ASC
             FOR UPDATE
@@ -274,7 +293,6 @@ export async function notifyNextInWaitlist(
             where: {
               venueId,
               date: { in: dates },
-              time,
               status: "ACTIVE",
             },
             include: {
@@ -284,12 +302,27 @@ export async function notifyNextInWaitlist(
             orderBy: { createdAt: "asc" },
           });
 
-          if (candidates.length === 0) {
+          // Only waiters whose requested interval actually overlaps the freed
+          // interval are eligible (FIFO order is preserved by the query).
+          const overlapping = candidates.filter((c) => {
+            const wanted = bookingInterval(
+              {
+                date: c.date,
+                time: c.time,
+                timeZone: c.timeZone,
+                duration: c.duration,
+              },
+              "UTC",
+            );
+            return wanted !== null && intervalsOverlap(wanted, freedInterval);
+          });
+
+          if (overlapping.length === 0) {
             return null;
           }
 
           // Filter candidates matching seat preferences if freedSeatId is provided
-          let candidate: typeof candidates[0] | undefined = candidates[0];
+          let candidate: typeof overlapping[0] | undefined = overlapping[0];
           if (freedSeatId) {
             const seat = await tx.venueSeat.findUnique({
               where: { id: freedSeatId },
@@ -297,12 +330,33 @@ export async function notifyNextInWaitlist(
             if (!seat) {
               return null;
             }
-            candidate = candidates.find((c) => {
+
+            // The seat is only really free for a waiter if nobody else holds
+            // it during the waiter's own interval.
+            const seatBookings = await tx.booking.findMany({
+              where: {
+                seatId: freedSeatId,
+                date: { in: dates },
+                status: { in: ["CONFIRMED", "PENDING"] },
+              },
+              select: { date: true, time: true, duration: true, timeZone: true },
+            });
+
+            candidate = overlapping.find((c) => {
               if (c.seatId && c.seatId !== freedSeatId) return false;
               if (c.seatType && c.seatType !== seat.type) return false;
               if (c.requiresQuiet && !seat.isQuietZone) return false;
               if (c.requiresOutlets && !seat.amenities.includes("outlets")) return false;
-              return true;
+              const taken = findConflictingBookings(
+                {
+                  date: c.date,
+                  time: c.time,
+                  timeZone: c.timeZone || "UTC",
+                  duration: c.duration,
+                },
+                seatBookings,
+              );
+              return taken.length === 0;
             });
             if (!candidate) {
               return null;
@@ -593,6 +647,7 @@ async function expireEntryAndOfferToNext(waitlistId: string): Promise<void> {
       entry.time,
       entry.duration,
       entry.seatId,
+      entry.timeZone,
     );
   } catch (err) {
     console.error("Failed to offer expired waitlist seat to next in line:", err);
@@ -633,6 +688,7 @@ export async function expireStaleWaitlistOffers(): Promise<number> {
         entry.time,
         entry.duration,
         entry.seatId,
+        entry.timeZone,
       );
     } catch (err) {
       console.error("Failed to offer expired waitlist seat to next in line:", err);

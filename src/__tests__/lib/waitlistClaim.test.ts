@@ -360,3 +360,105 @@ describe("notifyNextInWaitlist concurrency (#4796)", () => {
     expect(sentNotifications).toHaveLength(1);
   });
 });
+
+describe("notifyNextInWaitlist eligibility uses real intervals", () => {
+  beforeEach(() => {
+    db.waitlist.length = 0;
+    db.bookings.length = 0;
+    db.seats.length = 0;
+    sentNotifications.length = 0;
+    db.seats.push(seat("seat_1", "A1"));
+  });
+
+  it("does not offer a freed seat to an older waiter who wants a different day at the same clock time", async () => {
+    db.waitlist.push(
+      // Oldest in line, but waiting for 2 days earlier at the same 10:00.
+      waitlistEntry("w_other_day", "u1", {
+        status: "ACTIVE",
+        claimExpiresAt: null,
+        date: "2030-01-08",
+        createdAt: new Date(1),
+      }),
+      waitlistEntry("w_same_day", "u2", {
+        status: "ACTIVE",
+        claimExpiresAt: null,
+        createdAt: new Date(2),
+      }),
+    );
+
+    const res = await notifyNextInWaitlist("venue_1", DATE, "10:00", 60, "seat_1", "UTC");
+
+    expect(res.notified).toBe(true);
+    expect(res.waitlistId).toBe("w_same_day");
+    expect(db.waitlist.find((w: any) => w.id === "w_other_day").status).toBe("ACTIVE");
+  });
+
+  it("offers the seat to a waiter whose slot overlaps but starts at a different time", async () => {
+    db.waitlist.push(
+      waitlistEntry("w_overlap", "u1", {
+        status: "ACTIVE",
+        claimExpiresAt: null,
+        time: "10:30",
+        createdAt: new Date(1),
+      }),
+    );
+
+    // Freed booking ran 10:00-11:00 UTC, so a 10:30 waiter overlaps it.
+    const res = await notifyNextInWaitlist("venue_1", DATE, "10:00", 60, "seat_1", "UTC");
+
+    expect(res.notified).toBe(true);
+    expect(res.waitlistId).toBe("w_overlap");
+  });
+
+  it("compares instants across timezones", async () => {
+    db.waitlist.push(
+      // 10:00 in New York is 15:00 UTC: same wall clock as the freed booking, different instant.
+      waitlistEntry("w_wrong_tz", "u1", {
+        status: "ACTIVE",
+        claimExpiresAt: null,
+        timeZone: "America/New_York",
+        createdAt: new Date(1),
+      }),
+      // 15:00 in Colombo is 09:30 UTC: overlaps the freed 09:00-10:00 UTC slot.
+      waitlistEntry("w_right_tz", "u2", {
+        status: "ACTIVE",
+        claimExpiresAt: null,
+        time: "15:00",
+        timeZone: "Asia/Colombo",
+        createdAt: new Date(2),
+      }),
+    );
+
+    const res = await notifyNextInWaitlist("venue_1", DATE, "09:00", 60, "seat_1", "UTC");
+
+    expect(res.notified).toBe(true);
+    expect(res.waitlistId).toBe("w_right_tz");
+  });
+
+  it("skips waiters whose own interval is still occupied on the freed seat", async () => {
+    db.waitlist.push(
+      waitlistEntry("w_blocked", "u1", {
+        status: "ACTIVE",
+        claimExpiresAt: null,
+        time: "10:30",
+        duration: 60,
+        createdAt: new Date(1),
+      }),
+      waitlistEntry("w_free", "u2", {
+        status: "ACTIVE",
+        claimExpiresAt: null,
+        time: "10:00",
+        duration: 30,
+        createdAt: new Date(2),
+      }),
+    );
+    // Seat was freed for 10:00-11:00 but someone else already holds 10:45-11:45.
+    db.bookings.push(booking("b_other", "seat_1", "10:45", { status: "CONFIRMED" }));
+
+    const res = await notifyNextInWaitlist("venue_1", DATE, "10:00", 60, "seat_1", "UTC");
+
+    expect(res.notified).toBe(true);
+    expect(res.waitlistId).toBe("w_free");
+  });
+});
+

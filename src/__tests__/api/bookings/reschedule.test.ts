@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
 
 jest.mock("@clerk/nextjs/server", () => ({
   auth: jest.fn(),
@@ -14,6 +15,7 @@ jest.mock("@/lib/prisma", () => ({
     venueSeat: {
       findFirst: jest.fn(),
     },
+    $queryRaw: jest.fn().mockResolvedValue([]),
     $transaction: jest.fn((callback) => callback(prisma)),
   },
 }));
@@ -33,6 +35,8 @@ jest.mock("@/lib/waitlist", () => ({
 import { PATCH } from "@/app/api/bookings/[bookingId]/route";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
+import { publishVenueAvailability } from "@/lib/reservations/event-bus";
+import { emitWebhookEvent } from "@/lib/webhooks/deliver";
 
 describe("PATCH /api/bookings/[bookingId] - Reschedule & Extend Flow", () => {
   const mockUserId = "user_123";
@@ -225,5 +229,160 @@ describe("PATCH /api/bookings/[bookingId] - Reschedule & Extend Flow", () => {
     expect(data.success).toBe(true);
     expect(data.message).toBe("Booking rescheduled successfully.");
     expect(data.booking).toEqual(mockUpdated);
+  });
+
+  describe("concurrency safety", () => {
+    const activeBooking = {
+      id: mockBookingId,
+      confirmationId: "WS-CONF-123",
+      userId: mockUserId,
+      status: "CONFIRMED",
+      date: "2026-10-10",
+      time: "10:00",
+      duration: 60,
+      venueId: "venue_1",
+      seatId: "seat_99",
+      seatNumber: "A1",
+      venue: { id: "venue_1", name: "Desk Hub", address: "123 St", category: "coworking" },
+    };
+
+    const rescheduleRequest = () =>
+      new NextRequest("http://localhost/api/bookings/booking_abc", {
+        method: "PATCH",
+        body: JSON.stringify({ date: "2026-10-15", time: "11:00", duration: 60 }),
+      });
+
+    const callPatch = () =>
+      PATCH(rescheduleRequest(), {
+        params: Promise.resolve({ bookingId: mockBookingId }),
+      });
+
+    beforeEach(() => {
+      // Pass-through transaction; reset so a failing test can't leak its
+      // rejected/once implementations into the next one.
+      (prisma.$transaction as jest.Mock).mockReset();
+      (prisma.$transaction as jest.Mock).mockImplementation((cb) => cb(prisma));
+      (prisma.booking.findFirst as jest.Mock).mockResolvedValue(activeBooking);
+      (prisma.venueSeat.findFirst as jest.Mock).mockResolvedValue({
+        id: "seat_99",
+        seatNumber: "A1",
+        isEnabled: true,
+      });
+      (prisma.booking.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.booking.update as jest.Mock).mockResolvedValue({
+        ...activeBooking,
+        date: "2026-10-15",
+        time: "11:00",
+      });
+    });
+
+    it("runs the conflict check and write in a Serializable transaction", async () => {
+      const res = await callPatch();
+
+      expect(res.status).toBe(200);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      const options = (prisma.$transaction as jest.Mock).mock.calls[0][1];
+      expect(options?.isolationLevel).toBe(
+        Prisma.TransactionIsolationLevel.Serializable,
+      );
+    });
+
+    it("row-locks the target seat before reading conflicting bookings", async () => {
+      await callPatch();
+
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      const lockOrder = (prisma.$queryRaw as jest.Mock).mock
+        .invocationCallOrder[0];
+      const readOrder = (prisma.booking.findMany as jest.Mock).mock
+        .invocationCallOrder[0];
+      expect(lockOrder).toBeLessThan(readOrder);
+    });
+
+    it("only updates a booking that is still active (compare-and-set)", async () => {
+      await callPatch();
+
+      const args = (prisma.booking.update as jest.Mock).mock.calls[0][0];
+      expect(args.where).toEqual({
+        id: mockBookingId,
+        userId: mockUserId,
+        status: { in: ["CONFIRMED", "PENDING", "CHECKED_IN"] },
+      });
+    });
+
+    it("returns 409 and emits no events when the booking was cancelled mid-flight", async () => {
+      (prisma.booking.update as jest.Mock).mockRejectedValueOnce(
+        Object.assign(new Error("Record to update not found."), {
+          code: "P2025",
+        }),
+      );
+
+      const res = await callPatch();
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toContain(
+        "changed or cancelled by another request",
+      );
+      expect(publishVenueAvailability).not.toHaveBeenCalled();
+      expect(emitWebhookEvent).not.toHaveBeenCalled();
+    });
+
+    it("retries a serialization failure and then succeeds", async () => {
+      (prisma.$transaction as jest.Mock).mockRejectedValueOnce(
+        Object.assign(new Error("could not serialize access"), {
+          code: "P2034",
+        }),
+      );
+
+      const res = await callPatch();
+
+      expect(res.status).toBe(200);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    });
+
+    it("returns 409 when the retry sees the competing booking that won the race", async () => {
+      // First attempt loses the race (40001); on retry the winner's booking is
+      // visible, so the reschedule must be rejected instead of double-booking.
+      (prisma.$transaction as jest.Mock).mockRejectedValueOnce(
+        Object.assign(new Error("serialization failure"), { code: "40001" }),
+      );
+      (prisma.booking.findMany as jest.Mock).mockResolvedValue([
+        { date: "2026-10-15", time: "11:00", duration: 60, timeZone: "UTC" },
+      ]);
+
+      const res = await callPatch();
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toContain(
+        "The requested time slot or desk is not available",
+      );
+      expect(prisma.booking.update).not.toHaveBeenCalled();
+      expect(publishVenueAvailability).not.toHaveBeenCalled();
+    });
+
+    it("does not retry non-transient errors", async () => {
+      (prisma.$transaction as jest.Mock).mockRejectedValueOnce(
+        new Error("connection reset by peer"),
+      );
+      const consoleSpy = jest.spyOn(console, "error").mockImplementation();
+
+      const res = await callPatch();
+
+      expect(res.status).toBe(500);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      consoleSpy.mockRestore();
+    });
+
+    it("gives up after the retry budget is exhausted on persistent contention", async () => {
+      (prisma.$transaction as jest.Mock).mockRejectedValue(
+        Object.assign(new Error("serialization failure"), { code: "40001" }),
+      );
+      const consoleSpy = jest.spyOn(console, "error").mockImplementation();
+
+      const res = await callPatch();
+
+      expect(res.status).toBe(500);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(4); // 1 try + 3 retries
+      consoleSpy.mockRestore();
+    });
   });
 });
