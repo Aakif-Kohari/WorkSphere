@@ -1,6 +1,10 @@
 import {
   calculatePartitionDates,
   escapeCsv,
+  validatePartitionDate,
+  parsePartitionDate,
+  isValidDateString,
+  DATE_STRING_REGEX,
 } from "../../../../app/api/admin/system/partitions/dateHelper";
 import { GET } from "../../../../app/api/admin/system/partitions/export/route";
 import { getAdminUser } from "@/lib/admin";
@@ -24,9 +28,65 @@ jest.mock("@/lib/prisma", () => ({
   },
 }));
 
-describe("Partition Date Calculations & Export (#3777)", () => {
+describe("Partition Date Calculations & Export (#3777, #4914)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  describe("dateHelper validation (#4914)", () => {
+    it("validates regex pattern ^\\d{4}-\\d{2}-\\d{2}$", () => {
+      expect(DATE_STRING_REGEX.test("2026-03-15")).toBe(true);
+      expect(DATE_STRING_REGEX.test("2026/03/15")).toBe(false);
+      expect(DATE_STRING_REGEX.test("2026-3-15")).toBe(false);
+      expect(DATE_STRING_REGEX.test("invalid")).toBe(false);
+      expect(DATE_STRING_REGEX.test("")).toBe(false);
+    });
+
+    it("returns valid Date object for valid YYYY-MM-DD date strings", () => {
+      const parsed = validatePartitionDate("2026-03-15");
+      expect(parsed).toBeInstanceOf(Date);
+      expect(parsed?.getUTCFullYear()).toBe(2026);
+      expect(parsed?.getUTCMonth()).toBe(2);
+      expect(parsed?.getUTCDate()).toBe(15);
+      expect(isValidDateString("2026-03-15")).toBe(true);
+    });
+
+    it("returns null on invalid calendar date strings by default", () => {
+      expect(validatePartitionDate("2026-13-45")).toBeNull();
+      expect(validatePartitionDate("2026-02-30")).toBeNull();
+      expect(validatePartitionDate("2025-02-29")).toBeNull(); // 2025 is not a leap year
+      expect(validatePartitionDate("2026-00-10")).toBeNull();
+      expect(validatePartitionDate("not-a-date")).toBeNull();
+      expect(isValidDateString("2026-13-45")).toBe(false);
+      expect(isValidDateString("2026-02-30")).toBe(false);
+    });
+
+    it("throws descriptive error when throwOnError is true or parsePartitionDate is called", () => {
+      expect(() => validatePartitionDate("2026-13-45", true)).toThrow(
+        /Invalid calendar date: "2026-13-45"/,
+      );
+      expect(() => parsePartitionDate("2026-13-45")).toThrow(
+        /Invalid calendar date: "2026-13-45"/,
+      );
+      expect(() => parsePartitionDate("2026-02-30")).toThrow(
+        /Invalid calendar date: "2026-02-30". Date does not exist on calendar/,
+      );
+      expect(() => parsePartitionDate("2026/03/15")).toThrow(
+        /Invalid date format: "2026\/03\/15". Expected YYYY-MM-DD format/,
+      );
+    });
+
+    it("computes partition dates from valid date strings", () => {
+      const { start, end } = calculatePartitionDates("2026-03-15");
+      expect(start.toISOString().substring(0, 10)).toBe("2026-03-01");
+      expect(end.toISOString().substring(0, 10)).toBe("2026-04-01");
+    });
+
+    it("throws when calculating partition dates from invalid date strings", () => {
+      expect(() => calculatePartitionDates("2026-13-45")).toThrow(
+        /Invalid calendar date/,
+      );
+    });
   });
 
   it("verifying leap year February partition range formatting (Feb 1 to Mar 1)", () => {
