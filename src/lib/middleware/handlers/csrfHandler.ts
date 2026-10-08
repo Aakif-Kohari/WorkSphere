@@ -27,10 +27,11 @@ export async function applyCsrfProtection(
     .find((c) => c.startsWith(`${CSRF_COOKIE_NAME}=`))
     ?.slice(CSRF_COOKIE_NAME.length + 1);
 
+  const method = req.method?.toUpperCase();
   if (
     isApiRoute &&
     !isCsrfExemptRoute(req) &&
-    CSRF_PROTECTED_METHODS.has(req.method)
+    CSRF_PROTECTED_METHODS.has(method)
   ) {
     const headerToken = req.headers.get(CSRF_HEADER_NAME);
     const isValid = await verifyCsrfToken(existingCookie, headerToken);

@@ -101,3 +101,11 @@ export async function verifyCsrfToken(
 
 /** HTTP methods that mutate state and therefore require CSRF validation. */
 export const CSRF_PROTECTED_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * Checks whether an HTTP method requires CSRF protection (case-insensitive).
+ */
+export function isCsrfProtectedMethod(method: string | undefined | null): boolean {
+  if (!method) return false;
+  return CSRF_PROTECTED_METHODS.has(method.toUpperCase());
+}

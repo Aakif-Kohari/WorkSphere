@@ -79,7 +79,8 @@ export const isAdminRoute = createRouteMatcher(
  */
 export function isCsrfExemptRoute(req: Request): boolean {
   const path = new URL(req.url).pathname;
-  if (path.startsWith("/api") && CSRF_PROTECTED_METHODS.has(req.method)) {
+  const method = req.method?.toUpperCase();
+  if (path.startsWith("/api") && CSRF_PROTECTED_METHODS.has(method)) {
     return isCsrfExemptMatcher(req as any);
   }
   const staticAssetRegex = /\.(png|jpg|jpeg|gif|svg|mp3|wav|ico|css|js)$/i;
