@@ -130,4 +130,40 @@ describe("SocialShareButton component (#3467)", () => {
     expect(result).toBe(true);
     expect(mockWriteText).toHaveBeenCalledWith("https://worksphere.com/session/1");
   });
+
+  describe("tooltip responsive positioning (#5022)", () => {
+    it("renders tooltip with responsive boundary alignment right-0 sm:left-1/2", () => {
+      render(<SocialShareButton />);
+
+      const tooltip = screen.getByTestId("share-tooltip");
+      expect(tooltip).toBeInTheDocument();
+      expect(tooltip).toHaveAttribute("role", "tooltip");
+      expect(tooltip).toHaveTextContent("Share session link");
+
+      // Verify responsive classes preventing clipping on right edge of mobile screens
+      expect(tooltip.className).toContain("right-0");
+      expect(tooltip.className).toContain("sm:left-1/2");
+      expect(tooltip.className).toContain("translate-x-0");
+      expect(tooltip.className).toContain("sm:-translate-x-1/2");
+    });
+
+    it("renders custom tooltip text and updates when copied", async () => {
+      render(
+        <SocialShareButton
+          tooltipText="Copy invite link"
+          copiedLabel="Link ready!"
+        />,
+      );
+
+      const tooltip = screen.getByTestId("share-tooltip");
+      expect(tooltip).toHaveTextContent("Copy invite link");
+
+      const button = screen.getByTestId("share-session-button");
+      await act(async () => {
+        fireEvent.click(button);
+      });
+
+      expect(tooltip).toHaveTextContent("Link ready!");
+    });
+  });
 });
