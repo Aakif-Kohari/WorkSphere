@@ -5,6 +5,7 @@ import { withWebLock, OFFLINE_WRITE_LOCK } from "./webLock";
 export const DB_NAME = "worksphere-offline";
 export const DB_VERSION = 7;
 export const REVIEW_STORE_NAME = "pendingReviews";
+export const QUEUED_REVIEWS_STORE_NAME = "queued_reviews";
 export const REVIEW_SYNC_CHANNEL = "worksphere:review-sync";
 
 export type QueuedReviewStatus =
@@ -227,7 +228,7 @@ export function openReviewDB(): Promise<IDBDatabase> {
           db.createObjectStore("preference_rankings", { keyPath: "id" });
         }
 
-        // Dedicated offline reviews store (Issue #3366)
+        // Dedicated offline reviews store (Issue #3366, #3469)
         if (!db.objectStoreNames.contains(REVIEW_STORE_NAME)) {
           const reviewStore = db.createObjectStore(REVIEW_STORE_NAME, {
             keyPath: "id",
@@ -235,6 +236,14 @@ export function openReviewDB(): Promise<IDBDatabase> {
           reviewStore.createIndex("venueId", "venueId", { unique: false });
           reviewStore.createIndex("status", "status", { unique: false });
           reviewStore.createIndex("createdAt", "createdAt", { unique: false });
+        }
+        if (!db.objectStoreNames.contains(QUEUED_REVIEWS_STORE_NAME)) {
+          const queuedStore = db.createObjectStore(QUEUED_REVIEWS_STORE_NAME, {
+            keyPath: "id",
+          });
+          queuedStore.createIndex("venueId", "venueId", { unique: false });
+          queuedStore.createIndex("status", "status", { unique: false });
+          queuedStore.createIndex("createdAt", "createdAt", { unique: false });
         }
       };
     } catch (err) {
@@ -704,4 +713,59 @@ export function subscribeReviewSyncEvents(
     }
   };
 }
+
+export interface OfflineReviewSubmissionInput {
+  venueId: string;
+  venueName?: string;
+  rating?: number;
+  comment?: string;
+  data?: QueuedVenueReview["data"];
+}
+
+export interface OfflineReviewSubmissionResult {
+  savedOffline: boolean;
+  message: string;
+  review?: QueuedVenueReview;
+}
+
+/**
+ * Intercepts review submissions when offline:
+ * - Checks if !navigator.onLine
+ * - Stores review into IndexedDB queue
+ * - Returns optimistic "Saved offline — will post when connected" pill message
+ * - Registers background sync tag
+ */
+export async function submitReviewWithOfflineSync(
+  input: OfflineReviewSubmissionInput,
+): Promise<OfflineReviewSubmissionResult> {
+  const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+
+  if (isOffline) {
+    const reviewData: QueuedVenueReview["data"] = input.data || {
+      wifiQuality: input.rating || 5,
+      hasOutlets: true,
+      noiseLevel: "moderate",
+      comment: input.comment || "",
+    };
+
+    const queued = await queueOfflineReview({
+      venueId: input.venueId,
+      venueName: input.venueName,
+      data: reviewData,
+    });
+
+    return {
+      savedOffline: true,
+      message: "Saved offline — will post when connected",
+      review: queued,
+    };
+  }
+
+  // When online, queue or caller can post directly
+  return {
+    savedOffline: false,
+    message: "Online",
+  };
+}
+
 
