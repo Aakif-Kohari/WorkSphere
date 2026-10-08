@@ -203,7 +203,15 @@ export function PasskeySettings() {
       return;
     }
 
+    const previousName = pk.name;
+    // Immediate optimistic update
+    setPasskeys((prev) =>
+      prev.map((item) => (item.id === pk.id ? { ...item, name: trimmed } : item)),
+    );
+    setEditingId(null);
     setSavingRenameId(pk.id);
+    setError(null);
+
     try {
       const res = await fetch(`/api/auth/passkey/credentials/${pk.id}`, {
         method: "PATCH",
@@ -216,12 +224,12 @@ export function PasskeySettings() {
         throw new Error(data.error || "Failed to update nickname.");
       }
 
-      setPasskeys((prev) =>
-        prev.map((item) => (item.id === pk.id ? { ...item, name: trimmed } : item)),
-      );
       setSuccess(`Passkey renamed to "${trimmed}".`);
-      setEditingId(null);
     } catch (err) {
+      // Revert optimistic update on failure
+      setPasskeys((prev) =>
+        prev.map((item) => (item.id === pk.id ? { ...item, name: previousName } : item)),
+      );
       setError(err instanceof Error ? err.message : "Failed to rename passkey.");
     } finally {
       setSavingRenameId(null);
@@ -395,39 +403,64 @@ export function PasskeySettings() {
                             type="text"
                             value={editNickname}
                             onChange={(e) => setEditNickname(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleSaveRename(pk);
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                handleCancelRename();
+                              }
+                            }}
                             className="px-2.5 py-1 text-sm rounded-lg border border-indigo-400 dark:border-indigo-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                             placeholder="Enter device nickname"
                             maxLength={64}
                             autoFocus
+                            data-testid={`rename-input-${pk.id}`}
+                            aria-label="Edit passkey nickname"
                           />
                           <button
                             type="button"
                             onClick={() => handleSaveRename(pk)}
                             disabled={savingRenameId === pk.id}
-                            className="p-1 rounded-md text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                            className="p-1 rounded-md text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 disabled:opacity-50 cursor-pointer"
                             title="Save"
+                            data-testid={`save-rename-${pk.id}`}
                           >
-                            <Check className="h-4 w-4" />
+                            {savingRenameId === pk.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
+                            ) : (
+                              <Check className="h-4 w-4" />
+                            )}
                           </button>
                           <button
                             type="button"
                             onClick={handleCancelRename}
-                            className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                            disabled={savingRenameId === pk.id}
+                            className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                             title="Cancel"
+                            data-testid={`cancel-rename-${pk.id}`}
                           >
                             <X className="h-4 w-4" />
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-semibold text-slate-900 dark:text-white text-base">
+                        <div className="flex items-center gap-2 group/name">
+                          <h4
+                            onDoubleClick={() => handleStartRename(pk)}
+                            className="font-semibold text-slate-900 dark:text-white text-base cursor-pointer select-none"
+                            title="Double-click to edit nickname"
+                            data-testid={`passkey-name-${pk.id}`}
+                          >
                             {pk.name}
                           </h4>
                           <button
                             type="button"
                             onClick={() => handleStartRename(pk)}
-                            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 p-1"
+                            className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1 rounded transition-colors opacity-70 hover:opacity-100 cursor-pointer"
                             title="Rename device nickname"
+                            aria-label={`Rename passkey ${pk.name}`}
+                            data-testid={`edit-nickname-btn-${pk.id}`}
                           >
                             <Edit3 className="h-3.5 w-3.5" />
                           </button>
