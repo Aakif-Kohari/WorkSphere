@@ -289,4 +289,28 @@ describe("calculateStreak across DST transitions", () => {
     const result = calculateStreak("2024-03-10", 6, 9, "America/New_York");
     expect(result.currentStreak).toBe(1);
   });
+
+  it("respects the injected now Date parameter without relying on system clock", () => {
+    const injectedNow = new Date("2025-05-15T10:00:00Z");
+    const resultConsecutive = calculateStreak(
+      "2025-05-14",
+      3,
+      5,
+      "UTC",
+      injectedNow,
+    );
+    expect(resultConsecutive.incremented).toBe(true);
+    expect(resultConsecutive.currentStreak).toBe(4);
+    expect(resultConsecutive.lastCheckInDate).toBe("2025-05-15");
+
+    const resultSameDay = calculateStreak(
+      "2025-05-15",
+      4,
+      5,
+      "UTC",
+      injectedNow,
+    );
+    expect(resultSameDay.incremented).toBe(false);
+    expect(resultSameDay.currentStreak).toBe(4);
+  });
 });

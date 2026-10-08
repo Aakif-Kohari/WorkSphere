@@ -95,9 +95,9 @@ export function calculateStreak(
   currentStreak: number,
   longestStreak: number,
   timeZone: string = "UTC",
+  now: Date = new Date(),
 ): StreakResult {
   // Sample the clock once so "today" and "yesterday" can never straddle midnight.
-  const now = new Date();
   const today = todayUTC(timeZone, now);
   const yesterday = yesterdayUTC(timeZone, now);
 
