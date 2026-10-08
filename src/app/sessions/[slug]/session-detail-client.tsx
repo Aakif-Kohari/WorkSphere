@@ -70,6 +70,18 @@ export default function SessionDetailClient({ session }: Props) {
     [rsvps],
   );
 
+  const waitlisted = useMemo(
+    () => rsvps.filter((item) => item.status === "MAYBE"),
+    [rsvps],
+  );
+
+  const currentRsvp = useMemo(
+    () => (user?.id ? rsvps.find((r) => r.user.id === user.id) : null),
+    [rsvps, user?.id],
+  );
+
+  const isFull = Boolean(session.maxGuests && going.length >= session.maxGuests);
+
   const inviteTokenParam = searchParams?.get("inviteToken");
 
   useEffect(() => {
@@ -103,7 +115,11 @@ export default function SessionDetailClient({ session }: Props) {
       return;
     }
 
-    setMessage(`RSVP updated: ${status.toLowerCase()}.`);
+    if (status === "DECLINED") {
+      setMessage("RSVP cancelled.");
+    } else {
+      setMessage(`RSVP updated: ${status.toLowerCase()}.`);
+    }
 
     const refreshed = await fetch(`/api/social/sessions/${session.slug}`, {
       cache: "no-store",
@@ -157,9 +173,24 @@ export default function SessionDetailClient({ session }: Props) {
       <div className="mx-auto max-w-5xl">
         <div className="grid gap-6 lg:grid-cols-[1.35fr_.65fr]">
           <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-violet-950/70 via-zinc-950 to-cyan-950/30 p-7 md:p-10">
-            <span className="inline-flex rounded-full border border-violet-400/20 bg-violet-400/10 px-3 py-1 text-xs text-violet-200">
-              Group coworking session
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex rounded-full border border-violet-400/20 bg-violet-400/10 px-3 py-1 text-xs text-violet-200">
+                Group coworking session
+              </span>
+              {currentRsvp && (
+                <span
+                  className={`inline-flex rounded-full px-3 py-1 text-xs font-medium border ${
+                    currentRsvp.status === "GOING"
+                      ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
+                      : currentRsvp.status === "MAYBE"
+                      ? "border-amber-500/30 bg-amber-500/15 text-amber-300"
+                      : "border-zinc-500/30 bg-zinc-500/15 text-zinc-300"
+                  }`}
+                >
+                  Your status: {currentRsvp.status === "MAYBE" ? "Waitlisted / Maybe" : currentRsvp.status}
+                </span>
+              )}
+            </div>
 
             <h1 className="mt-5 text-4xl font-semibold tracking-tight md:text-6xl">
               {session.title}
@@ -192,7 +223,7 @@ export default function SessionDetailClient({ session }: Props) {
               <Info
                 icon={<UsersRound className="h-5 w-5" />}
                 title="Attendance"
-                value={`${going.length}${session.maxGuests ? ` / ${session.maxGuests}` : ""} going`}
+                value={`${going.length}${session.maxGuests ? ` / ${session.maxGuests}` : ""} going${waitlisted.length > 0 ? ` (${waitlisted.length} waitlisted)` : ""}`}
               />
             </div>
 
@@ -230,18 +261,36 @@ export default function SessionDetailClient({ session }: Props) {
             )}
 
             <div className="mt-8 flex flex-wrap gap-3">
-              <button
-                onClick={() => respond("GOING")}
-                className="rounded-xl bg-violet-600 px-5 py-3 font-medium hover:bg-violet-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900"
-              >
-                I’m going
-              </button>
+              {!isFull && (
+                <button
+                  onClick={() => respond("GOING")}
+                  className={`rounded-xl px-5 py-3 font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${
+                    currentRsvp?.status === "GOING"
+                      ? "bg-emerald-600 text-white hover:bg-emerald-500"
+                      : "bg-violet-600 hover:bg-violet-500"
+                  }`}
+                >
+                  {currentRsvp?.status === "GOING" ? "Going (Confirmed)" : "I’m going"}
+                </button>
+              )}
               <button
                 onClick={() => respond("MAYBE")}
-                className="rounded-xl border border-white/10 bg-white/5 px-5 py-3 font-medium hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900"
+                className={`rounded-xl border border-white/10 px-5 py-3 font-medium transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${
+                  currentRsvp?.status === "MAYBE"
+                    ? "bg-amber-500/20 text-amber-200 border-amber-500/40"
+                    : "bg-white/5"
+                }`}
               >
-                Maybe
+                {isFull ? "Join Waitlist (Maybe)" : "Maybe"}
               </button>
+              {currentRsvp && currentRsvp.status !== "DECLINED" && (
+                <button
+                  onClick={() => respond("DECLINED")}
+                  className="rounded-xl border border-red-500/30 bg-red-500/10 px-5 py-3 font-medium text-red-300 hover:bg-red-500/20 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900"
+                >
+                  Cancel RSVP
+                </button>
+              )}
               <button
                 onClick={share}
                 className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-5 py-3 font-medium hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900"
@@ -313,33 +362,61 @@ export default function SessionDetailClient({ session }: Props) {
             </div>
 
             <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6">
-              <h2 className="text-lg font-semibold">Who’s going</h2>
+              <h2 className="text-lg font-semibold">Who’s going ({going.length})</h2>
               <div className="mt-4 space-y-3">
-                {going.map((item) => {
-                  const name =
-                    [item.user.firstName, item.user.lastName]
-                      .filter(Boolean)
-                      .join(" ") || "WorkSphere member";
+                {going.length === 0 ? (
+                  <p className="text-xs text-zinc-500">No confirmed attendees yet.</p>
+                ) : (
+                  going.map((item) => {
+                    const name =
+                      [item.user.firstName, item.user.lastName]
+                        .filter(Boolean)
+                        .join(" ") || "WorkSphere member";
 
-                  return (
-                    <div key={item.user.id} className="flex items-center gap-3">
-                      {item.user.imageUrl ? (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img
-                          src={item.user.imageUrl}
-                          alt={name}
-                          className="h-9 w-9 rounded-full object-cover border border-white/10"
-                        />
-                      ) : (
-                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-500/15 text-violet-200">
-                          <Check className="h-4 w-4" />
-                        </span>
-                      )}
-                      <span className="text-sm text-zinc-300">{name}</span>
-                    </div>
-                  );
-                })}
+                    return (
+                      <div key={item.user.id} className="flex items-center gap-3">
+                        {item.user.imageUrl ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={item.user.imageUrl}
+                            alt={name}
+                            className="h-9 w-9 rounded-full object-cover border border-white/10"
+                          />
+                        ) : (
+                          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-500/15 text-violet-200">
+                            <Check className="h-4 w-4" />
+                          </span>
+                        )}
+                        <span className="text-sm text-zinc-300">{name}</span>
+                      </div>
+                    );
+                  })
+                )}
               </div>
+
+              {waitlisted.length > 0 && (
+                <div className="mt-6 pt-4 border-t border-white/10">
+                  <h3 className="text-sm font-semibold text-amber-300 flex items-center justify-between">
+                    <span>Waitlist Queue ({waitlisted.length})</span>
+                    <span className="text-[10px] font-normal text-amber-300/70">Auto-promoted on cancel</span>
+                  </h3>
+                  <div className="mt-3 space-y-2">
+                    {waitlisted.map((item, idx) => {
+                      const name =
+                        [item.user.firstName, item.user.lastName]
+                          .filter(Boolean)
+                          .join(" ") || "WorkSphere member";
+
+                      return (
+                        <div key={item.user.id} className="flex items-center justify-between text-xs text-zinc-400">
+                          <span className="truncate">{name}</span>
+                          <span className="font-mono text-zinc-500">#{idx + 1}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </aside>
         </div>
