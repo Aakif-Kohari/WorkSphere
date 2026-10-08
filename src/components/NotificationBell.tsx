@@ -167,6 +167,27 @@ export function NotificationBell() {
     }
   };
 
+  const dismissNotification = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const target = notifications.find((n) => n.id === id);
+    const wasUnread = target ? !target.read : false;
+
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    if (wasUnread) {
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    }
+
+    try {
+      await fetch("/api/user/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dismiss", id }),
+      });
+    } catch (err) {
+      console.error("Failed to dismiss notification:", err);
+    }
+  };
+
   const getNotificationIcon = (title: string, body: string) => {
     const combined = `${title} ${body}`.toLowerCase();
     if (combined.includes("seat") || combined.includes("available"))
@@ -227,10 +248,14 @@ export function NotificationBell() {
           <div className="flex items-center justify-between p-4 border-b border-zinc-100 dark:border-zinc-800">
             <div className="flex items-center gap-2">
               <h3 className="text-xs font-black uppercase tracking-widest text-zinc-800 dark:text-zinc-200">
-                Notifications
+                Notifications {unreadCount > 0 ? `(${unreadCount})` : ""}
               </h3>
               {unreadCount > 0 && (
-                <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" aria-label={`${unreadCount} unread notifications`}>
+                <span
+                  className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20"
+                  aria-label={`${unreadCount} unread notifications`}
+                  data-testid="unread-badge-counter"
+                >
                   {unreadCount}
                 </span>
               )}
@@ -292,9 +317,19 @@ export function NotificationBell() {
                     {getNotificationIcon(n.title, n.body)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-50 truncate">
-                      {n.title}
-                    </h4>
+                    <div className="flex items-start justify-between gap-1">
+                      <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-50 truncate">
+                        {n.title}
+                      </h4>
+                      <button
+                        onClick={(e) => dismissNotification(n.id, e)}
+                        className="p-0.5 rounded text-zinc-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shrink-0"
+                        title="Dismiss"
+                        aria-label={`Dismiss notification ${n.title}`}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
                     <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400 leading-normal break-words">
                       {n.body}
                     </p>
