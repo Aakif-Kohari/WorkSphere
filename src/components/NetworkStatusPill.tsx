@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { WifiOff, Check } from "lucide-react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { WifiOff, Check, RotateCw } from "lucide-react";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { useToast } from "@/components/ui/Toast";
 
@@ -10,6 +10,8 @@ export interface NetworkStatusPillProps {
   onlineFlashDurationMs?: number;
   showLive?: boolean;
   pendingCount?: number;
+  showRetry?: boolean;
+  onRetry?: () => Promise<boolean | void> | void;
 }
 
 export function NetworkStatusPill({
@@ -17,13 +19,58 @@ export function NetworkStatusPill({
   onlineFlashDurationMs = 2500,
   showLive = true,
   pendingCount: propPendingCount,
+  showRetry = true,
+  onRetry,
 }: NetworkStatusPillProps) {
   const { isOffline, pendingCount: hookPendingCount } = useOfflineSync();
   const { toast } = useToast();
   const effectivePendingCount = propPendingCount ?? hookPendingCount ?? 0;
 
   const [showOnlineFlash, setShowOnlineFlash] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
   const wasOfflineRef = useRef<boolean | null>(null);
+
+  const handleRetry = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (isRetrying) return;
+
+      setIsRetrying(true);
+      try {
+        if (onRetry) {
+          await onRetry();
+        } else {
+          // Probe network connectivity
+          let reachedServer = false;
+          try {
+            const res = await fetch("/api/health", {
+              method: "HEAD",
+              cache: "no-store",
+            }).catch(() => null);
+            if (res && res.ok) {
+              reachedServer = true;
+            }
+          } catch {}
+
+          if (
+            reachedServer ||
+            (typeof navigator !== "undefined" && navigator.onLine)
+          ) {
+            window.dispatchEvent(new Event("online"));
+            window.dispatchEvent(new Event("trigger-sync"));
+            toast("Back online. Live data restored.", "success");
+          } else {
+            toast("Still offline. Could not reach server.", "warning");
+          }
+        }
+      } catch {
+        toast("Connection retry failed.", "warning");
+      } finally {
+        setIsRetrying(false);
+      }
+    },
+    [isRetrying, onRetry, toast],
+  );
 
   // Hook into lifecycle listeners for online / offline events and show non-intrusive toasts
   useEffect(() => {
@@ -66,7 +113,7 @@ export function NetworkStatusPill({
     }
   }, [isOffline, onlineFlashDurationMs]);
 
-  // 1. Offline Mode: Amber dot with "Offline · Local Mode" and count of pending mutations
+  // 1. Offline Mode: Amber dot with "Offline · Local Mode" and count of pending mutations, plus manual Retry Connection button
   if (isOffline) {
     return (
       <div
@@ -82,6 +129,21 @@ export function NetworkStatusPill({
         <span className="truncate max-w-[160px] sm:max-w-none">
           Offline · Local Mode{effectivePendingCount > 0 ? ` (${effectivePendingCount})` : ""}
         </span>
+        {showRetry && (
+          <button
+            type="button"
+            onClick={handleRetry}
+            disabled={isRetrying}
+            aria-label="Retry connection"
+            title="Retry connection"
+            className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-200/80 hover:bg-amber-300 dark:bg-amber-900/60 dark:hover:bg-amber-800 text-amber-900 dark:text-amber-200 transition-colors focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:opacity-50 cursor-pointer"
+          >
+            <RotateCw
+              className={`w-3 h-3 shrink-0 ${isRetrying ? "animate-spin" : ""}`}
+            />
+            <span>{isRetrying ? "Retrying..." : "Retry Connection"}</span>
+          </button>
+        )}
       </div>
     );
   }
