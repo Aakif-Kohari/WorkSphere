@@ -286,6 +286,7 @@ export async function queueOfflineFavorite(
         request.onerror = () => reject(request.error);
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
       });
     } catch (err: any) {
       console.error("Failed to queue offline action:", err);
