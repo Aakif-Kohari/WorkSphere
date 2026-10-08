@@ -69,8 +69,9 @@ export class SlidingWindowLimiter implements IRateLimiter {
     }
 
     if (entry.timestamps.length >= this.limit) {
-      const reset = entry.timestamps[0] + this.windowMs;
-      const retryAfter = Math.max(1, Math.ceil((reset - now) / 1000));
+      const resetTimeMs = entry.timestamps[0] + this.windowMs;
+      const reset = Math.ceil(resetTimeMs / 1000);
+      const retryAfter = Math.max(1, Math.ceil((resetTimeMs - now) / 1000));
       return {
         success: false,
         limit: this.limit,
@@ -84,7 +85,7 @@ export class SlidingWindowLimiter implements IRateLimiter {
     entry.timestamps.push(now);
     entry.resetTime = now + this.windowMs;
     const remaining = Math.max(0, this.limit - entry.timestamps.length);
-    const reset = entry.timestamps[0] + this.windowMs;
+    const reset = Math.ceil((entry.timestamps[0] + this.windowMs) / 1000);
 
     return {
       success: true,
@@ -107,7 +108,7 @@ export class SlidingWindowLimiter implements IRateLimiter {
         success: true,
         limit: this.limit,
         remaining: this.limit,
-        reset: now + this.windowMs,
+        reset: Math.ceil((now + this.windowMs) / 1000),
         retryAfter: 0,
         identity: key,
       };
@@ -121,14 +122,21 @@ export class SlidingWindowLimiter implements IRateLimiter {
       firstValid++;
     }
     const validCount = entry.timestamps.length - firstValid;
-    const reset = validCount > 0 ? entry.timestamps[firstValid] + this.windowMs : now + this.windowMs;
+    const resetTimeMs =
+      validCount > 0
+        ? entry.timestamps[firstValid] + this.windowMs
+        : now + this.windowMs;
+    const reset = Math.ceil(resetTimeMs / 1000);
 
     return {
       success: validCount < this.limit,
       limit: this.limit,
       remaining: Math.max(0, this.limit - validCount),
       reset,
-      retryAfter: validCount >= this.limit ? Math.max(1, Math.ceil((reset - now) / 1000)) : 0,
+      retryAfter:
+        validCount >= this.limit
+          ? Math.max(1, Math.ceil((resetTimeMs - now) / 1000))
+          : 0,
       identity: key,
     };
   }

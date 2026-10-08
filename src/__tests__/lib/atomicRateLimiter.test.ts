@@ -159,4 +159,45 @@ describe("Atomic Distributed Token Bucket & Sliding Window Limiter (#4127)", () 
       expect(member).toBe("1700000000012345:nonce123");
     });
   });
+
+  describe("SlidingWindowLimiter Reset Timestamps in Epoch Seconds (#4289)", () => {
+    it("returns reset timestamp in seconds on consume and check", async () => {
+      const limiter = new SlidingWindowLimiter({
+        limit: 2,
+        windowMs: 60000,
+        namespace: "sliding-reset",
+      });
+
+      const nowSec = Math.floor(Date.now() / 1000);
+
+      // Check empty state
+      const checkRes1 = await limiter.check("user-1");
+      expect(checkRes1.reset).toBeGreaterThanOrEqual(nowSec);
+      expect(checkRes1.reset).toBeLessThan(nowSec + 120);
+
+      // Consume 1
+      const consumeRes1 = await limiter.consume("user-1");
+      expect(consumeRes1.success).toBe(true);
+      expect(consumeRes1.reset).toBeGreaterThanOrEqual(nowSec);
+      expect(consumeRes1.reset).toBeLessThan(nowSec + 120);
+
+      // Consume 2
+      const consumeRes2 = await limiter.consume("user-1");
+      expect(consumeRes2.success).toBe(true);
+      expect(consumeRes2.reset).toBeGreaterThanOrEqual(nowSec);
+
+      // Consume 3 (depleted)
+      const consumeRes3 = await limiter.consume("user-1");
+      expect(consumeRes3.success).toBe(false);
+      expect(consumeRes3.reset).toBeGreaterThanOrEqual(nowSec);
+      expect(consumeRes3.reset).toBeLessThan(nowSec + 120);
+      expect(consumeRes3.retryAfter).toBeGreaterThanOrEqual(1);
+
+      // Check depleted
+      const checkRes2 = await limiter.check("user-1");
+      expect(checkRes2.success).toBe(false);
+      expect(checkRes2.reset).toBeGreaterThanOrEqual(nowSec);
+      expect(checkRes2.reset).toBeLessThan(nowSec + 120);
+    });
+  });
 });
