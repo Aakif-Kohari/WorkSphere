@@ -27,6 +27,7 @@ import type {
   RouteLatencyHeatmapData,
   LatencySeverity,
 } from "@/lib/telemetry/types";
+import usePartySocket from "@/hooks/usePartySocketReconnect";
 
 interface RouteLatencyHeatmapProps {
   className?: string;
@@ -35,6 +36,19 @@ interface RouteLatencyHeatmapProps {
 
 type MetricMode = "p95" | "p50" | "avg" | "count";
 type CategoryFilter = "all" | "ai" | "api" | "auth" | "db" | "telemetry" | "wallet" | "admin";
+
+export interface LatencyDeltaMessage {
+  type: "LATENCY_DELTA" | "telemetry_update";
+  route?: string;
+  timestamp?: string;
+  latencyMs?: number;
+  p95Ms?: number;
+  p50Ms?: number;
+  avgMs?: number;
+  count?: number;
+  severity?: LatencySeverity;
+  bucketIndex?: number;
+}
 
 export function RouteLatencyHeatmap({
   className = "",
@@ -48,6 +62,8 @@ export function RouteLatencyHeatmap({
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshIntervalSec, setRefreshIntervalSec] = useState(8);
   const [countdown, setCountdown] = useState(8);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [lastLiveDeltaAt, setLastLiveDeltaAt] = useState<string | null>(null);
 
   const [data, setData] = useState<RouteLatencyHeatmapData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -96,6 +112,87 @@ export function RouteLatencyHeatmap({
       }
     }
   }
+
+  // Live PartySocket WebSocket connection to telemetry broadcast room
+  usePartySocket({
+    host: process.env.NEXT_PUBLIC_PARTYKIT_HOST || "127.0.0.1:1999",
+    room: "telemetry-latency-broadcast",
+    onOpen() {
+      setWsConnected(true);
+    },
+    onClose() {
+      setWsConnected(false);
+    },
+    onError() {
+      setWsConnected(false);
+    },
+    onMessage(event) {
+      try {
+        const delta = JSON.parse(event.data) as LatencyDeltaMessage;
+        if (!delta || (delta.type !== "LATENCY_DELTA" && delta.type !== "telemetry_update")) {
+          return;
+        }
+
+        setLastLiveDeltaAt(new Date().toLocaleTimeString());
+
+        setData((prev) => {
+          if (!prev || !delta.route) return prev;
+
+          const updatedRoutes = prev.routes.map((routeRow) => {
+            if (routeRow.route !== delta.route) return routeRow;
+
+            // Update cells
+            const targetCellIndex =
+              typeof delta.bucketIndex === "number" &&
+              delta.bucketIndex >= 0 &&
+              delta.bucketIndex < routeRow.cells.length
+                ? delta.bucketIndex
+                : routeRow.cells.length - 1; // latest interval cell
+
+            const updatedCells = routeRow.cells.map((cell, idx) => {
+              if (idx !== targetCellIndex) return cell;
+
+              const newCount = delta.count ?? cell.count + 1;
+              const newP95 = delta.p95Ms ?? delta.latencyMs ?? cell.p95Ms;
+              const newP50 = delta.p50Ms ?? (delta.latencyMs ? Math.round(delta.latencyMs * 0.8) : cell.p50Ms);
+              const newAvg = delta.avgMs ?? delta.latencyMs ?? cell.avgMs;
+              const newSeverity: LatencySeverity =
+                delta.severity ??
+                (newP95 > 300 ? "critical" : newP95 > 150 ? "high" : newP95 > 80 ? "medium" : "low");
+
+              return {
+                ...cell,
+                count: newCount,
+                p95Ms: newP95,
+                p50Ms: newP50,
+                avgMs: newAvg,
+                severity: newSeverity,
+              };
+            });
+
+            const overallP95 = delta.p95Ms ?? routeRow.p95Ms;
+            const isSlow = overallP95 > 150;
+
+            return {
+              ...routeRow,
+              cells: updatedCells,
+              p95Ms: overallP95,
+              avgMs: delta.avgMs ?? routeRow.avgMs,
+              totalRequests: routeRow.totalRequests + 1,
+              isSlowPath: isSlow,
+            };
+          });
+
+          return {
+            ...prev,
+            routes: updatedRoutes,
+          };
+        });
+      } catch {
+        // ignore parse errors
+      }
+    },
+  });
 
   // Initial & range-change fetch
   useEffect(() => {
@@ -294,12 +391,32 @@ export function RouteLatencyHeatmap({
                 <h2 className="text-xl font-bold tracking-tight text-white md:text-2xl">
                   Live Route Latency Heatmap
                 </h2>
-                <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
+                <span
+                  data-testid="websocket-status-badge"
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+                    wsConnected
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                      : "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                  }`}
+                >
                   <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                    <span
+                      className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                        wsConnected ? "animate-ping bg-emerald-400" : "bg-amber-400"
+                      }`}
+                    />
+                    <span
+                      className={`relative inline-flex h-2 w-2 rounded-full ${
+                        wsConnected ? "bg-emerald-500" : "bg-amber-500"
+                      }`}
+                    />
                   </span>
-                  REAL-TIME TELEMETRY
+                  {wsConnected ? "WEBSOCKET LIVE" : "CONNECTING..."}
+                  {lastLiveDeltaAt && (
+                    <span className="hidden text-[10px] text-zinc-400 sm:inline">
+                      · {lastLiveDeltaAt}
+                    </span>
+                  )}
                 </span>
               </div>
               <p className="mt-1 text-xs text-zinc-400 md:text-sm">
