@@ -169,24 +169,43 @@ describe("NetworkStatusPill", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("triggers toast notification on window online and offline events", () => {
-    render(<NetworkStatusPill />);
+  it("triggers toast notification and immediately updates visual status pill on window online and offline events", () => {
+    const addEventListenerSpy = jest.spyOn(window, "addEventListener");
+    const removeEventListenerSpy = jest.spyOn(window, "removeEventListener");
 
+    const { unmount } = render(<NetworkStatusPill />);
+    expect(screen.getByRole("status")).toHaveTextContent("Live");
+
+    expect(addEventListenerSpy).toHaveBeenCalledWith("online", expect.any(Function));
+    expect(addEventListenerSpy).toHaveBeenCalledWith("offline", expect.any(Function));
+
+    // 1. Immediately transitions to Offline when window offline event fires
     act(() => {
       window.dispatchEvent(new Event("offline"));
     });
+    expect(screen.getByRole("status")).toHaveTextContent("Offline · Local Mode");
     expect(mockToast).toHaveBeenCalledWith(
       "You are offline. Running in local mode.",
       "warning",
     );
 
+    // 2. Immediately transitions to Back online when window online event fires
     act(() => {
       window.dispatchEvent(new Event("online"));
     });
+    expect(screen.getByRole("status")).toHaveTextContent("Back online");
     expect(mockToast).toHaveBeenCalledWith(
       "Back online. Live data restored.",
       "success",
     );
+
+    // 3. Cleans up event listeners on unmount
+    unmount();
+    expect(removeEventListenerSpy).toHaveBeenCalledWith("online", expect.any(Function));
+    expect(removeEventListenerSpy).toHaveBeenCalledWith("offline", expect.any(Function));
+
+    addEventListenerSpy.mockRestore();
+    removeEventListenerSpy.mockRestore();
   });
 
   it("applies custom className", () => {

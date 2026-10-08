@@ -22,13 +22,18 @@ export function NetworkStatusPill({
   showRetry = true,
   onRetry,
 }: NetworkStatusPillProps) {
-  const { isOffline, pendingCount: hookPendingCount } = useOfflineSync();
+  const { isOffline: hookOffline, pendingCount: hookPendingCount } = useOfflineSync();
   const { toast } = useToast();
   const effectivePendingCount = propPendingCount ?? hookPendingCount ?? 0;
 
+  const [isOffline, setIsOffline] = useState(hookOffline);
   const [showOnlineFlash, setShowOnlineFlash] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const wasOfflineRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    setIsOffline(hookOffline);
+  }, [hookOffline]);
 
   const handleRetry = useCallback(
     async (e: React.MouseEvent) => {
@@ -72,15 +77,17 @@ export function NetworkStatusPill({
     [isRetrying, onRetry, toast],
   );
 
-  // Hook into lifecycle listeners for online / offline events and show non-intrusive toasts
+  // Hook into lifecycle listeners for online / offline events to immediately update status and show toasts
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const handleOnline = () => {
+      setIsOffline(false);
       toast("Back online. Live data restored.", "success");
     };
 
     const handleOffline = () => {
+      setIsOffline(true);
       toast("You are offline. Running in local mode.", "warning");
     };
 
