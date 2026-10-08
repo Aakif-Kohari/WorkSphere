@@ -123,16 +123,22 @@ export function checkInMemoryTokenBucket(
     bucket.maxTokens = tier.limit;
   }
 
+  // Guard against backward clock jumps / clock skew
+  if (now < bucket.lastRefill) {
+    bucket.lastRefill = now;
+  }
+
   // Refill tokens proportionally to elapsed time
-  const elapsed = now - bucket.lastRefill;
+  const elapsed = Math.max(0, now - bucket.lastRefill);
   if (elapsed > 0) {
     const refillTokens = (elapsed / tier.windowMs) * tier.limit;
-    bucket.tokens = Math.min(tier.limit, bucket.tokens + refillTokens);
+    bucket.tokens = Math.min(tier.limit, Math.max(0, bucket.tokens) + refillTokens);
     bucket.lastRefill = now;
   }
 
   if (bucket.tokens >= 1) {
-    bucket.tokens -= 1;
+    bucket.tokens = Math.max(0, bucket.tokens - 1);
+    defaultMemoryStore.setTokenBucketEntry(bucketKey, bucket);
     const remaining = Math.floor(bucket.tokens);
     const resetSec = Math.ceil((now + tier.windowMs) / 1000);
     return {
@@ -145,15 +151,17 @@ export function checkInMemoryTokenBucket(
     };
   }
 
-  // Bucket depleted
-  const timeToNextTokenMs = Math.ceil(((1 - bucket.tokens) / tier.limit) * tier.windowMs);
+  // Bucket depleted: persist state and calculate required wait time
+  defaultMemoryStore.setTokenBucketEntry(bucketKey, bucket);
+  const needed = Math.max(1, 1 - bucket.tokens);
+  const timeToNextTokenMs = Math.ceil((needed / tier.limit) * tier.windowMs);
   const retryAfter = Math.max(1, Math.ceil(timeToNextTokenMs / 1000));
   const resetSec = Math.ceil((now + timeToNextTokenMs) / 1000);
 
   return {
     success: false,
     limit: tier.limit,
-    remaining: 0,
+    remaining: Math.max(0, Math.floor(bucket.tokens)),
     reset: resetSec,
     retryAfter,
     identity: identifier,
