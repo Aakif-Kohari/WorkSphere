@@ -57,6 +57,25 @@ function todayString() {
   return new Date().toISOString().slice(0, 10);
 }
 
+export const QUICK_DURATION_PILLS = [
+  { label: "1 hr", minutes: 60 },
+  { label: "2 hrs", minutes: 120 },
+  { label: "4 hrs", minutes: 240 },
+  { label: "Full Day", minutes: 480 },
+] as const;
+
+export function formatReservationEndTime(
+  startTime: string,
+  durationMinutes: number,
+): string {
+  if (!startTime || !startTime.includes(":")) return "";
+  const [h, m] = startTime.split(":").map(Number);
+  const totalMinutes = (h || 0) * 60 + (m || 0) + durationMinutes;
+  const endH = Math.floor(totalMinutes / 60) % 24;
+  const endM = totalMinutes % 60;
+  return `${endH.toString().padStart(2, "0")}:${endM.toString().padStart(2, "0")}`;
+}
+
 export default function ReservationClient({ venue }: { venue: Venue }) {
   const retryAfter = useRateLimit("book");
   const [date, setDate] = useState(todayString());
@@ -530,20 +549,72 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
                   />
                 </Field>
 
-                <Field label="Duration" icon={<Clock3 className="h-4 w-4" />}>
-                  <select
-                    value={duration}
-                    onChange={(event) => setDuration(Number(event.target.value))}
-                    className="reserve-input"
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-2 text-sm text-zinc-400">
+                      <Clock3 className="h-4 w-4" />
+                      Duration
+                    </span>
+                    <span className="font-mono text-xs text-zinc-400">
+                      Ends at {formatReservationEndTime(time, duration)}
+                    </span>
+                  </div>
+
+                  {/* Quick-select duration pills */}
+                  <div
+                    className="flex flex-wrap gap-2 pt-0.5 pb-1"
+                    data-testid="duration-pills"
                   >
-                    <option value={30}>30 minutes</option>
-                    <option value={60}>1 hour</option>
-                    <option value={90}>1.5 hours</option>
-                    <option value={120}>2 hours</option>
-                    <option value={240}>4 hours</option>
-                    <option value={480}>Full day</option>
-                  </select>
-                </Field>
+                    {QUICK_DURATION_PILLS.map((pill) => {
+                      const isActive = duration === pill.minutes;
+                      return (
+                        <button
+                          key={pill.label}
+                          type="button"
+                          onClick={() => setDuration(pill.minutes)}
+                          className={`rounded-full px-3 py-1 text-xs font-medium transition-all ${
+                            isActive
+                              ? "bg-violet-600 text-white shadow-sm shadow-violet-500/25 ring-1 ring-violet-400"
+                              : "border border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-200"
+                          }`}
+                          aria-pressed={isActive}
+                          data-testid={`duration-pill-${pill.minutes}`}
+                        >
+                          {pill.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <Field label="End time" icon={<Clock3 className="h-4 w-4" />}>
+                    <select
+                      value={duration}
+                      onChange={(event) => setDuration(Number(event.target.value))}
+                      className="reserve-input"
+                      aria-label="End time"
+                      data-testid="end-time-select"
+                    >
+                      <option value={30}>
+                        {formatReservationEndTime(time, 30)} (30 minutes)
+                      </option>
+                      <option value={60}>
+                        {formatReservationEndTime(time, 60)} (1 hour)
+                      </option>
+                      <option value={90}>
+                        {formatReservationEndTime(time, 90)} (1.5 hours)
+                      </option>
+                      <option value={120}>
+                        {formatReservationEndTime(time, 120)} (2 hours)
+                      </option>
+                      <option value={240}>
+                        {formatReservationEndTime(time, 240)} (4 hours)
+                      </option>
+                      <option value={480}>
+                        {formatReservationEndTime(time, 480)} (Full day)
+                      </option>
+                    </select>
+                  </Field>
+                </div>
               </div>
 
               <div className="mt-6">
