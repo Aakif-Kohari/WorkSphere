@@ -329,6 +329,46 @@ async function runReviewSyncAndConflictResolution(): Promise<{
   return { flushed, conflicts, failures };
 }
 
+// ── Pending Resolution Dispatch Map & 15s TTL Eviction (#5035) ────────────────
+export interface PendingResolutionCallback {
+  id: string;
+  timestamp: number;
+  timerId: ReturnType<typeof setTimeout>;
+}
+
+export const pendingResolutions = new Map<string, PendingResolutionCallback>();
+export const RESOLUTION_TIMEOUT_MS = 15000; // 15s TTL per pending callback
+
+export function getPendingResolutionsCount(): number {
+  return pendingResolutions.size;
+}
+
+export function registerPendingResolution(id: string): void {
+  clearPendingResolution(id);
+
+  const timerId = setTimeout(() => {
+    if (pendingResolutions.has(id)) {
+      pendingResolutions.delete(id);
+      workerScope.postMessage({
+        type: "CONFLICT_RESOLVED",
+        id,
+        resolution: "AUTO_MERGE",
+        success: false,
+      } satisfies ReviewConflictWorkerOutboundMessage);
+    }
+  }, RESOLUTION_TIMEOUT_MS);
+
+  pendingResolutions.set(id, { id, timestamp: Date.now(), timerId });
+}
+
+export function clearPendingResolution(id: string): void {
+  const pending = pendingResolutions.get(id);
+  if (pending) {
+    clearTimeout(pending.timerId);
+    pendingResolutions.delete(id);
+  }
+}
+
 /**
  * Handle explicit conflict resolution request from main thread.
  */
@@ -337,6 +377,7 @@ async function handleResolveConflict(
   resolution: ConflictResolutionStrategy,
   customData?: QueuedReviewItem["data"],
 ): Promise<void> {
+  registerPendingResolution(id);
   try {
     const reviews = await getWorkerQueuedReviews();
     const item = reviews.find((r) => r.id === id);
@@ -429,6 +470,8 @@ async function handleResolveConflict(
       type: "SYNC_ERROR",
       error: err?.message || "Conflict resolution failed",
     } satisfies ReviewConflictWorkerOutboundMessage);
+  } finally {
+    clearPendingResolution(id);
   }
 }
 
