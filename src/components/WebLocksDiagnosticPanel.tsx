@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Contrast,
 } from "lucide-react";
 import { OFFLINE_WRITE_LOCK } from "@/lib/webLock";
 import { getQueuedFavorites, getQueuedCheckIns } from "@/lib/offlineStore";
@@ -32,6 +33,7 @@ export function WebLocksDiagnosticPanel() {
   });
   const [isSupported, setIsSupported] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [highContrast, setHighContrast] = useState(false);
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
@@ -83,27 +85,59 @@ export function WebLocksDiagnosticPanel() {
   };
 
   return (
-    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4 text-sm">
+    <div
+      className={`rounded-xl p-5 space-y-4 text-sm transition-all ${
+        highContrast
+          ? "border-2 border-black dark:border-white bg-white dark:bg-black shadow-md"
+          : "border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900"
+      }`}
+    >
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
           <Lock className="w-4 h-4 text-blue-500" />
           Web Locks Diagnostic
         </h3>
-        <button
-          type="button"
-          onClick={refresh}
-          disabled={isLoading}
-          aria-label="Refresh lock state"
-          className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 transition-colors disabled:opacity-50"
-        >
-          <RefreshCw
-            className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`}
-          />
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setHighContrast((prev) => !prev)}
+            aria-label="Toggle high-contrast metrics"
+            aria-pressed={highContrast}
+            title={
+              highContrast
+                ? "Disable high contrast metrics"
+                : "Enable high contrast metrics"
+            }
+            className={`p-1.5 rounded-lg border transition-colors ${
+              highContrast
+                ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 border-zinc-900 dark:border-white"
+                : "hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 border-transparent"
+            }`}
+          >
+            <Contrast className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={refresh}
+            disabled={isLoading}
+            aria-label="Refresh lock state"
+            className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw
+              className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`}
+            />
+          </button>
+        </div>
       </div>
 
       {!isSupported && (
-        <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-xs bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">
+        <div
+          className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2 ${
+            highContrast
+              ? "border-2 border-amber-900 bg-amber-100 text-amber-950 font-bold dark:border-amber-400 dark:bg-amber-950 dark:text-amber-200"
+              : "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20"
+          }`}
+        >
           <AlertTriangle className="w-4 h-4 shrink-0" />
           Web Locks API not supported in this browser.
         </div>
@@ -112,15 +146,25 @@ export function WebLocksDiagnosticPanel() {
       {isSupported && (
         <>
           <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+            <p
+              className={`text-xs font-medium uppercase tracking-wider ${
+                highContrast
+                  ? "text-black dark:text-white font-bold"
+                  : "text-zinc-400"
+              }`}
+            >
               Lock: {OFFLINE_WRITE_LOCK}
             </p>
             <div className="grid grid-cols-2 gap-2">
               <div
                 className={`rounded-lg px-3 py-2.5 flex items-center gap-2 ${
-                  lockState.held
-                    ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400"
-                    : "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
+                  highContrast
+                    ? lockState.held
+                      ? "border-2 border-amber-700 bg-amber-200 text-amber-950 font-bold dark:border-amber-400 dark:bg-amber-950 dark:text-amber-100"
+                      : "border-2 border-emerald-800 bg-emerald-100 text-emerald-950 font-bold dark:border-emerald-300 dark:bg-emerald-950 dark:text-emerald-100"
+                    : lockState.held
+                      ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400"
+                      : "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
                 }`}
               >
                 {lockState.held ? (
@@ -132,11 +176,31 @@ export function WebLocksDiagnosticPanel() {
                   {lockState.held ? "Held" : "Free"}
                 </span>
               </div>
-              <div className="bg-zinc-50 dark:bg-zinc-800 rounded-lg px-3 py-2.5 flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
-                <span className="font-bold text-zinc-900 dark:text-zinc-100">
+              <div
+                className={`rounded-lg px-3 py-2.5 flex items-center gap-2 ${
+                  highContrast
+                    ? "border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 text-black dark:text-white"
+                    : "bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400"
+                }`}
+              >
+                <span
+                  className={`font-bold ${
+                    highContrast
+                      ? "text-black dark:text-white text-base"
+                      : "text-zinc-900 dark:text-zinc-100"
+                  }`}
+                >
                   {lockState.pending}
                 </span>
-                <span className="text-xs">pending</span>
+                <span
+                  className={`text-xs ${
+                    highContrast
+                      ? "font-semibold text-zinc-900 dark:text-zinc-100"
+                      : ""
+                  }`}
+                >
+                  pending
+                </span>
               </div>
             </div>
 
@@ -144,29 +208,85 @@ export function WebLocksDiagnosticPanel() {
               <button
                 type="button"
                 onClick={forceReleaseLock}
-                className="w-full mt-1 px-3 py-2 rounded-lg border border-red-200 dark:border-red-800/40 text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                className={`w-full mt-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                  highContrast
+                    ? "border-2 border-red-700 bg-red-100 text-red-950 font-bold dark:border-red-400 dark:bg-red-950 dark:text-red-100"
+                    : "border border-red-200 dark:border-red-800/40 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                }`}
               >
                 Force Lock Release (dev only)
               </button>
             )}
           </div>
 
-          <div className="border-t border-zinc-100 dark:border-zinc-800 pt-3 space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+          <div
+            className={`border-t pt-3 space-y-2 ${
+              highContrast
+                ? "border-black dark:border-white"
+                : "border-zinc-100 dark:border-zinc-800"
+            }`}
+          >
+            <p
+              className={`text-xs font-medium uppercase tracking-wider ${
+                highContrast
+                  ? "text-black dark:text-white font-bold"
+                  : "text-zinc-400"
+              }`}
+            >
               Sync Outbox
             </p>
             <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="bg-zinc-50 dark:bg-zinc-800 rounded-lg px-3 py-2">
-                <span className="font-bold text-zinc-900 dark:text-zinc-100 text-base">
+              <div
+                className={`rounded-lg px-3 py-2 ${
+                  highContrast
+                    ? "border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 text-black dark:text-white"
+                    : "bg-zinc-50 dark:bg-zinc-800"
+                }`}
+              >
+                <span
+                  className={`font-bold text-base ${
+                    highContrast
+                      ? "text-black dark:text-white"
+                      : "text-zinc-900 dark:text-zinc-100"
+                  }`}
+                >
                   {outbox.favorites}
                 </span>
-                <p className="text-zinc-500 mt-0.5">Favorites</p>
+                <p
+                  className={`mt-0.5 ${
+                    highContrast
+                      ? "text-zinc-900 dark:text-zinc-100 font-medium"
+                      : "text-zinc-500"
+                  }`}
+                >
+                  Favorites
+                </p>
               </div>
-              <div className="bg-zinc-50 dark:bg-zinc-800 rounded-lg px-3 py-2">
-                <span className="font-bold text-zinc-900 dark:text-zinc-100 text-base">
+              <div
+                className={`rounded-lg px-3 py-2 ${
+                  highContrast
+                    ? "border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 text-black dark:text-white"
+                    : "bg-zinc-50 dark:bg-zinc-800"
+                }`}
+              >
+                <span
+                  className={`font-bold text-base ${
+                    highContrast
+                      ? "text-black dark:text-white"
+                      : "text-zinc-900 dark:text-zinc-100"
+                  }`}
+                >
                   {outbox.checkIns}
                 </span>
-                <p className="text-zinc-500 mt-0.5">Check-ins</p>
+                <p
+                  className={`mt-0.5 ${
+                    highContrast
+                      ? "text-zinc-900 dark:text-zinc-100 font-medium"
+                      : "text-zinc-500"
+                  }`}
+                >
+                  Check-ins
+                </p>
               </div>
             </div>
           </div>
