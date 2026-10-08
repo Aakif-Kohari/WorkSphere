@@ -42,6 +42,8 @@ export interface StepDetectionResult {
   displacementX: number; // Delta X in meters
   displacementY: number; // Delta Y in meters
   timestamp: number;
+  stepFrequency?: number; // Step frequency in Hz
+  cadence?: number; // Step cadence in Hz
 }
 
 export interface PositionEstimate {
@@ -69,6 +71,8 @@ export interface PdrState {
   stepCount: number;
   totalDistance: number;
   uncertaintyRadius: number; // 1-sigma positional uncertainty in meters
+  stepFrequency?: number; // Step frequency in Hz
+  cadence?: number; // Step cadence in Hz
 }
 
 export interface PdrConfig {
@@ -144,6 +148,32 @@ export function calculateWeinbergStepLength(
   const rawLength = k * Math.pow(bounce, 0.25);
   // Clamp to realistic human step bounds
   return Math.max(0.3, Math.min(1.25, Math.round(rawLength * 1000) / 1000));
+}
+
+/**
+ * Calculates pedestrian step cadence / frequency in Hz (steps per second)
+ * using the timestamp delta between two successive accelerometer peaks (#4791).
+ *
+ * Enforces a minimum time delta threshold (e.g. Math.max(100, deltaMs)) and
+ * guards against deltaMs <= 0 to avoid division by zero yielding Infinity.
+ *
+ * @param deltaMs Time delta in milliseconds between two successive step peaks
+ * @returns Step frequency in Hz, or 0 if deltaMs <= 0 or invalid
+ */
+export function calculateStepFrequency(deltaMs: number): number {
+  if (!Number.isFinite(deltaMs) || deltaMs <= 0) {
+    return 0;
+  }
+  const safeDeltaMs = Math.max(100, deltaMs);
+  return 1000 / safeDeltaMs;
+}
+
+/**
+ * Calculates pedestrian step cadence. Alias for calculateStepFrequency.
+ */
+export function calculateCadence(deltaMs: number, inSpm = false): number {
+  const freqHz = calculateStepFrequency(deltaMs);
+  return inSpm ? freqHz * 60 : freqHz;
 }
 
 /**
@@ -637,7 +667,9 @@ export class ExtendedKalmanFilter6D {
  */
 export class StepDetector {
   private config: Required<PdrConfig>;
+  private lastSampleTimestamp = 0;
   private lastStepTimestamp = 0;
+  private cadence = 0;
   private accelWindow: number[] = [];
   private rawNormWindow: number[] = [];
   private varianceWindowSize = 10;
@@ -674,7 +706,13 @@ export class StepDetector {
   processSample(
     norm: number,
     timestamp: number,
-  ): { stepDetected: boolean; aMax: number; aMin: number } {
+  ): { stepDetected: boolean; aMax: number; aMin: number; cadence?: number; stepFrequency?: number } {
+    // Ignore invalid zero-delta or non-increasing timestamp sensor samples (#4791)
+    if (this.lastSampleTimestamp > 0 && timestamp <= this.lastSampleTimestamp) {
+      return { stepDetected: false, aMax: 0, aMin: 0 };
+    }
+    this.lastSampleTimestamp = timestamp;
+
     // Maintain 10-sample sliding window for dynamic variance calculation
     this.rawNormWindow.push(norm);
     if (this.rawNormWindow.length > this.varianceWindowSize) {
@@ -725,6 +763,9 @@ export class StepDetector {
       const aMax = this.currentPeak;
       const aMin = this.currentValley;
 
+      const deltaMs = this.lastStepTimestamp > 0 ? timestamp - this.lastStepTimestamp : 0;
+      this.cadence = calculateStepFrequency(deltaMs);
+
       // Reset extrema and arm state
       this.isArmed = false;
       this.currentPeak = smoothed;
@@ -732,7 +773,7 @@ export class StepDetector {
       this.lastStepTimestamp = timestamp;
       this.stepCount++;
 
-      return { stepDetected: true, aMax, aMin };
+      return { stepDetected: true, aMax, aMin, cadence: this.cadence, stepFrequency: this.cadence };
     }
 
     return { stepDetected: false, aMax: 0, aMin: 0 };
@@ -742,8 +783,18 @@ export class StepDetector {
     return this.stepCount;
   }
 
+  getCadence(): number {
+    return this.cadence;
+  }
+
+  getStepFrequency(): number {
+    return this.cadence;
+  }
+
   reset(): void {
+    this.lastSampleTimestamp = 0;
     this.lastStepTimestamp = 0;
+    this.cadence = 0;
     this.accelWindow = [];
     this.rawNormWindow = [];
     this.isArmed = false;
@@ -764,6 +815,8 @@ export class IndoorPdrEngine {
   private ekf: ExtendedKalmanFilter6D;
   private stepDetector: StepDetector;
   private lastSampleTimestamp = 0;
+  private lastStepTimestamp = 0;
+  private currentCadence = 0;
   private currentHeadingRad = 0;
   private totalDistance = 0;
   private hasReceivedFirstFix = false;
@@ -791,6 +844,11 @@ export class IndoorPdrEngine {
    * @returns StepDetectionResult if a step was completed, otherwise null
    */
   processImuSample(sample: ImuSample): StepDetectionResult | null {
+    // Ignore invalid zero-delta or non-increasing timestamp sensor samples (#4791)
+    if (this.lastSampleTimestamp > 0 && sample.timestamp <= this.lastSampleTimestamp) {
+      return null;
+    }
+
     const dtSeconds =
       this.lastSampleTimestamp > 0
         ? Math.max(0.001, (sample.timestamp - this.lastSampleTimestamp) / 1000)
@@ -842,6 +900,10 @@ export class IndoorPdrEngine {
     );
 
     if (stepDetected) {
+      const deltaMs = this.lastStepTimestamp > 0 ? sample.timestamp - this.lastStepTimestamp : 0;
+      this.currentCadence = calculateStepFrequency(deltaMs);
+      this.lastStepTimestamp = sample.timestamp;
+
       // Calculate dynamic step length via Weinberg formula
       const stepLength = calculateWeinbergStepLength(
         aMax,
@@ -872,6 +934,8 @@ export class IndoorPdrEngine {
         displacementX: dx,
         displacementY: dy,
         timestamp: sample.timestamp,
+        stepFrequency: Math.round(this.currentCadence * 100) / 100,
+        cadence: Math.round(this.currentCadence * 100) / 100,
       };
     }
 
@@ -980,6 +1044,8 @@ export class IndoorPdrEngine {
       totalDistance: Math.round(this.totalDistance * 100) / 100,
       uncertaintyRadius:
         Math.round(this.ekf.getUncertaintyRadius() * 100) / 100,
+      stepFrequency: Math.round(this.currentCadence * 100) / 100,
+      cadence: Math.round(this.currentCadence * 100) / 100,
     };
   }
 
@@ -1009,6 +1075,8 @@ export class IndoorPdrEngine {
     );
     this.stepDetector.reset();
     this.lastSampleTimestamp = 0;
+    this.lastStepTimestamp = 0;
+    this.currentCadence = 0;
     this.currentHeadingRad = normalizeAngle(initialPosition.heading);
     this.totalDistance = 0;
     this.trajectory = [
