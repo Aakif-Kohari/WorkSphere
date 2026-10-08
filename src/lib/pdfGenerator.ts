@@ -6,6 +6,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 export { generateTaxExportPdf } from "./export/domain/taxExporter";
 export { generateBookingItineraryPdf, type BookingItineraryData } from "./export/domain/itineraryExporter";
+export { generateBookingPdf, type BookingPdfData, type BookingPdfOptions } from "./pdf/generateBookingPdf";
 export { PdfDocumentBuilder } from "./export/pdfBuilder";
 
 /**
