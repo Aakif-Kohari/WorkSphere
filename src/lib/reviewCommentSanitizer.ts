@@ -22,14 +22,14 @@ const BACKTICKS = /`+/g;
 const TRAILING_SPACES = /[ \t]+$/gm;
 const BLANK_LINES = /\n{3,}/g;
 
-/** Drops control characters but keeps tabs and line breaks. */
-export const stripControlCharacters = (value: string): string =>
-  Array.from(value)
-    .filter((char) => {
-      const code = char.charCodeAt(0);
-      return code === 9 || code === 10 || (code >= 32 && code !== 127);
-    })
-    .join("");
+/** Control character regex matching /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g */
+export const CONTROL_CHARACTERS_REGEX = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
+
+/** Drops non-printable ASCII control characters while keeping tabs (\t) and line breaks (\n). */
+export const stripControlCharacters = (value: string): string => {
+  if (!value) return "";
+  return value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+};
 
 export const MIN_COMMENT_LENGTH = 3;
 export const MAX_COMMENT_LENGTH = 1000;
@@ -189,7 +189,7 @@ export function maskProfanity(
 export function cleanControlCharacters(text: string): string {
   if (!text) return "";
   return text
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
     .replace(/[ \t]+/g, " ");
 }
 

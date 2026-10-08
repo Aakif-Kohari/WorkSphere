@@ -4,6 +4,8 @@ import {
   filterAllowedHtml,
   stripScriptAndEventHandlers,
   maskProfanity,
+  stripControlCharacters,
+  cleanControlCharacters,
   MIN_COMMENT_LENGTH,
   MAX_COMMENT_LENGTH,
 } from "@/lib/reviewCommentSanitizer";
@@ -201,6 +203,23 @@ describe("Review Comment Sanitization & Moderation (#5045)", () => {
       expect(result.isValid).toBe(true);
       expect(result.errors).toHaveLength(0);
       expect(result.sanitized).toBe(validComment);
+    });
+  });
+
+  describe("Control Character Stripping (#5024)", () => {
+    it("strips unprintable ASCII control characters matching /[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]/g", () => {
+      const input = "Hello\x00 World\x08!\x1F Test\x7F";
+      expect(stripControlCharacters(input)).toBe("Hello World! Test");
+    });
+
+    it("preserves standard newlines (\\n) and tabs (\\t)", () => {
+      const input = "Line 1\n\tIndented Line 2\x07";
+      expect(stripControlCharacters(input)).toBe("Line 1\n\tIndented Line 2");
+    });
+
+    it("cleans control characters and normalizes spaces in cleanControlCharacters", () => {
+      const input = "Clean\x00\x0B\x0C Text\x7F \twith\x1F spaces";
+      expect(cleanControlCharacters(input)).toBe("Clean Text with spaces");
     });
   });
 });
