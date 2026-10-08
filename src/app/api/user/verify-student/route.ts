@@ -40,6 +40,17 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
+
+    // Check for batch verification request
+    if (Array.isArray(body) || (body && (Array.isArray(body.items) || Array.isArray(body.studentProofs)))) {
+      const { verifyBatchStudentDiscountProofs } = await import("@/lib/zkp/batch");
+      const batchPayload = Array.isArray(body) ? { items: body } : body;
+      const verification = await verifyBatchStudentDiscountProofs(batchPayload);
+      return NextResponse.json(verification, {
+        status: verification.valid ? 200 : 207,
+      });
+    }
+
     const {
       proof,
       publicSignals,
