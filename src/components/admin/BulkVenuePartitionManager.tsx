@@ -19,6 +19,7 @@ import {
   Loader2,
   ShieldAlert,
 } from "lucide-react";
+import { PartitionDiskStorageUsageBar } from "./PartitionDiskStorageUsageBar";
 import type {
   VenuePartitionDetails,
   VenuePartitionSummary,
@@ -217,16 +218,6 @@ export function BulkVenuePartitionManager({
     }
   };
 
-  const totalDiskBytes = initialData?.totalSizeBytes ?? 0;
-  const colors = [
-    "bg-violet-500",
-    "bg-cyan-500",
-    "bg-amber-500",
-    "bg-pink-500",
-    "bg-emerald-500",
-    "bg-blue-500",
-  ];
-
   return (
     <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 sm:p-6 transition-all">
       {/* Header */}
@@ -325,38 +316,18 @@ export function BulkVenuePartitionManager({
         </div>
       </div>
 
-      {/* Stacked Disk Allocation Bar */}
-      {partitions.length > 0 && (
-        <div className="mb-6">
-          <div className="mb-2 flex items-center justify-between text-xs text-zinc-400">
-            <span>Disk Allocation Breakdown</span>
-            <span>
-              Total:{" "}
-              <strong className="text-zinc-200">
-                {initialData?.totalSizePretty ?? "0 B"}
-              </strong>
-            </span>
-          </div>
-          <div className="flex h-3.5 w-full overflow-hidden rounded-full bg-white/[0.08] p-0.5">
-            {partitions.map((part, idx) => {
-              const bytes = part.tableSizeBytes ?? 0;
-              const percent = totalDiskBytes > 0 ? (bytes / totalDiskBytes) * 100 : 0;
-              if (percent <= 0) return null;
-              const isCold = part.isNearColdStorage || bytes >= 100 * 1024 * 1024;
-              return (
-                <div
-                  key={part.name}
-                  style={{ width: `${percent}%` }}
-                  title={`${part.name}: ${part.tableSizePretty} (${percent.toFixed(1)}%)`}
-                  className={`h-full transition-all ${
-                    isCold ? "bg-red-500 animate-pulse" : colors[idx % colors.length]
-                  }`}
-                />
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* Partition Disk Storage Usage Indicator Bar */}
+      <PartitionDiskStorageUsageBar
+        partitions={partitions}
+        totalSizeBytes={initialData?.totalSizeBytes}
+        totalSizePretty={initialData?.totalSizePretty}
+        onFilterByParent={(parentTable) => {
+          setParentFilter(parentTable);
+        }}
+        onFilterByStatus={(status) => {
+          setStatusFilter(status);
+        }}
+      />
 
       {/* Operation Feedback Toast */}
       {operationFeedback && (
@@ -600,20 +571,48 @@ export function BulkVenuePartitionManager({
                     <td className="p-3.5 text-zinc-300">
                       {partition.rowCount.toLocaleString()}
                     </td>
-                    <td className="p-3.5">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`font-mono ${
-                            isNearingThreshold ? "text-red-400 font-semibold" : "text-zinc-200"
-                          }`}
-                        >
-                          {partition.tableSizePretty}
-                        </span>
-                        {isNearingThreshold && (
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-red-500/20 text-red-400 font-semibold">
-                            &gt;100MB
+                    <td className="p-3.5 min-w-[130px]">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`font-mono ${
+                              isNearingThreshold ? "text-red-400 font-semibold" : "text-zinc-200"
+                            }`}
+                          >
+                            {partition.tableSizePretty}
                           </span>
-                        )}
+                          {isNearingThreshold && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-semibold">
+                              &gt;100MB
+                            </span>
+                          )}
+                        </div>
+                        {/* Proportional partition storage bar */}
+                        <div
+                          className="h-1.5 w-24 bg-white/10 rounded-full overflow-hidden"
+                          title={`${partition.tableSizePretty} of 100 MB cold threshold`}
+                        >
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              isNearingThreshold
+                                ? "bg-red-500"
+                                : partition.isArchived
+                                ? "bg-zinc-500"
+                                : "bg-violet-500"
+                            }`}
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                Math.max(
+                                  4,
+                                  ((partition.tableSizeBytes || 0) /
+                                    (100 * 1024 * 1024)) *
+                                    100,
+                                ),
+                              )}%`,
+                            }}
+                          />
+                        </div>
                       </div>
                     </td>
                     <td className="p-3.5">
