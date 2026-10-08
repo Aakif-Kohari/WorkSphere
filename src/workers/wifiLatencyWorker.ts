@@ -129,11 +129,42 @@ function heuristicPredict(telemetry: VenueTelemetry): PredictionResult {
   };
 }
 
+const activeTimers = new Set<
+  ReturnType<typeof setInterval> | ReturnType<typeof setTimeout>
+>();
+
+export function clearAllPingTimers(): void {
+  for (const timer of activeTimers) {
+    clearInterval(timer);
+    clearTimeout(timer);
+  }
+  activeTimers.clear();
+}
+
 self.onmessage = async (e: MessageEvent) => {
-  const { venueId, telemetry } = e.data as {
-    venueId: string;
-    telemetry: VenueTelemetry;
-  };
+  const data = e.data;
+  if (!data) return;
+
+  // Handle explicit worker termination and resource release
+  if (
+    data.type === "TERMINATE" ||
+    data.type === "STOP" ||
+    data.type === "CANCEL"
+  ) {
+    clearAllPingTimers();
+    session = null;
+    isInitialized = false;
+    try {
+      self.close();
+    } catch {
+      // Ignore if close is unavailable in test environment
+    }
+    return;
+  }
+
+  const venueId = data.venueId;
+  const telemetry = data.telemetry as VenueTelemetry;
+  if (!telemetry) return;
 
   try {
     await initModel();
