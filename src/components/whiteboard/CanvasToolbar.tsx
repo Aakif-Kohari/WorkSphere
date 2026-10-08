@@ -1,6 +1,6 @@
 "use client";
 
-import type { ToolType } from "@/hooks/useCanvasWhiteboard";
+import { PRESET_COLORS, type ToolType } from "@/hooks/useCanvasWhiteboard";
 
 interface CanvasToolbarProps {
   tool: ToolType;
@@ -40,17 +40,6 @@ const TOOLS: { id: ToolType; label: string; icon: string }[] = [
     label: "Sticky Note",
     icon: "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z",
   },
-];
-
-const PRESET_COLORS = [
-  "#ffffff",
-  "#f43f5e",
-  "#f97316",
-  "#eab308",
-  "#22c55e",
-  "#06b6d4",
-  "#3b82f6",
-  "#a855f7",
 ];
 
 export function CanvasToolbar({

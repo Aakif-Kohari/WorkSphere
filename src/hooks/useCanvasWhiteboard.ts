@@ -38,6 +38,7 @@ export interface CanvasWhiteboardState {
   remoteCursors: RemoteCursor[];
   tool: ToolType;
   color: string;
+  colors?: readonly string[];
   strokeWidth: number;
   isConnected: boolean;
   provider: YProvider | null;
@@ -55,16 +56,20 @@ export interface CanvasWhiteboardState {
 
 const PARTYKIT_HOST = process.env.NEXT_PUBLIC_PARTYKIT_URL ?? "127.0.0.1:1999";
 
-const PRESET_COLORS = [
+export const PRESET_COLORS = [
   "#ffffff",
   "#f43f5e",
   "#f97316",
   "#eab308",
   "#22c55e",
+  "#14b8a6",
   "#06b6d4",
   "#3b82f6",
   "#a855f7",
-];
+  "#ec4899",
+] as const;
+
+export const WHITEBOARD_COLORS = PRESET_COLORS;
 
 function getDefaultColor(index: number): string {
   return PRESET_COLORS[index % PRESET_COLORS.length];
@@ -435,6 +440,7 @@ export function useCanvasWhiteboard(
     remoteCursors,
     tool,
     color,
+    colors: PRESET_COLORS,
     strokeWidth,
     isConnected,
     provider,

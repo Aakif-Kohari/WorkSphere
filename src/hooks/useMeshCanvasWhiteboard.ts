@@ -10,11 +10,12 @@ import {
   compressYjsUpdate,
   decompressYjsUpdate,
 } from "@/lib/crdt/yjsCompression";
-import type {
-  ToolType,
-  ShapeData,
-  RemoteCursor,
-  CanvasWhiteboardState,
+import {
+  type ToolType,
+  type ShapeData,
+  type RemoteCursor,
+  type CanvasWhiteboardState,
+  PRESET_COLORS,
 } from "@/hooks/useCanvasWhiteboard";
 
 /**
@@ -26,17 +27,6 @@ import type {
 export const meshSendTimestamps = new Map<string, number>();
 
 const PARTYKIT_HOST = process.env.NEXT_PUBLIC_PARTYKIT_URL ?? "127.0.0.1:1999";
-
-const PRESET_COLORS = [
-  "#ffffff",
-  "#f43f5e",
-  "#f97316",
-  "#eab308",
-  "#22c55e",
-  "#06b6d4",
-  "#3b82f6",
-  "#a855f7",
-];
 
 function getDefaultColor(index: number): string {
   return PRESET_COLORS[index % PRESET_COLORS.length];
