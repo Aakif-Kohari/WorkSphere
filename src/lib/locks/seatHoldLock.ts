@@ -279,8 +279,193 @@ export async function getSeatWebLock(
 }
 
 /**
- * Resets all in-memory locks (used strictly for test isolation).
+ * Renews a seat hold lock held by the designated user.
+ * Atomically updates TTL, increments version, and preserves heldAt timestamp.
+ */
+export async function renewSeatWebLock(
+  venueId: string,
+  seatId: string,
+  userId: string,
+  userName?: string,
+  ttlSeconds: number = DEFAULT_LOCK_TTL_SECONDS,
+): Promise<AcquireLockResult> {
+  return acquireSeatWebLock(venueId, seatId, userId, userName, ttlSeconds);
+}
+
+export interface SeatLockHeartbeatOptions {
+  venueId: string;
+  seatId: string;
+  userId: string;
+  userName?: string;
+  ttlSeconds?: number;
+  intervalMs?: number;
+  onRenewSuccess?: (lock: SeatLockData) => void;
+  onRenewFailed?: (reason: string) => void;
+}
+
+export interface ActiveHeartbeatInfo {
+  venueId: string;
+  seatId: string;
+  userId: string;
+  intervalMs: number;
+  startedAt: number;
+  lastRenewedAt?: number;
+}
+
+interface HeartbeatEntry {
+  timer: ReturnType<typeof setInterval>;
+  options: SeatLockHeartbeatOptions;
+  startedAt: number;
+  lastRenewedAt?: number;
+}
+
+const activeHeartbeats = new Map<string, HeartbeatEntry>();
+
+function getHeartbeatKey(venueId: string, seatId: string, userId?: string): string {
+  return userId ? `${venueId}:${seatId}:${userId}` : `${venueId}:${seatId}`;
+}
+
+/**
+ * Starts an automatic background heartbeat to renew an acquired seat lock.
+ * Fires periodically at half the TTL interval (or specified intervalMs).
+ * Automatically cancels if renewal fails (e.g., lock expired and taken by another user).
+ */
+export function startSeatLockRenewalHeartbeat(
+  options: SeatLockHeartbeatOptions,
+): () => void {
+  const {
+    venueId,
+    seatId,
+    userId,
+    userName,
+    ttlSeconds = DEFAULT_LOCK_TTL_SECONDS,
+    intervalMs = Math.max(5000, Math.floor((ttlSeconds * 1000) / 2)),
+    onRenewSuccess,
+    onRenewFailed,
+  } = options;
+
+  const key = getHeartbeatKey(venueId, seatId, userId);
+
+  // Stop any existing heartbeat for this seat & user
+  stopSeatLockRenewalHeartbeat(venueId, seatId, userId);
+
+  const heartbeatFn = async () => {
+    try {
+      const result = await renewSeatWebLock(
+        venueId,
+        seatId,
+        userId,
+        userName,
+        ttlSeconds,
+      );
+
+      if (result.success && result.lock) {
+        const entry = activeHeartbeats.get(key);
+        if (entry) {
+          entry.lastRenewedAt = Date.now();
+        }
+        onRenewSuccess?.(result.lock);
+      } else {
+        // Renewal failed - stop the heartbeat and notify callback
+        stopSeatLockRenewalHeartbeat(venueId, seatId, userId);
+        onRenewFailed?.(result.reason || "RENEWAL_REJECTED");
+      }
+    } catch (err: any) {
+      console.warn(`[SeatLock Heartbeat] Renewal failed for ${venueId}:${seatId}:`, err);
+      stopSeatLockRenewalHeartbeat(venueId, seatId, userId);
+      onRenewFailed?.(err?.message || "HEARTBEAT_ERROR");
+    }
+  };
+
+  const timer = setInterval(heartbeatFn, intervalMs);
+
+  activeHeartbeats.set(key, {
+    timer,
+    options,
+    startedAt: Date.now(),
+  });
+
+  return () => {
+    stopSeatLockRenewalHeartbeat(venueId, seatId, userId);
+  };
+}
+
+/**
+ * Stops an active lock renewal heartbeat for a seat hold.
+ */
+export function stopSeatLockRenewalHeartbeat(
+  venueId: string,
+  seatId: string,
+  userId?: string,
+): boolean {
+  if (userId) {
+    const key = getHeartbeatKey(venueId, seatId, userId);
+    const entry = activeHeartbeats.get(key);
+    if (entry) {
+      clearInterval(entry.timer);
+      activeHeartbeats.delete(key);
+      return true;
+    }
+    return false;
+  }
+
+  // If no userId provided, match all heartbeats for venueId & seatId
+  let stopped = false;
+  const prefix = `${venueId}:${seatId}:`;
+  for (const [k, entry] of activeHeartbeats.entries()) {
+    if (k.startsWith(prefix) || k === `${venueId}:${seatId}`) {
+      clearInterval(entry.timer);
+      activeHeartbeats.delete(k);
+      stopped = true;
+    }
+  }
+  return stopped;
+}
+
+/**
+ * Stops all currently active seat lock renewal heartbeats.
+ */
+export function stopAllSeatLockRenewalHeartbeats(): void {
+  for (const entry of activeHeartbeats.values()) {
+    clearInterval(entry.timer);
+  }
+  activeHeartbeats.clear();
+}
+
+/**
+ * Returns a list of all currently active heartbeat sessions.
+ */
+export function getActiveSeatLockHeartbeats(): ActiveHeartbeatInfo[] {
+  const list: ActiveHeartbeatInfo[] = [];
+  for (const entry of activeHeartbeats.values()) {
+    list.push({
+      venueId: entry.options.venueId,
+      seatId: entry.options.seatId,
+      userId: entry.options.userId,
+      intervalMs: entry.options.intervalMs || DEFAULT_LOCK_TTL_SECONDS * 500,
+      startedAt: entry.startedAt,
+      lastRenewedAt: entry.lastRenewedAt,
+    });
+  }
+  return list;
+}
+
+/**
+ * Singleton service wrapper for seat hold lock renewal heartbeats.
+ */
+export const SeatHoldHeartbeatService = {
+  start: startSeatLockRenewalHeartbeat,
+  stop: stopSeatLockRenewalHeartbeat,
+  stopAll: stopAllSeatLockRenewalHeartbeats,
+  getActive: getActiveSeatLockHeartbeats,
+  renew: renewSeatWebLock,
+};
+
+/**
+ * Resets all in-memory locks and heartbeats (used strictly for test isolation).
  */
 export function resetMemorySeatLocks(): void {
+  stopAllSeatLockRenewalHeartbeats();
   memoryLocks.clear();
 }
+

@@ -19,6 +19,8 @@ export interface UseSeatHoldLockOptions {
   userId?: string;
   userName?: string;
   room?: string;
+  autoRenewHeartbeat?: boolean;
+  heartbeatIntervalMs?: number;
   onHoldAcquired?: (seatId: string, expiresAt: number) => void;
   onHoldRejected?: (
     seatId: string,
@@ -29,6 +31,7 @@ export interface UseSeatHoldLockOptions {
   onHoldExpired?: (seatId: string) => void;
   onSeatLocked?: (seatId: string, heldBy: string, heldByName?: string) => void;
   onSeatUnlocked?: (seatId: string, reason: string) => void;
+  onHoldRenewed?: (seatId: string, expiresAt: number) => void;
 }
 
 export function useSeatHoldLock({
@@ -36,11 +39,14 @@ export function useSeatHoldLock({
   userId: propUserId,
   userName: propUserName,
   room,
+  autoRenewHeartbeat = true,
+  heartbeatIntervalMs,
   onHoldAcquired,
   onHoldRejected,
   onHoldExpired,
   onSeatLocked,
   onSeatUnlocked,
+  onHoldRenewed,
 }: UseSeatHoldLockOptions) {
   const { userId: authUserId } = useAuth();
   const { user } = useUser();
@@ -296,6 +302,46 @@ export function useSeatHoldLock({
 
     return () => clearInterval(interval);
   }, [onHoldExpired]);
+
+  // Automatic lock renewal heartbeat while user holds a seat
+  useEffect(() => {
+    if (!myHeldSeatId || autoRenewHeartbeat === false) return;
+
+    const intervalMs = heartbeatIntervalMs || 60_000; // default 60s
+    const timer = setInterval(() => {
+      if (isConnected && socket) {
+        socket.send(
+          JSON.stringify({
+            type: "seat_hold_request",
+            seatId: myHeldSeatId,
+            venueId,
+            userId: effectiveUserId,
+            userName: effectiveUserName,
+            ttlMs: 300_000,
+          }),
+        );
+      } else {
+        acquireViaHttp(venueId, myHeldSeatId, 300_000).catch(() => {});
+      }
+      const existing = activeHolds[myHeldSeatId];
+      if (existing) {
+        onHoldRenewed?.(myHeldSeatId, Date.now() + 300_000);
+      }
+    }, intervalMs);
+
+    return () => clearInterval(timer);
+  }, [
+    myHeldSeatId,
+    autoRenewHeartbeat,
+    heartbeatIntervalMs,
+    isConnected,
+    socket,
+    venueId,
+    effectiveUserId,
+    effectiveUserName,
+    activeHolds,
+    onHoldRenewed,
+  ]);
 
   /**
    * Acquire an exclusive 5-minute hold on a seat.
