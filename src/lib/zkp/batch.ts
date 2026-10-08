@@ -27,6 +27,7 @@ export interface MultiVenueBatchVerifyResponse {
   verifiedCount: number;
   totalCount: number;
   results: {
+    index: number;
     venueId: string;
     valid: boolean;
     error?: string;
@@ -54,6 +55,7 @@ export interface BatchStudentDiscountRequest {
 }
 
 export interface BatchStudentDiscountResultItem {
+  index: number;
   id?: string;
   userId?: string;
   studentId?: string;
@@ -74,6 +76,27 @@ export interface BatchStudentDiscountResponse {
   batchHash: string;
 }
 
+export interface GenericBatchProofItem {
+  id?: string;
+  proof: any;
+  publicSignals: string[];
+}
+
+export interface GenericBatchProofResultItem {
+  index: number;
+  id?: string;
+  valid: boolean;
+  error?: string;
+}
+
+export interface GenericBatchVerifyResponse {
+  valid: boolean;
+  verifiedCount: number;
+  failedCount: number;
+  totalCount: number;
+  results: GenericBatchProofResultItem[];
+}
+
 export function computeClusterMerkleHash(venueIds: string[]): string {
   if (!venueIds || venueIds.length === 0) return "0";
   const sorted = [...venueIds].sort();
@@ -87,20 +110,32 @@ export function computeClusterMerkleHash(venueIds: string[]): string {
 export async function verifyMultiVenueBatchProofs(
   request: MultiVenueBatchVerifyRequest,
 ): Promise<MultiVenueBatchVerifyResponse> {
-  const results = [];
+  const results: { index: number; venueId: string; valid: boolean; error?: string }[] = [];
   let verifiedCount = 0;
 
-  for (const item of request.venueProofs) {
+  for (let index = 0; index < request.venueProofs.length; index++) {
+    const item = request.venueProofs[index];
     try {
+      if (!item || !item.proof || !item.publicSignals || !Array.isArray(item.publicSignals)) {
+        results.push({
+          index,
+          venueId: item?.venueId || `venue-${index}`,
+          valid: false,
+          error: "Missing or malformed proof payload",
+        });
+        continue;
+      }
+
       const isValid = await verifyMembershipProof(
         item.proof,
         item.publicSignals,
       );
       if (isValid) {
         verifiedCount++;
-        results.push({ venueId: item.venueId, valid: true });
+        results.push({ index, venueId: item.venueId, valid: true });
       } else {
         results.push({
+          index,
           venueId: item.venueId,
           valid: false,
           error: "Invalid ZK proof",
@@ -108,7 +143,8 @@ export async function verifyMultiVenueBatchProofs(
       }
     } catch (err: any) {
       results.push({
-        venueId: item.venueId,
+        index,
+        venueId: item?.venueId || `venue-${index}`,
         valid: false,
         error: err?.message || "Verification failed",
       });
@@ -127,6 +163,68 @@ export async function verifyMultiVenueBatchProofs(
     totalCount: request.venueProofs.length,
     results,
     clusterHash,
+  };
+}
+
+/**
+ * Verifies an arbitrary batch of zero-knowledge proofs independently.
+ * Isolates failed proofs without halting verification of remaining items.
+ */
+export async function verifyBatchProofs(
+  proofs: GenericBatchProofItem[],
+): Promise<GenericBatchVerifyResponse> {
+  const items = proofs || [];
+  const results: GenericBatchProofResultItem[] = [];
+  let verifiedCount = 0;
+
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    const itemId = item?.id || `proof-${index}`;
+
+    try {
+      if (!item || !item.proof || !item.publicSignals || !Array.isArray(item.publicSignals)) {
+        results.push({
+          index,
+          id: itemId,
+          valid: false,
+          error: "Missing or malformed proof payload",
+        });
+        continue;
+      }
+
+      const isValid = await verifyMembershipProof(item.proof, item.publicSignals);
+      if (isValid) {
+        verifiedCount++;
+        results.push({
+          index,
+          id: itemId,
+          valid: true,
+        });
+      } else {
+        results.push({
+          index,
+          id: itemId,
+          valid: false,
+          error: "Groth16 verification failed for proof",
+        });
+      }
+    } catch (err: any) {
+      results.push({
+        index,
+        id: itemId,
+        valid: false,
+        error: err?.message || "Verification processing error",
+      });
+    }
+  }
+
+  const totalCount = items.length;
+  return {
+    valid: verifiedCount === totalCount && totalCount > 0,
+    verifiedCount,
+    failedCount: totalCount - verifiedCount,
+    totalCount,
+    results,
   };
 }
 
@@ -171,6 +269,7 @@ export async function verifyBatchStudentDiscountProofs(
     try {
       if (!item.proof || !item.publicSignals || !Array.isArray(item.publicSignals)) {
         results.push({
+          index,
           id: itemId,
           userId: item.userId,
           studentId: item.studentId,
@@ -213,6 +312,7 @@ export async function verifyBatchStudentDiscountProofs(
         const isRootActive = await isUniversityMerkleRootActive(root, epoch);
         if (!isRootActive) {
           results.push({
+            index,
             id: itemId,
             userId: item.userId,
             studentId: item.studentId,
@@ -228,6 +328,7 @@ export async function verifyBatchStudentDiscountProofs(
       if (nullifierHash) {
         if (seenBatchNullifiers.has(nullifierHash)) {
           results.push({
+            index,
             id: itemId,
             userId: item.userId,
             studentId: item.studentId,
@@ -248,6 +349,7 @@ export async function verifyBatchStudentDiscountProofs(
 
           if (existingClaim) {
             results.push({
+              index,
               id: itemId,
               userId: item.userId,
               studentId: item.studentId,
@@ -277,6 +379,7 @@ export async function verifyBatchStudentDiscountProofs(
 
       if (!fs.existsSync(keyPath)) {
         results.push({
+          index,
           id: itemId,
           userId: item.userId,
           studentId: item.studentId,
@@ -294,6 +397,7 @@ export async function verifyBatchStudentDiscountProofs(
         isValid = await snarkjs.groth16.verify(vKey, item.publicSignals, item.proof);
       } catch (err: any) {
         results.push({
+          index,
           id: itemId,
           userId: item.userId,
           studentId: item.studentId,
@@ -346,6 +450,7 @@ export async function verifyBatchStudentDiscountProofs(
         }
 
         results.push({
+          index,
           id: itemId,
           userId: item.userId,
           studentId: item.studentId,
@@ -357,6 +462,7 @@ export async function verifyBatchStudentDiscountProofs(
         });
       } else {
         results.push({
+          index,
           id: itemId,
           userId: item.userId,
           studentId: item.studentId,
@@ -367,6 +473,7 @@ export async function verifyBatchStudentDiscountProofs(
       }
     } catch (err: any) {
       results.push({
+        index,
         id: itemId,
         userId: item.userId,
         studentId: item.studentId,
