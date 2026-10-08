@@ -348,4 +348,35 @@ describe("CollaborativeNotes Active Typing Presence (#3438)", () => {
     // No heartbeat should fire after unmount
     expect(mockSocketSend).not.toHaveBeenCalled();
   });
+
+  describe("Tag Badges Truncation (#4910)", () => {
+    it("renders tag badges with truncate max-w-[120px] and title tooltip attribute", () => {
+      const longTag = "extremely-long-custom-tag-name-that-would-otherwise-overflow";
+      const shortTag = "design";
+
+      render(
+        <CollaborativeNotes
+          folderId="folder-tags-test"
+          tags={[longTag, shortTag]}
+        />,
+      );
+
+      const tagBadges = screen.getAllByTestId("tag-badge");
+      expect(tagBadges).toHaveLength(2);
+
+      // Check first badge (long tag)
+      const firstBadge = tagBadges[0];
+      expect(firstBadge).toHaveAttribute("title", longTag);
+      expect(firstBadge.className).toContain("truncate");
+      expect(firstBadge.className).toContain("max-w-[120px]");
+      expect(firstBadge.querySelector(".truncate")?.className).toContain(
+        "max-w-[120px]",
+      );
+
+      // Check second badge (short tag)
+      const secondBadge = tagBadges[1];
+      expect(secondBadge).toHaveAttribute("title", shortTag);
+      expect(secondBadge).toHaveTextContent(shortTag);
+    });
+  });
 });

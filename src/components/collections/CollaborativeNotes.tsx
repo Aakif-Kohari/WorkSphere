@@ -54,6 +54,9 @@ export interface CollaborativeNotesProps {
     userName?: string;
     avatarUrl?: string;
   };
+  tags?: string[];
+  onAddTag?: (tag: string) => void;
+  onRemoveTag?: (tag: string) => void;
 }
 
 type SyncStatus = NoteSyncStatus | "connecting" | "offline";
@@ -65,6 +68,9 @@ export function CollaborativeNotes({
   canEdit = true,
   className = "",
   currentUser: propCurrentUser,
+  tags = [],
+  onAddTag,
+  onRemoveTag,
 }: CollaborativeNotesProps) {
   const resolvedFolderId =
     folderId ||
@@ -711,8 +717,25 @@ export function CollaborativeNotes({
         }
         className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 read-only:bg-zinc-50 dark:read-only:bg-zinc-900/50"
       />
-      <div className="flex items-center justify-between mt-1 text-xs text-zinc-400">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 mt-2 text-xs text-zinc-400">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          {tags && tags.length > 0 && (
+            <div
+              data-testid="notes-tags-list"
+              className="flex flex-wrap items-center gap-1.5 min-w-0"
+            >
+              {tags.map((tag, idx) => (
+                <span
+                  key={`${tag}-${idx}`}
+                  title={tag}
+                  data-testid="tag-badge"
+                  className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 truncate max-w-[120px]"
+                >
+                  <span className="truncate max-w-[120px]">{tag}</span>
+                </span>
+              ))}
+            </div>
+          )}
           {text.length > 0 && (
             <button
               type="button"
@@ -734,7 +757,7 @@ export function CollaborativeNotes({
             </button>
           )}
         </div>
-        <p>
+        <p className="shrink-0">
           {text.length}/{MAX_COLLECTION_NOTES_LENGTH}
         </p>
       </div>
