@@ -73,6 +73,12 @@ export function useMeshCanvasWhiteboard(
   // synchronous doc update handler (avoids stale closure over mesh.isConnected).
   const meshConnectedRef = useRef<boolean>(false);
 
+  // Issue #4918: Buffer raw stroke coordinate points to throttle broadcasts to 60fps
+  const strokeBufferRef = useRef<Map<string, number[]>>(new Map());
+  const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+  const lastDispatchTimeRef = useRef<number>(0);
+
   const [shapeSnapshots, setShapeSnapshots] = useState<ShapeData[]>([]);
   const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([]);
   const [canUndo, setCanUndo] = useState(false);
@@ -358,8 +364,129 @@ export function useMeshCanvasWhiteboard(
     [localUserId],
   );
 
+  const applyShapePoints = useCallback(
+    (id: string, points: number[]) => {
+      const shapes = shapesRef.current;
+      const doc = docRef.current;
+      if (!shapes || !doc) return;
+      const now = Date.now();
+
+      doc.transact(() => {
+        for (let i = 0; i < shapes.length; i++) {
+          const map = shapes.get(i);
+          if (map.get("id") === id) {
+            const isDeleted = (map.get("deleted") as boolean) ?? false;
+            const delClock = (map.get("deletedAt") as number) ?? 0;
+            const curClock =
+              (map.get("clock") as number) ??
+              (map.get("updatedAt") as number) ??
+              0;
+
+            if (isDeleted && now <= delClock) return;
+            if (now < curClock) return;
+
+            map.set("points", points.slice());
+            map.set("updatedAt", now);
+            map.set("clock", now);
+            break;
+          }
+        }
+      }, localUserId);
+    },
+    [localUserId],
+  );
+
+  const flushStrokeBuffer = useCallback(
+    (targetId?: string) => {
+      if (throttleTimerRef.current !== null) {
+        clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+      if (
+        rafIdRef.current !== null &&
+        typeof cancelAnimationFrame !== "undefined"
+      ) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+
+      const buffer = strokeBufferRef.current;
+      if (buffer.size === 0) return;
+
+      if (targetId) {
+        const points = buffer.get(targetId);
+        if (points) {
+          applyShapePoints(targetId, points);
+          buffer.delete(targetId);
+        }
+      } else {
+        buffer.forEach((points, id) => {
+          applyShapePoints(id, points);
+        });
+        buffer.clear();
+      }
+      lastDispatchTimeRef.current = Date.now();
+    },
+    [applyShapePoints],
+  );
+
+  const scheduleDispatch = useCallback(() => {
+    if (throttleTimerRef.current !== null || rafIdRef.current !== null) {
+      return;
+    }
+
+    const now = Date.now();
+    const elapsed = now - lastDispatchTimeRef.current;
+    const remaining = Math.max(0, 16 - elapsed);
+
+    if (typeof requestAnimationFrame !== "undefined" && remaining === 0) {
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        flushStrokeBuffer();
+      });
+    } else {
+      throttleTimerRef.current = setTimeout(() => {
+        throttleTimerRef.current = null;
+        flushStrokeBuffer();
+      }, remaining || 16);
+    }
+  }, [flushStrokeBuffer]);
+
+  const broadcastStroke = useCallback(
+    (id: string, points: number[]) => {
+      strokeBufferRef.current.set(id, points.slice());
+      scheduleDispatch();
+    },
+    [scheduleDispatch],
+  );
+
+  const bufferStrokePoints = useCallback(
+    (id: string, points: number[]) => {
+      const existing = strokeBufferRef.current.get(id);
+      if (existing) {
+        strokeBufferRef.current.set(id, [...existing, ...points]);
+      } else {
+        strokeBufferRef.current.set(id, points.slice());
+      }
+      scheduleDispatch();
+    },
+    [scheduleDispatch],
+  );
+
   const updateShape = useCallback(
     (id: string, updates: Partial<ShapeData>) => {
+      const keys = Object.keys(updates);
+      if (
+        updates.points !== undefined &&
+        (keys.length === 1 ||
+          (keys.length === 2 &&
+            (updates.clock !== undefined || updates.updatedAt !== undefined)))
+      ) {
+        broadcastStroke(id, updates.points);
+        return;
+      }
+
+      flushStrokeBuffer(id);
       const shapes = shapesRef.current;
       const doc = docRef.current;
       if (!shapes || !doc) return;
@@ -479,6 +606,9 @@ export function useMeshCanvasWhiteboard(
     addShape,
     updateShape,
     deleteShape,
+    broadcastStroke,
+    bufferStrokePoints,
+    flushStrokeBuffer,
     shapeSnapshots,
     remoteCursors,
     tool,
