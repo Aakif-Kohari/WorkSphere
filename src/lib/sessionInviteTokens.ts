@@ -121,7 +121,7 @@ function sha256(data: Uint8Array): Uint8Array {
 
   const len = data.length;
   const bitLen = len * 8;
-  const padLen = ((len + 8) >> 6 << 6) + 64;
+  const padLen = (((len + 8) >> 6) << 6) + 64;
   const padded = new Uint8Array(padLen);
   padded.set(data);
   padded[len] = 0x80;
