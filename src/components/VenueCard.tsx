@@ -43,6 +43,7 @@ import { FolderPlus } from "lucide-react";
 import { useCurrency } from "@/context/CurrencyContext";
 import { useHoverPredictor } from "@/hooks/useHoverPredictor";
 import { getOpeningHoursStatus } from "@/lib/openingHours";
+import { getVenueHoursStatus } from "@/lib/venueHours";
 import { MUSIC_GENRE_EMOJI, type MusicGenre } from "@/hooks/useLiveVenueData";
 import { HighlightedText } from "@/components/ui/HighlightedText";
 import { useSeatAvailability } from "@/hooks/useSeatAvailability";
@@ -752,79 +753,35 @@ export function VenueCard({
           const hoursStr = enrichData?.opening_hours || venue.openingHours;
           if (!hoursStr) return null;
 
-          const status = getOpeningHoursStatus(hoursStr);
+          const operatingStatus = getVenueHoursStatus(hoursStr);
+          if (!operatingStatus.isAvailable && !operatingStatus.badgeText) return null;
 
-          if (status.isStructured) {
-            return (
-              <div className="flex items-center gap-2 mb-3 text-xs text-zinc-600 dark:text-zinc-400">
-                <Clock className="w-3 h-3 shrink-0" />
-                <span
-                  className="truncate max-w-[200px]"
-                  title={status.displayString}
-                >
-                  {status.displayString}
-                </span>
-                <span
-                  className={`px-2 py-0.5 rounded-full font-semibold truncate max-w-[150px] ${
-                    status.isOpen
-                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                      : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                  }`}
-                  title={status.isOpen ? "Open Now" : "Closed"}
-                >
-                  {status.isOpen ? "Open Now" : "Closed"}
-                </span>
-              </div>
-            );
-          }
-
-          // Legacy parsing
-          const match = hoursStr.match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
-          if (!match) {
-            return (
-              <div className="flex items-center gap-2 mb-3 text-xs text-zinc-600 dark:text-zinc-400">
-                <Clock className="w-3 h-3 shrink-0" />
-                <span className="truncate">{hoursStr}</span>
-              </div>
-            );
-          }
-
-          // Gate the open/closed badge on isClient to prevent SSR hydration mismatch
-          // (new Date() differs between server and client render times).
-          let legacyOpen = false;
-          if (isClient) {
-            const now = new Date();
-            const currentMinutes = now.getHours() * 60 + now.getMinutes();
-            const [openH, openM] = match[1].split(":").map(Number);
-            const [closeH, closeM] = match[2].split(":").map(Number);
-
-            const openMinutes = openH * 60 + openM;
-            const closeMinutes = closeH * 60 + closeM;
-
-            if (closeMinutes < openMinutes) {
-              legacyOpen =
-                currentMinutes >= openMinutes || currentMinutes <= closeMinutes;
-            } else {
-              legacyOpen =
-                currentMinutes >= openMinutes && currentMinutes < closeMinutes;
-            }
-          }
+          const isOpen = operatingStatus.isOpen;
+          const is24Hours = operatingStatus.is24Hours;
 
           return (
             <div className="flex items-center gap-2 mb-3 text-xs text-zinc-600 dark:text-zinc-400">
-              <Clock className="w-3 h-3 shrink-0" />
-              <span>{hoursStr}</span>
-              {isClient && (
+              <Clock className="w-3.5 h-3.5 shrink-0 text-zinc-400 dark:text-zinc-500" />
+              {isClient && operatingStatus.badgeText ? (
                 <span
-                  className={`px-2 py-0.5 rounded-full font-semibold truncate max-w-[150px] ${
-                    legacyOpen
-                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                      : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium tracking-tight ${
+                    isOpen || is24Hours
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50"
+                      : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/50"
                   }`}
-                  title={legacyOpen ? "Open Now" : "Closed"}
+                  title={operatingStatus.badgeText}
                 >
-                  {legacyOpen ? "Open Now" : "Closed"}
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      isOpen || is24Hours
+                        ? "bg-emerald-500"
+                        : "bg-zinc-400 dark:bg-zinc-500"
+                    }`}
+                  />
+                  {operatingStatus.badgeText}
                 </span>
+              ) : (
+                <span className="truncate">{hoursStr}</span>
               )}
             </div>
           );
