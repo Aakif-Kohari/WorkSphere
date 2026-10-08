@@ -181,13 +181,26 @@ export function calculateSunPosition(
   const altitude = 90 - toDeg(zenithRad);
 
   // Azimuth (0–360, clockwise from North)
-  const cosAz =
-    (Math.sin(latRad) * Math.cos(zenithRad) - Math.sin(decl)) /
-    (Math.cos(latRad) * Math.sin(zenithRad));
-  let azimuth = toDeg(Math.acos(Math.min(1, Math.max(-1, cosAz))));
-  if (hourAngleDeg > 0) {
-    azimuth = 360 - azimuth;
+  const sinZenith = Math.sin(zenithRad);
+  let azimuth: number;
+
+  if (sinZenith === 0) {
+    azimuth = latitude < 0 ? 0 : 180;
+  } else {
+    const cosAz =
+      (Math.sin(latRad) * Math.cos(zenithRad) - Math.sin(decl)) /
+      (Math.cos(latRad) * sinZenith);
+    const gamma = toDeg(Math.acos(Math.min(1, Math.max(-1, cosAz))));
+
+    if (hourAngleDeg > 0) {
+      azimuth = (gamma + 180) % 360;
+    } else {
+      azimuth = (540 - gamma) % 360;
+    }
   }
+
+  // Normalize azimuth within [0, 360)
+  azimuth = ((azimuth % 360) + 360) % 360;
 
   return {
     altitude,

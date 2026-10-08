@@ -69,6 +69,18 @@ describe("calculateSunPosition", () => {
     expect(pos.isAboveHorizon).toBe(true);
     expect(pos.altitude).toBeGreaterThan(80); // Sun is almost directly overhead in Hawaii in June
   });
+
+  it("calculates accurate solar noon pointing North (0°/360°) for Southern Hemisphere coordinates", () => {
+    // Sydney (-33.8688, 151.2093) on March equinox (~02:00 UTC solar noon)
+    const date = new Date(Date.UTC(2026, 2, 20, 1, 55, 0));
+    const pos = calculateSunPosition(-33.8688, 151.2093, date);
+
+    expect(pos.isAboveHorizon).toBe(true);
+    expect(pos.altitude).toBeGreaterThan(50);
+    // At solar noon in the Southern Hemisphere, the sun is due North (close to 0° or 360°)
+    const isDueNorth = pos.azimuth <= 5 || pos.azimuth >= 355;
+    expect(isDueNorth).toBe(true);
+  });
 });
 
 describe("getPatioShadePercentage", () => {
