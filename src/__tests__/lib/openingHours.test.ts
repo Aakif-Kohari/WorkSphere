@@ -94,6 +94,31 @@ describe("Timezone-aware opening hours helper logic", () => {
     expect(statusClosed.displayString).toContain("Closed Today");
   });
 
+  it("prioritizes active overnight shift display string even when today also has open operating hours", () => {
+    const overnightWithOpenToday: StructuredHours = {
+      timezone: "UTC",
+      periods: {
+        monday: { open: "09:00", close: "17:00", closed: false },
+        tuesday: { open: "09:00", close: "17:00", closed: false },
+        wednesday: { open: "09:00", close: "17:00", closed: false },
+        thursday: { open: "09:00", close: "17:00", closed: false },
+        friday: { open: "09:00", close: "17:00", closed: false },
+        saturday: { open: "20:00", close: "04:00", closed: false },
+        sunday: { open: "09:00", close: "17:00", closed: false },
+      },
+    };
+
+    // Sunday, Oct 4, 2026 at 02:30 UTC (during Saturday overnight shift until 04:00, before Sunday 09:00 opens)
+    const sundayEarlyMorning = new Date(Date.UTC(2026, 9, 4, 2, 30, 0));
+    const status = getOpeningHoursStatus(
+      JSON.stringify(overnightWithOpenToday),
+      "UTC",
+      sundayEarlyMorning,
+    );
+    expect(status.isOpen).toBe(true);
+    expect(status.displayString).toBe("Open until 4:00 AM (UTC)");
+  });
+
   it("handles missing weekday from formatToParts gracefully without TypeError", () => {
     const originalFormatToParts = Intl.DateTimeFormat.prototype.formatToParts;
     Intl.DateTimeFormat.prototype.formatToParts = jest.fn().mockReturnValue([

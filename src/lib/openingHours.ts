@@ -137,12 +137,19 @@ export function getOpeningHoursStatus(
     }
 
     let displayString: string;
-    if (period && !period.closed && typeof period.open === "string" && typeof period.close === "string") {
-      displayString = `Today: ${formatTime12h(period.open)} - ${formatTime12h(period.close)} (${timezone})`;
-    } else if (overnightFromPrev && dayIdx !== -1 && structured.periods) {
+    if (overnightFromPrev && dayIdx !== -1 && structured.periods) {
       const prevName = DAYS_OF_WEEK[(dayIdx + 6) % 7];
       const prev = structured.periods[prevName];
-      displayString = prev?.close ? `Open until ${formatTime12h(prev.close)} (${timezone})` : `Closed Today (${timezone})`;
+      displayString = prev?.close
+        ? `Open until ${formatTime12h(prev.close)} (${timezone})`
+        : `Closed Today (${timezone})`;
+    } else if (
+      period &&
+      !period.closed &&
+      typeof period.open === "string" &&
+      typeof period.close === "string"
+    ) {
+      displayString = `Today: ${formatTime12h(period.open)} - ${formatTime12h(period.close)} (${timezone})`;
     } else {
       displayString = `Closed Today (${timezone})`;
     }
