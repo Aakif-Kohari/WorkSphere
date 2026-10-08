@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { VenueCard } from "@/components/VenueCard";
+import { MapPin } from "lucide-react";
 import {
   sortVenuesByProximity,
   filterVenuesByRadius,
@@ -19,8 +20,8 @@ export interface VenueListProps {
 }
 
 /**
- * VenueList renders venue cards in a responsive grid, with computed walking time badges
- * and proximity sorting when user location permission is granted.
+ * VenueList renders venue cards in a responsive grid, with computed distance badge indicators
+ * on the card corner and proximity sorting when user GPS location permissions are granted.
  */
 export function VenueList({
   venues,
@@ -30,19 +31,46 @@ export function VenueList({
   className = "",
   onBookmarkToggle,
 }: VenueListProps) {
+  const [internalLocation, setInternalLocation] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+
+  // Attempt browser GPS coordinates if userLocation prop was not passed
+  useEffect(() => {
+    if (userLocation) return;
+    if (typeof navigator !== "undefined" && "geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setInternalLocation({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+        },
+        () => {
+          // Gracefully hide badge if location access is denied
+          setInternalLocation(null);
+        },
+        { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+      );
+    }
+  }, [userLocation]);
+
+  const activeLocation = userLocation || internalLocation;
+
   const processedVenues = useMemo(() => {
     let result = [...venues];
 
-    if (maxDistanceKm && maxDistanceKm > 0 && userLocation) {
-      result = filterVenuesByRadius(result, userLocation, maxDistanceKm);
+    if (maxDistanceKm && maxDistanceKm > 0 && activeLocation) {
+      result = filterVenuesByRadius(result, activeLocation, maxDistanceKm);
     }
 
-    if (sortByProximity && userLocation) {
-      result = sortVenuesByProximity(result, userLocation);
+    if (sortByProximity && activeLocation) {
+      result = sortVenuesByProximity(result, activeLocation);
     }
 
     return result;
-  }, [venues, userLocation, sortByProximity, maxDistanceKm]);
+  }, [venues, activeLocation, sortByProximity, maxDistanceKm]);
 
   if (processedVenues.length === 0) {
     return (
@@ -64,16 +92,42 @@ export function VenueList({
         const vLat = venue.latitude ?? venue.lat;
         const vLon = venue.longitude ?? venue.lng;
         const computedDistance =
-          userLocation && vLat != null && vLon != null
-            ? haversineKm(userLocation.lat, userLocation.lng, vLat, vLon)
+          activeLocation &&
+          vLat != null &&
+          vLon != null &&
+          !isNaN(Number(vLat)) &&
+          !isNaN(Number(vLon))
+            ? haversineKm(
+                activeLocation.lat,
+                activeLocation.lng,
+                Number(vLat),
+                Number(vLon)
+              )
             : null;
 
+        const venueId = venue.id || venue.placeId || "unknown";
+
         return (
-          <div key={venue.id || venue.placeId} className="relative group">
+          <div key={venueId} className="relative group">
             <VenueCard venue={venue} onBookmarkToggle={onBookmarkToggle} />
+
+            {computedDistance !== null && (
+              <div
+                data-testid={`distance-badge-${venueId}`}
+                className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-zinc-900/80 dark:bg-zinc-800/80 backdrop-blur-md text-white border border-white/10 shadow-md pointer-events-none"
+                aria-label={`${computedDistance.toFixed(1)} km away`}
+              >
+                <MapPin
+                  className="w-3 h-3 text-blue-400 shrink-0"
+                  aria-hidden="true"
+                />
+                <span>{computedDistance.toFixed(1)} km away</span>
+              </div>
+            )}
+
             {computedDistance !== null && (
               <span
-                data-testid={`walking-badge-${venue.id}`}
+                data-testid={`walking-badge-${venueId}`}
                 className="sr-only"
               >
                 {formatWalkingTimeBadge(computedDistance)}
