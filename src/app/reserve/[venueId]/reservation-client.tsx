@@ -15,6 +15,7 @@ import {
   Download,
   UserPlus,
   Repeat,
+  AlertCircle,
 } from "lucide-react";
 import { getCalendarUrls, downloadICS } from "@/lib/calendar";
 import GuestsInput, { type GuestEntry } from "@/components/GuestsInput";
@@ -76,6 +77,32 @@ export function formatReservationEndTime(
   return `${endH.toString().padStart(2, "0")}:${endM.toString().padStart(2, "0")}`;
 }
 
+/**
+ * Clamps seat count between 1 and available capacity when capacity > 0.
+ * If capacity is 0, returns 0.
+ */
+export function clampSeatCount(count: number, capacity: number): number {
+  if (capacity <= 0) return 0;
+  return Math.min(Math.max(1, count), capacity);
+}
+
+/**
+ * Decrements seat count, ensuring it never drops below 1 when capacity > 0,
+ * and returns 0 when capacity is 0 (preventing negative values).
+ */
+export function decrementSeatCount(currentCount: number, capacity: number): number {
+  if (capacity <= 0) return 0;
+  return Math.max(1, currentCount - 1);
+}
+
+/**
+ * Increments seat count up to the maximum available capacity.
+ */
+export function incrementSeatCount(currentCount: number, capacity: number): number {
+  if (capacity <= 0) return 0;
+  return Math.min(capacity, Math.max(1, currentCount + 1));
+}
+
 export default function ReservationClient({ venue }: { venue: Venue }) {
   const retryAfter = useRateLimit("book");
   const [date, setDate] = useState(todayString());
@@ -83,6 +110,7 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
   const [duration, setDuration] = useState(60);
   const [seats, setSeats] = useState<Seat[]>([]);
   const [selectedSeat, setSelectedSeat] = useState<string | null>(null);
+  const [seatCount, setSeatCount] = useState(1);
   const [amenities, setAmenities] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState(false);
@@ -209,6 +237,19 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
     [seats, selectedSeat],
   );
 
+  const availableCapacity = useMemo(
+    () => seats.filter((seat) => seat.available).length,
+    [seats],
+  );
+
+  useEffect(() => {
+    if (availableCapacity === 0) {
+      setSeatCount(0);
+    } else {
+      setSeatCount((prev) => clampSeatCount(prev === 0 ? 1 : prev, availableCapacity));
+    }
+  }, [availableCapacity]);
+
   const previewDates = useMemo(() => {
     if (!recurringEnabled) return [];
     const dates: string[] = [];
@@ -239,6 +280,11 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
 
   async function reserve(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (availableCapacity === 0) {
+      setMessage("No seats available for this date and time.");
+      return;
+    }
 
     if (!selected) {
       setMessage("Choose an available desk or room first.");
@@ -615,6 +661,76 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
                     </select>
                   </Field>
                 </div>
+
+                {/* Seats / Capacity Selector */}
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="flex items-center gap-2 text-sm text-zinc-400">
+                      <UsersRound className="h-4 w-4" />
+                      Seats needed
+                    </span>
+                    <span
+                      className={`text-xs font-medium ${
+                        availableCapacity === 0
+                          ? "text-red-400"
+                          : "text-zinc-400"
+                      }`}
+                      data-testid="capacity-status"
+                    >
+                      {availableCapacity === 0
+                        ? "No seats available"
+                        : `${availableCapacity} available`}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center rounded-xl border border-white/10 bg-white/5 p-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSeatCount((prev) =>
+                            decrementSeatCount(prev, availableCapacity),
+                          )
+                        }
+                        disabled={availableCapacity === 0 || seatCount <= 1}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-300 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 transition"
+                        aria-label="Decrease seat count"
+                        data-testid="seat-decrement-btn"
+                      >
+                        -
+                      </button>
+                      <span
+                        className="w-12 text-center font-mono text-sm font-semibold text-white"
+                        data-testid="seat-count-display"
+                      >
+                        {seatCount}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSeatCount((prev) =>
+                            incrementSeatCount(prev, availableCapacity),
+                          )
+                        }
+                        disabled={
+                          availableCapacity === 0 ||
+                          seatCount >= availableCapacity
+                        }
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-300 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 transition"
+                        aria-label="Increase seat count"
+                        data-testid="seat-increment-btn"
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    {availableCapacity === 0 && (
+                      <span className="text-xs font-medium text-red-400">
+                        No seats available
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="mt-6">
@@ -795,17 +911,30 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
                 )}
               </div>
 
+              {availableCapacity === 0 && (
+                <div
+                  className="mt-4 flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400"
+                  data-testid="no-seats-warning"
+                >
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>No seats available</span>
+                </div>
+              )}
+
               <button
-                disabled={!selected || booking || retryAfter > 0}
+                disabled={!selected || booking || retryAfter > 0 || availableCapacity === 0}
                 className="mt-6 w-full rounded-xl bg-violet-600 px-4 py-3 font-medium transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40 flex items-center justify-center gap-1.5"
+                data-testid="confirm-booking-btn"
               >
-                {booking
-                  ? "Securing workspace..."
-                  : retryAfter > 0
-                    ? `Retry in ${retryAfter}s`
-                    : recurringEnabled
-                      ? `Confirm ${previewDates.length} recurring bookings`
-                      : "Confirm reservation"}
+                {availableCapacity === 0
+                  ? "No seats available"
+                  : booking
+                    ? "Securing workspace..."
+                    : retryAfter > 0
+                      ? `Retry in ${retryAfter}s`
+                      : recurringEnabled
+                        ? `Confirm ${previewDates.length} recurring bookings`
+                        : "Confirm reservation"}
               </button>
             </form>
           </div>
