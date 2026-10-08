@@ -13,6 +13,8 @@ export interface SunPosition {
   altitude: number;
   /** True azimuth in degrees clockwise from North (0–360) */
   azimuth: number;
+  /** Solar zenith angle in degrees clamped between 0 and 180 */
+  zenith: number;
   /** Whether the sun is currently above the horizon */
   isAboveHorizon: boolean;
   /** Altitude normalized to [0, 1] against a 90° zenith (clamped at 0 when below horizon) */
@@ -48,6 +50,22 @@ function toRad(deg: number): number {
 
 function toDeg(rad: number): number {
   return (rad * 180) / Math.PI;
+}
+
+/**
+ * Clamps a solar zenith angle to the physically valid range [0, 180] degrees.
+ */
+export function clampZenith(zenithDeg: number): number {
+  if (isNaN(zenithDeg) || !isFinite(zenithDeg)) return 90;
+  return Math.min(180, Math.max(0, zenithDeg));
+}
+
+/**
+ * Normalizes an azimuth angle to the range [0, 360) degrees.
+ */
+export function normalizeAzimuth(azimuthDeg: number): number {
+  if (isNaN(azimuthDeg) || !isFinite(azimuthDeg)) return 0;
+  return ((azimuthDeg % 360) + 360) % 360;
 }
 
 /** Julian Day Number from a UTC Date */
@@ -177,8 +195,11 @@ export function calculateSunPosition(
   const cosZenith =
     Math.sin(latRad) * Math.sin(decl) +
     Math.cos(latRad) * Math.cos(decl) * Math.cos(ha);
-  const zenithRad = Math.acos(Math.min(1, Math.max(-1, cosZenith)));
-  const altitude = 90 - toDeg(zenithRad);
+  const rawZenithRad = Math.acos(Math.min(1, Math.max(-1, cosZenith)));
+  const rawZenithDeg = toDeg(rawZenithRad);
+  const zenith = clampZenith(rawZenithDeg);
+  const zenithRad = toRad(zenith);
+  const altitude = 90 - zenith;
 
   // Azimuth (0–360, clockwise from North)
   const sinZenith = Math.sin(zenithRad);
@@ -200,11 +221,12 @@ export function calculateSunPosition(
   }
 
   // Normalize azimuth within [0, 360)
-  azimuth = ((azimuth % 360) + 360) % 360;
+  azimuth = normalizeAzimuth(azimuth);
 
   return {
     altitude,
     azimuth,
+    zenith,
     isAboveHorizon: altitude > 0,
     normalizedAltitude: Math.max(0, Math.min(1, altitude / 90)),
   };
