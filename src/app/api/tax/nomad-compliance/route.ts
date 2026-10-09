@@ -2,7 +2,7 @@
  * route.ts
  * /api/tax/nomad-compliance
  * Calculates digital nomad visa stay metrics, Schengen 90/180 rolling quotas,
- * 183-day tax residency hazards, and exports deductible expense dossiers.
+ * multi-jurisdiction physical presence collision resolution, and exports deductible expense dossiers.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -10,8 +10,13 @@ import { prisma } from "@/lib/prisma";
 import {
   generateNomadComplianceReport,
   exportComplianceReportCSV,
+  calculateNomadTaxPresence,
   type NomadCheckInRecord,
+  type TaxPresenceEntry,
+  type NomadTaxOptions,
 } from "@/lib/tax/nomadTaxEngine";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
@@ -39,9 +44,16 @@ export async function GET(req: NextRequest) {
     // Parse records or generate realistic nomad itinerary entries if new user
     let records: NomadCheckInRecord[] = bookings.map((b) => {
       const address = b.venue?.address || "Berlin, Germany";
-      const isSpain = address.includes("Spain") || address.includes("Barcelona") || address.includes("Madrid");
-      const isPortugal = address.includes("Portugal") || address.includes("Lisbon") || address.includes("Porto");
-      const isGermany = address.includes("Germany") || address.includes("Berlin");
+      const isSpain =
+        address.includes("Spain") ||
+        address.includes("Barcelona") ||
+        address.includes("Madrid");
+      const isPortugal =
+        address.includes("Portugal") ||
+        address.includes("Lisbon") ||
+        address.includes("Porto");
+      const isGermany =
+        address.includes("Germany") || address.includes("Berlin");
       const isJapan = address.includes("Japan") || address.includes("Tokyo");
       const isUK = address.includes("UK") || address.includes("London");
 
@@ -52,13 +64,27 @@ export async function GET(req: NextRequest) {
       let vatRate = 19;
 
       if (isSpain) {
-        country = "Spain"; countryCode = "ES"; city = "Barcelona"; vatRate = 21;
+        country = "Spain";
+        countryCode = "ES";
+        city = "Barcelona";
+        vatRate = 21;
       } else if (isPortugal) {
-        country = "Portugal"; countryCode = "PT"; city = "Lisbon"; vatRate = 23;
+        country = "Portugal";
+        countryCode = "PT";
+        city = "Lisbon";
+        vatRate = 23;
       } else if (isJapan) {
-        country = "Japan"; countryCode = "JP"; city = "Tokyo"; isSchengen = false; vatRate = 10;
+        country = "Japan";
+        countryCode = "JP";
+        city = "Tokyo";
+        isSchengen = false;
+        vatRate = 10;
       } else if (isUK) {
-        country = "United Kingdom"; countryCode = "GB"; city = "London"; isSchengen = false; vatRate = 20;
+        country = "United Kingdom";
+        countryCode = "GB";
+        city = "London";
+        isSchengen = false;
+        vatRate = 20;
       }
 
       return {
@@ -88,7 +114,9 @@ export async function GET(req: NextRequest) {
           country: "Portugal",
           countryCode: "PT",
           isSchengen: true,
-          date: new Date(today.getTime() - 25 * 86400000).toISOString().split("T")[0],
+          date: new Date(today.getTime() - 25 * 86400000)
+            .toISOString()
+            .split("T")[0],
           amountSpent: 220,
           currency: "USD",
           vatRatePct: 23,
@@ -101,7 +129,9 @@ export async function GET(req: NextRequest) {
           country: "Spain",
           countryCode: "ES",
           isSchengen: true,
-          date: new Date(today.getTime() - 12 * 86400000).toISOString().split("T")[0],
+          date: new Date(today.getTime() - 12 * 86400000)
+            .toISOString()
+            .split("T")[0],
           amountSpent: 310,
           currency: "USD",
           vatRatePct: 21,
@@ -114,7 +144,9 @@ export async function GET(req: NextRequest) {
           country: "Germany",
           countryCode: "DE",
           isSchengen: true,
-          date: new Date(today.getTime() - 2 * 86400000).toISOString().split("T")[0],
+          date: new Date(today.getTime() - 2 * 86400000)
+            .toISOString()
+            .split("T")[0],
           amountSpent: 180,
           currency: "USD",
           vatRatePct: 19,
@@ -127,7 +159,9 @@ export async function GET(req: NextRequest) {
           country: "Japan",
           countryCode: "JP",
           isSchengen: false,
-          date: new Date(today.getTime() - 75 * 86400000).toISOString().split("T")[0],
+          date: new Date(today.getTime() - 75 * 86400000)
+            .toISOString()
+            .split("T")[0],
           amountSpent: 450,
           currency: "USD",
           vatRatePct: 10,
@@ -153,11 +187,43 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
+
+    // Path A: Physical presence collision calculation endpoint if entries array provided
+    if (Array.isArray(body.entries)) {
+      const entries: TaxPresenceEntry[] = body.entries;
+      const options: NomadTaxOptions = {
+        taxYear: body.taxYear ? Number(body.taxYear) : undefined,
+        taxResidencyThresholdDays: body.taxResidencyThresholdDays
+          ? Number(body.taxResidencyThresholdDays)
+          : 183,
+        collisionRule: body.collisionRule || "DESTINATION_PRIORITY",
+      };
+
+      if (entries.length === 0) {
+        return NextResponse.json(
+          {
+            error: "Invalid request payload. Expected an array of 'entries'.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const report = calculateNomadTaxPresence(entries, options);
+      return NextResponse.json({
+        success: true,
+        report,
+      });
+    }
+
+    // Path B: Report CSV Export or Dossier export
     const { report, format = "csv" } = body;
 
     if (!report) {
-      return NextResponse.json({ error: "Missing report data" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing report or entries data" },
+        { status: 400 }
+      );
     }
 
     if (format === "csv") {
@@ -182,7 +248,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("[POST /api/tax/nomad-compliance] Error:", error);
     return NextResponse.json(
-      { error: "Failed to export dossier", details: error.message },
+      { error: "Failed to process compliance report", details: error.message },
       { status: 500 }
     );
   }
