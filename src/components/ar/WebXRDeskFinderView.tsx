@@ -16,7 +16,28 @@ import {
   Footprints,
   RotateCcw,
 } from "lucide-react";
-import type { ARNavigationPath, Vector3D } from "@/lib/spatial/arWayfindingEngine";
+import {
+  calculate3DDistance,
+  type ARNavigationPath,
+  type Vector3D,
+} from "@/lib/spatial/arWayfindingEngine";
+
+/**
+ * Calculates HUD badge opacity smoothly fading when distance <= 1.5m.
+ */
+export function calculateDeskBadgeOpacity(distanceMeters: number): number {
+  if (distanceMeters <= 0) return 0;
+  if (distanceMeters >= 1.5) return 1;
+  return Number((distanceMeters / 1.5).toFixed(3));
+}
+
+/**
+ * Calculates estimated indoor walking time in seconds based on Euclidean distance.
+ */
+export function calculateEstimatedWalkingSeconds(distanceMeters: number, paceMps = 1.1): number {
+  if (distanceMeters <= 0) return 0;
+  return Math.max(0, Math.round(distanceMeters / paceMps));
+}
 
 interface WebXRDeskFinderViewProps {
   venueId?: string;
@@ -31,6 +52,7 @@ export default function WebXRDeskFinderView({
 }: WebXRDeskFinderViewProps) {
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [userPose, setUserPose] = useState<Vector3D>({ x: 0, y: 0, z: 0 });
+  const [cameraOffset, setCameraOffset] = useState<Vector3D>({ x: 0, y: 0, z: 0 });
   const [navPath, setNavPath] = useState<ARNavigationPath | null>(null);
   const [loading, setLoading] = useState(true);
   const [arActive, setArActive] = useState(true);
@@ -84,6 +106,38 @@ export default function WebXRDeskFinderView({
     }
   }, []);
 
+  // Real-time camera movement tracking (pointer and device orientation)
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const relX = (e.clientX - rect.left) / rect.width - 0.5;
+    const relY = (e.clientY - rect.top) / rect.height - 0.5;
+    setCameraOffset({
+      x: Number((relX * 0.8).toFixed(3)),
+      y: Number((-relY * 0.4).toFixed(3)),
+      z: Number((relY * 0.6).toFixed(3)),
+    });
+  };
+
+  useEffect(() => {
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      if (e.gamma !== null && e.beta !== null) {
+        setCameraOffset({
+          x: Number(((e.gamma / 90) * 0.5).toFixed(3)),
+          y: Number(((e.beta / 180) * 0.3).toFixed(3)),
+          z: 0,
+        });
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("deviceorientation", handleOrientation);
+      return () => {
+        window.removeEventListener("deviceorientation", handleOrientation);
+      };
+    }
+  }, []);
+
   // Simulate walking along the AR waypoints
   const handleNextStep = () => {
     if (!navPath) return;
@@ -100,11 +154,24 @@ export default function WebXRDeskFinderView({
   const handleResetWalk = () => {
     setCurrentStep(0);
     setUserPose({ x: 0, y: 0, z: 0 });
+    setCameraOffset({ x: 0, y: 0, z: 0 });
     setBearingDeg(35);
   };
 
   const activeWaypoint = navPath?.waypoints[currentStep];
   const isArrived = activeWaypoint?.turnAction === "ARRIVED" || currentStep === (navPath?.waypoints.length ?? 1) - 1;
+
+  // Real-time Euclidean distance recalculation on camera move
+  const currentCameraPosition: Vector3D = {
+    x: userPose.x + cameraOffset.x,
+    y: userPose.y + cameraOffset.y,
+    z: userPose.z + cameraOffset.z,
+  };
+  const targetPosition: Vector3D = navPath?.targetPosition ?? { x: 5.4, y: 0, z: -8.2 };
+  const rawRemainingDistance = calculate3DDistance(currentCameraPosition, targetPosition);
+  const remainingDistanceMeters = isArrived ? 0 : Math.max(0, Number(rawRemainingDistance.toFixed(1)));
+  const estimatedWalkingSeconds = calculateEstimatedWalkingSeconds(remainingDistanceMeters);
+  const badgeOpacity = isArrived ? 0 : calculateDeskBadgeOpacity(remainingDistanceMeters);
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
@@ -133,7 +200,10 @@ export default function WebXRDeskFinderView({
       </div>
 
       {/* Main AR Viewport Container */}
-      <div className="relative w-full h-[520px] rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden shadow-2xl flex flex-col justify-between">
+      <div
+        onPointerMove={handlePointerMove}
+        className="relative w-full h-[520px] rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden shadow-2xl flex flex-col justify-between"
+      >
         {/* Background Camera Feed / Mock Workspace Canvas */}
         <div className="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
           <video
@@ -149,6 +219,23 @@ export default function WebXRDeskFinderView({
 
           {/* Floating Glowing AR Waypoint Markers */}
           <div className="absolute flex flex-col items-center justify-center space-y-3 transition-all duration-500">
+            {/* Floating Distance & Estimated Walking Time HUD Badge above the Target Desk */}
+            <div
+              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-cyan-400/50 text-cyan-300 text-xs font-mono shadow-lg shadow-cyan-950/60 backdrop-blur-md transition-opacity duration-300 pointer-events-none"
+              style={{ opacity: badgeOpacity }}
+              data-testid="desk-hud-distance-badge"
+              aria-label={`Distance ${remainingDistanceMeters.toFixed(1)} meters, ${estimatedWalkingSeconds} seconds walking time`}
+            >
+              <Footprints className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+              <span className="font-bold text-white font-mono">
+                {remainingDistanceMeters.toFixed(1)}m
+              </span>
+              <span className="text-slate-400">•</span>
+              <span className="text-cyan-200 font-mono">
+                {estimatedWalkingSeconds}s walk
+              </span>
+            </div>
+
             {/* 3D Glowing AR Arrow */}
             <div
               className={`flex items-center justify-center w-20 h-20 rounded-full transition-transform duration-500 ${
@@ -180,7 +267,7 @@ export default function WebXRDeskFinderView({
               </span>
               <h3 className="text-base font-extrabold text-white">{targetSeatNumber}</h3>
               <span className="text-xs font-mono text-slate-300">
-                {isArrived ? "Checked In at Desk" : `~${(activeWaypoint?.distanceToNextMeters || 4.2).toFixed(1)}m Ahead`}
+                {isArrived ? "Checked In at Desk" : `~${remainingDistanceMeters.toFixed(1)}m Ahead (${estimatedWalkingSeconds}s)`}
               </span>
             </div>
           </div>
