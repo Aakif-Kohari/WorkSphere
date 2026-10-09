@@ -60,7 +60,7 @@ export class VenueReviewRepository {
   }
 
   /**
-   * Upserts a venue rating with exponential retry & key collision recovery.
+   * Upserts a venue rating within a transaction with exponential retry & key collision recovery.
    */
   async upsertRating(params: {
     userId: string;
@@ -73,28 +73,32 @@ export class VenueReviewRepository {
 
     while (retries < 3) {
       try {
-        return await this.prisma.venueRating.upsert({
-          where: {
-            userId_venueId: {
-              userId,
-              venueId,
+        return await this.prisma.$transaction(async (tx) => {
+          return tx.venueRating.upsert({
+            where: {
+              userId_venueId: {
+                userId,
+                venueId,
+              },
             },
-          },
-          update,
-          create,
+            update,
+            create,
+          });
         });
       } catch (err: any) {
         retries++;
         if (err?.code === "P2002" || err?.code === "P2034") {
           try {
-            return await this.prisma.venueRating.update({
-              where: {
-                userId_venueId: {
-                  userId,
-                  venueId,
+            return await this.prisma.$transaction(async (tx) => {
+              return tx.venueRating.update({
+                where: {
+                  userId_venueId: {
+                    userId,
+                    venueId,
+                  },
                 },
-              },
-              data: update,
+                data: update,
+              });
             });
           } catch {
             if (retries >= 3) throw err;
