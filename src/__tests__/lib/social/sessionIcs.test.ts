@@ -77,4 +77,11 @@ describe("RFC 5545 Session Calendar (.ics) Generator (#4953)", () => {
     expect(ics).not.toContain("ORGANIZER");
     expect(ics).not.toContain("URL");
   });
+
+  it("handles non-string values in escapeIcsText and invalid dates in formatIcsUtcDate gracefully", () => {
+    expect(escapeIcsText(null as any)).toBe("");
+    expect(escapeIcsText(undefined as any)).toBe("");
+    expect(formatIcsUtcDate("invalid-date-string")).toBe("19700101T000000Z");
+  });
 });
+

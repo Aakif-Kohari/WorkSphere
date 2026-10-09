@@ -19,11 +19,17 @@ export interface SessionIcsOptions {
  * Format a Date object to RFC 5545 UTC timestamp format: YYYYMMDDTHHmmssZ
  */
 export function formatIcsUtcDate(dateInput: string | Date): string {
-  const date = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
+  const date =
+    typeof dateInput === "string" || typeof dateInput === "number"
+      ? new Date(dateInput)
+      : dateInput instanceof Date
+        ? dateInput
+        : new Date();
+  const validDate = isNaN(date.getTime()) ? new Date(0) : date;
   const pad = (n: number) => n.toString().padStart(2, "0");
   return (
-    `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}` +
-    `T${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`
+    `${validDate.getUTCFullYear()}${pad(validDate.getUTCMonth() + 1)}${pad(validDate.getUTCDate())}` +
+    `T${pad(validDate.getUTCHours())}${pad(validDate.getUTCMinutes())}${pad(validDate.getUTCSeconds())}Z`
   );
 }
 
@@ -31,6 +37,7 @@ export function formatIcsUtcDate(dateInput: string | Date): string {
  * Escapes characters per RFC 5545 specifications (commas, semicolons, backslashes, newlines).
  */
 export function escapeIcsText(text: string): string {
+  if (typeof text !== "string") return "";
   return text
     .replace(/\\/g, "\\\\")
     .replace(/;/g, "\\;")
