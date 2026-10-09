@@ -173,7 +173,12 @@ export class AmenityIncidentService {
     ttlHours?: number;
   }): AmenityIncident {
     const meta = AMENITY_METADATA[data.amenity] || { label: data.amenity };
-    const ttlHours = data.ttlHours || 3;
+    const ttlHours =
+      typeof data.ttlHours === "number" &&
+      Number.isFinite(data.ttlHours) &&
+      data.ttlHours > 0
+        ? data.ttlHours
+        : 3;
     const now = new Date();
     const expiresAt = new Date(now.getTime() + ttlHours * 60 * 60 * 1000).toISOString();
 
