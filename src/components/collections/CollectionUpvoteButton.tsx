@@ -39,7 +39,7 @@ export function CollectionUpvoteButton({
 
     // 1. Optimistic UI update: Immediate update
     const nextHasUpvoted = !prevHasUpvoted;
-    const nextUpvotes = prevUpvotes + (nextHasUpvoted ? 1 : -1);
+    const nextUpvotes = Math.max(0, prevUpvotes + (nextHasUpvoted ? 1 : -1));
 
     setHasUpvoted(nextHasUpvoted);
     setUpvotes(nextUpvotes);
@@ -60,7 +60,7 @@ export function CollectionUpvoteButton({
       const data = await res.json();
       // Sync with server authoritative state
       if (typeof data.upvotes === "number") {
-        setUpvotes(data.upvotes);
+        setUpvotes(Math.max(0, data.upvotes));
       }
       if (typeof data.hasUpvoted === "boolean") {
         setHasUpvoted(data.hasUpvoted);
@@ -85,6 +85,7 @@ export function CollectionUpvoteButton({
       type="button"
       onClick={handleToggleUpvote}
       disabled={isPending}
+      aria-pressed={hasUpvoted}
       aria-label={`Upvote collection (${upvotes} upvotes)`}
       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
         hasUpvoted

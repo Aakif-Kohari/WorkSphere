@@ -80,4 +80,23 @@ describe("CollectionUpvoteButton optimistic update and error rollback (#3510)", 
       expect(mockToast).toHaveBeenCalledWith("Network connection lost", "error");
     });
   });
+
+  it("reflects aria-pressed attribute and clamps count to non-negative when un-upvoted from 0", () => {
+    render(
+      <CollectionUpvoteButton
+        folderId="folder-empty"
+        initialUpvotes={0}
+        initialHasUpvoted={true}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: /upvote collection/i });
+    expect(button).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(button);
+
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("0")).toBeInTheDocument();
+  });
 });
+
