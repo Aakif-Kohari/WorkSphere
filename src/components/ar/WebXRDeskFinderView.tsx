@@ -18,7 +18,9 @@ import {
 } from "lucide-react";
 import {
   calculate3DDistance,
+  clampCameraOrientation,
   type ARNavigationPath,
+  type ARCameraFallbackMode,
   type Vector3D,
 } from "@/lib/spatial/arWayfindingEngine";
 
@@ -58,6 +60,8 @@ export default function WebXRDeskFinderView({
   const [arActive, setArActive] = useState(true);
   const [arSupported, setArSupported] = useState(true);
   const [bearingDeg, setBearingDeg] = useState(35); // simulated bearing to target
+  const [fallbackMode, setFallbackMode] = useState<ARCameraFallbackMode>("horizon_locked");
+  const [isCompassReliable, setIsCompassReliable] = useState<boolean>(true);
 
   // Video feed ref for real camera if permissions granted
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -112,22 +116,23 @@ export default function WebXRDeskFinderView({
     if (rect.width === 0 || rect.height === 0) return;
     const relX = (e.clientX - rect.left) / rect.width - 0.5;
     const relY = (e.clientY - rect.top) / rect.height - 0.5;
-    setCameraOffset({
-      x: Number((relX * 0.8).toFixed(3)),
-      y: Number((-relY * 0.4).toFixed(3)),
-      z: Number((relY * 0.6).toFixed(3)),
-    });
+
+    // Convert pointer delta into bounded simulated tilt angles
+    const simBeta = -relY * 60; // Pitch clamped [-30°, 30°]
+    const simGamma = relX * 60; // Roll clamped [-30°, 30°]
+    const clamped = clampCameraOrientation(simBeta, simGamma);
+
+    setCameraOffset(clamped.offset);
+    setFallbackMode(clamped.fallbackMode);
+    setIsCompassReliable(true);
   };
 
   useEffect(() => {
     const handleOrientation = (e: DeviceOrientationEvent) => {
-      if (e.gamma !== null && e.beta !== null) {
-        setCameraOffset({
-          x: Number(((e.gamma / 90) * 0.5).toFixed(3)),
-          y: Number(((e.beta / 180) * 0.3).toFixed(3)),
-          z: 0,
-        });
-      }
+      const clamped = clampCameraOrientation(e.beta, e.gamma);
+      setCameraOffset(clamped.offset);
+      setFallbackMode(clamped.fallbackMode);
+      setIsCompassReliable(clamped.isCompassReliable);
     };
 
     if (typeof window !== "undefined") {
@@ -277,7 +282,17 @@ export default function WebXRDeskFinderView({
         <div className="relative z-10 p-4 md:p-6 flex items-center justify-between pointer-events-none">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-700 text-xs font-semibold text-slate-200 backdrop-blur-md">
             <Compass className="w-4 h-4 text-cyan-400" />
-            <span>AR Heading: <strong className="font-mono text-cyan-300">{bearingDeg}° NNE</strong></span>
+            <span>
+              AR Heading: <strong className="font-mono text-cyan-300">{bearingDeg}° NNE</strong>
+            </span>
+            {!isCompassReliable && (
+              <span
+                data-testid="ar-fallback-indicator"
+                className="ml-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-sans font-medium"
+              >
+                Horizon Lock
+              </span>
+            )}
           </div>
 
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-700 text-xs font-mono text-slate-200 backdrop-blur-md">

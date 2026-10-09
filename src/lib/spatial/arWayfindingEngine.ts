@@ -129,3 +129,71 @@ export function computeARIndoorRoute(
     waypoints,
   };
 }
+
+export type ARCameraFallbackMode = "3d_spatial" | "horizon_locked" | "2d_top_down";
+
+export interface ClampedCameraOrientation {
+  offset: Vector3D;
+  fallbackMode: ARCameraFallbackMode;
+  isCompassReliable: boolean;
+  pitchDeg: number;
+  rollDeg: number;
+}
+
+/**
+ * Clamps camera tilt / altitude when compass/gyro sensor reports null or NaN tilt.
+ * Falls back to a 2D top-down perspective or forward-facing horizon lock (pitch = 0).
+ * Clamps pitch to [-45°, 45°] and roll to [-30°, 30°] to prevent erratic spinning toward the sky.
+ */
+export function clampCameraOrientation(
+  beta: number | null | undefined, // Pitch [-180, 180]
+  gamma: number | null | undefined, // Roll [-90, 90]
+  options: {
+    minPitchDeg?: number;
+    maxPitchDeg?: number;
+    minRollDeg?: number;
+    maxRollDeg?: number;
+    forceTopDownOnNull?: boolean;
+  } = {}
+): ClampedCameraOrientation {
+  const minPitch = options.minPitchDeg ?? -45;
+  const maxPitch = options.maxPitchDeg ?? 45;
+  const minRoll = options.minRollDeg ?? -30;
+  const maxRoll = options.maxRollDeg ?? 30;
+
+  const isBetaNullOrInvalid =
+    beta === null || beta === undefined || typeof beta !== "number" || isNaN(beta);
+  const isGammaNullOrInvalid =
+    gamma === null || gamma === undefined || typeof gamma !== "number" || isNaN(gamma);
+
+  if (isBetaNullOrInvalid || isGammaNullOrInvalid) {
+    // If device orientation values are null or unreliable, fall back to a 2D top-down perspective or forward-facing horizon lock
+    const fallbackMode: ARCameraFallbackMode = options.forceTopDownOnNull
+      ? "2d_top_down"
+      : "horizon_locked";
+
+    return {
+      offset: { x: 0, y: 0, z: 0 },
+      fallbackMode,
+      isCompassReliable: false,
+      pitchDeg: 0,
+      rollDeg: 0,
+    };
+  }
+
+  // Clamp angles within safe forward-facing bounds
+  const clampedBeta = Math.max(minPitch, Math.min(maxPitch, beta));
+  const clampedGamma = Math.max(minRoll, Math.min(maxRoll, gamma));
+
+  return {
+    offset: {
+      x: Number(((clampedGamma / 90) * 0.5).toFixed(3)),
+      y: Number(((clampedBeta / 180) * 0.3).toFixed(3)),
+      z: 0,
+    },
+    fallbackMode: "3d_spatial",
+    isCompassReliable: true,
+    pitchDeg: clampedBeta,
+    rollDeg: clampedGamma,
+  };
+}
