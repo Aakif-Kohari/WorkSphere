@@ -88,3 +88,19 @@ export function createSolanaPayUrl(params: SolanaPayParams): string {
 export function generateSolanaPaymentReference(): string {
   return `tx_sol_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
+
+/**
+ * Builds a link to view a confirmed transaction on Solana Explorer.
+ */
+export function getSolanaExplorerUrl(signature: string, cluster?: string): string {
+  const clusterParam = cluster ? `?cluster=${encodeURIComponent(cluster)}` : "";
+  return `https://explorer.solana.com/tx/${encodeURIComponent(signature)}${clusterParam}`;
+}
+
+/**
+ * Builds a link to view a confirmed transaction on Solscan.
+ */
+export function getSolscanUrl(signature: string, cluster?: string): string {
+  const clusterParam = cluster ? `?cluster=${encodeURIComponent(cluster)}` : "";
+  return `https://solscan.io/tx/${encodeURIComponent(signature)}${clusterParam}`;
+}

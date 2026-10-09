@@ -1,6 +1,8 @@
 import {
   DEFAULT_MAX_RELAY_FEE_LAMPORTS,
   validateRelayFeeLamports,
+  getSolanaExplorerUrl,
+  getSolscanUrl,
 } from "@/lib/payments/solanaPay";
 
 describe("validateRelayFeeLamports", () => {
@@ -29,3 +31,21 @@ describe("validateRelayFeeLamports", () => {
     );
   });
 });
+
+describe("Solana Explorer URL helpers", () => {
+  it("constructs mainnet Solana Explorer URL", () => {
+    const url = getSolanaExplorerUrl("5K2xMockTxSignature123");
+    expect(url).toBe("https://explorer.solana.com/tx/5K2xMockTxSignature123");
+  });
+
+  it("constructs cluster-specific Solana Explorer URL", () => {
+    const url = getSolanaExplorerUrl("5K2xMockTxSignature123", "devnet");
+    expect(url).toBe("https://explorer.solana.com/tx/5K2xMockTxSignature123?cluster=devnet");
+  });
+
+  it("constructs Solscan URL", () => {
+    const url = getSolscanUrl("5K2xMockTxSignature123");
+    expect(url).toBe("https://solscan.io/tx/5K2xMockTxSignature123");
+  });
+});
+

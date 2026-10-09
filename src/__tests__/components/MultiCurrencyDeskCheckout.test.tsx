@@ -110,6 +110,16 @@ describe("MultiCurrencyDeskCheckout Component", () => {
     });
 
     expect(screen.getByText("Solana Payment Confirmed!")).toBeInTheDocument();
+
+    const explorerLink = screen.getByRole("link", { name: /view on solana explorer/i });
+    expect(explorerLink).toBeInTheDocument();
+    expect(explorerLink).toHaveAttribute(
+      "href",
+      "https://explorer.solana.com/tx/5K2xMockSolanaTxSignature123456789"
+    );
+    expect(explorerLink).toHaveAttribute("target", "_blank");
+    expect(explorerLink).toHaveAttribute("rel", "noopener noreferrer");
+
     expect(onBookingConfirmedMock).toHaveBeenCalledWith(
       expect.objectContaining({
         bookingId: "booking-999",
