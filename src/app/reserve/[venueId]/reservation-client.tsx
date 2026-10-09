@@ -18,13 +18,14 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { getCalendarUrls, downloadICS } from "@/lib/calendar";
+import { generateRecurringDates } from "@/lib/booking/recurrence";
 import GuestsInput, { type GuestEntry } from "@/components/GuestsInput";
 import FloorPlanViewer3D from "@/components/floorplan/FloorPlanViewer3D";
 import { apiFetch } from "@/lib/apiClient";
 import { useRateLimit } from "@/hooks/useRateLimit";
 import { SeatOccupancyHeatmap } from "@/components/venue/SeatOccupancyHeatmap";
+import { VenueLiveVibeWidget } from "@/components/venue/VenueLiveVibeWidget";
 import { useSeatHoldLock } from "@/hooks/useSeatHoldLock";
-import { CopyToClipboardButton } from "@/components/ui/CopyToClipboardButton";
 import { CopyBookingReferenceButton } from "@/components/bookings/CopyBookingReferenceButton";
 import { RescheduleModal } from "@/components/bookings/RescheduleModal";
 
@@ -90,7 +91,10 @@ export function clampSeatCount(count: number, capacity: number): number {
  * Decrements seat count, ensuring it never drops below 1 when capacity > 0,
  * and returns 0 when capacity is 0 (preventing negative values).
  */
-export function decrementSeatCount(currentCount: number, capacity: number): number {
+export function decrementSeatCount(
+  currentCount: number,
+  capacity: number,
+): number {
   if (capacity <= 0) return 0;
   return Math.max(1, currentCount - 1);
 }
@@ -98,7 +102,10 @@ export function decrementSeatCount(currentCount: number, capacity: number): numb
 /**
  * Increments seat count up to the maximum available capacity.
  */
-export function incrementSeatCount(currentCount: number, capacity: number): number {
+export function incrementSeatCount(
+  currentCount: number,
+  capacity: number,
+): number {
   if (capacity <= 0) return 0;
   return Math.min(capacity, Math.max(1, currentCount + 1));
 }
@@ -139,7 +146,9 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
     onHoldExpired: (seatId) => {
       if (selectedSeat === seatId) {
         setSelectedSeat(null);
-        setMessage("Your 5-minute checkout hold expired. The seat has been released.");
+        setMessage(
+          "Your 5-minute checkout hold expired. The seat has been released.",
+        );
       }
     },
     onHoldRejected: (_seatId, _reason, _heldBy, heldByName) => {
@@ -247,36 +256,22 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
     if (availableCapacity === 0) {
       setSeatCount(0);
     } else {
-      setSeatCount((prev) => clampSeatCount(prev === 0 ? 1 : prev, availableCapacity));
+      setSeatCount((prev) =>
+        clampSeatCount(prev === 0 ? 1 : prev, availableCapacity),
+      );
     }
   }, [availableCapacity]);
 
+  // Uses the same generator as POST /api/reservations/recurring-book so the
+  // preview always matches the dates that will actually be booked.
   const previewDates = useMemo(() => {
     if (!recurringEnabled) return [];
-    const dates: string[] = [];
-    const start = new Date(date + "T00:00:00Z");
-    const limit = endDate ? new Date(endDate + "T00:00:00Z") : null;
-    const maxOccurrences = occurrences ?? 52;
-    const current = new Date(start);
-    let count = 0;
-
-    while (count < maxOccurrences) {
-      if (limit && current > limit) break;
-      dates.push(current.toISOString().slice(0, 10));
-      count++;
-      switch (frequency) {
-        case "daily":
-          current.setDate(current.getDate() + 1);
-          break;
-        case "weekly":
-          current.setDate(current.getDate() + 7);
-          break;
-        case "monthly":
-          current.setMonth(current.getMonth() + 1);
-          break;
-      }
-    }
-    return dates;
+    return generateRecurringDates(
+      date,
+      frequency,
+      endDate || null,
+      occurrences,
+    );
   }, [recurringEnabled, date, frequency, endDate, occurrences]);
 
   async function reserve(event: FormEvent<HTMLFormElement>) {
@@ -525,7 +520,9 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
                     if (!seat || !seat.available) return;
 
                     if (isSeatHeldByOther(id)) {
-                      setMessage(`Seat ${seat.seatNumber} is currently held by someone else.`);
+                      setMessage(
+                        `Seat ${seat.seatNumber} is currently held by someone else.`,
+                      );
                       return;
                     }
 
@@ -538,7 +535,9 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
                       setSelectedSeat(id);
                       setMessage("");
                     } else {
-                      setMessage(`Could not hold seat ${seat.seatNumber}: currently held by someone else.`);
+                      setMessage(
+                        `Could not hold seat ${seat.seatNumber}: currently held by someone else.`,
+                      );
                     }
                   }}
                 />
@@ -567,12 +566,18 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                     </span>
                     <span>
-                      Seat <strong>{seats.find((s) => s.id === selectedSeat)?.seatNumber}</strong> locked for checkout
+                      Seat{" "}
+                      <strong>
+                        {seats.find((s) => s.id === selectedSeat)?.seatNumber}
+                      </strong>{" "}
+                      locked for checkout
                     </span>
                   </span>
                   <div className="flex items-center gap-2">
                     <span className="font-mono font-semibold text-amber-300">
-                      {Math.floor(remainingSeconds / 60)}:{(remainingSeconds % 60).toString().padStart(2, "0")} remaining
+                      {Math.floor(remainingSeconds / 60)}:
+                      {(remainingSeconds % 60).toString().padStart(2, "0")}{" "}
+                      remaining
                     </span>
                     <button
                       type="button"
@@ -964,7 +969,12 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
               )}
 
               <button
-                disabled={!selected || booking || retryAfter > 0 || availableCapacity === 0}
+                disabled={
+                  !selected ||
+                  booking ||
+                  retryAfter > 0 ||
+                  availableCapacity === 0
+                }
                 className="mt-6 w-full rounded-xl bg-violet-600 px-4 py-3 font-medium transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40 flex items-center justify-center gap-1.5"
                 data-testid="confirm-booking-btn"
               >
@@ -1011,7 +1021,8 @@ export default function ReservationClient({ venue }: { venue: Venue }) {
                 date,
                 time,
                 duration,
-                seatNumber: seats.find((s) => s.id === selectedSeat)?.seatNumber,
+                seatNumber: seats.find((s) => s.id === selectedSeat)
+                  ?.seatNumber,
                 seatId: selectedSeat,
                 venue,
               }
