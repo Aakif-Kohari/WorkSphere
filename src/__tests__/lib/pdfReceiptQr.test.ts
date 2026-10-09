@@ -148,5 +148,40 @@ describe("PDF Receipt QR Code & Verification Tests", () => {
       const loadedDoc = await PDFDocument.load(pdfBytes);
       expect(loadedDoc.getPageCount()).toBe(1);
     });
+
+    it("renders customizable company branding, tax invoice header, tax ID, and billing address (#5063)", async () => {
+      const corporateBooking: BookingPdfData = {
+        ...sampleBooking,
+        companyName: "Acme Global Technologies Inc.",
+        taxId: "US-EIN-987654321",
+        billingAddress: "Suite 500, Enterprise Tower, 100 Corporate Way, New York, NY 10001",
+        isTaxInvoice: true,
+      };
+
+      const pdfBytes = await generateBookingPdf(corporateBooking);
+      expect(pdfBytes).toBeInstanceOf(Uint8Array);
+      expect(pdfBytes.length).toBeGreaterThan(1000);
+
+      const loadedDoc = await PDFDocument.load(pdfBytes);
+      expect(loadedDoc.getPageCount()).toBe(1);
+      const page = loadedDoc.getPage(0);
+      expect(page.getWidth()).toBeCloseTo(595, 0);
+      expect(page.getHeight()).toBeCloseTo(842, 0);
+    });
+
+    it("supports company branding and tax invoice overrides via BookingPdfOptions (#5063)", async () => {
+      const pdfBytes = await generateBookingPdf(sampleBooking, {
+        companyName: "InnoCorp Solutions Ltd",
+        taxId: "GB-VAT-123456789",
+        billingAddress: "42 Innovation Road, London, EC1A 1BB, UK",
+        isTaxInvoice: true,
+      });
+
+      expect(pdfBytes).toBeInstanceOf(Uint8Array);
+      expect(pdfBytes.length).toBeGreaterThan(1000);
+
+      const loadedDoc = await PDFDocument.load(pdfBytes);
+      expect(loadedDoc.getPageCount()).toBe(1);
+    });
   });
 });

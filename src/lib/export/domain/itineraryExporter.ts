@@ -22,6 +22,16 @@ export interface BookingItineraryData {
   status?: "CONFIRMED" | "PENDING" | "CANCELLED" | string | null;
   createdAt?: string | Date | null;
   timeZone?: string | null;
+  companyName?: string | null;
+  taxId?: string | null;
+  billingAddress?: string | null;
+  isTaxInvoice?: boolean;
+  billing?: {
+    companyName?: string | null;
+    taxId?: string | null;
+    billingAddress?: string | null;
+    isTaxInvoice?: boolean;
+  } | null;
   venue?: {
     id?: string;
     name?: string | null;
@@ -38,6 +48,9 @@ export interface BookingItineraryData {
     lastName?: string | null;
     email?: string | null;
     address?: unknown;
+    companyName?: string | null;
+    taxId?: string | null;
+    billingAddress?: string | null;
   } | null;
   customerEmail?: string | null;
   [key: string]: unknown;
@@ -304,7 +317,11 @@ export async function generateBookingItineraryPdf(
   // ==========================================================================
   // SECTION 3: GUEST & CONTACT DETAILS
   // ==========================================================================
-  drawSafe("GUEST & ACCOUNT INFORMATION", margin, y, 11, boldFont, darkNavy);
+  const company = booking.companyName || booking.billing?.companyName || booking.user?.companyName;
+  const taxId = booking.taxId || booking.billing?.taxId || booking.user?.taxId;
+  const sectionTitle = (company || taxId) ? "BILL TO & GUEST INFORMATION" : "GUEST & ACCOUNT INFORMATION";
+
+  drawSafe(sectionTitle, margin, y, 11, boldFont, darkNavy);
   y -= 8;
   page.drawLine({
     start: { x: margin, y },
@@ -327,6 +344,18 @@ export async function generateBookingItineraryPdf(
   drawSafe("Contact Email:", margin, y, 9, font, slateGrey);
   drawSafe(customerEmail, margin + 90, y, 9.5, font, darkNavy);
   y -= 15;
+
+  if (company) {
+    drawSafe("Company:", margin, y, 9, font, slateGrey);
+    drawSafe(company, margin + 90, y, 9.5, boldFont, darkNavy);
+    y -= 15;
+  }
+
+  if (taxId) {
+    drawSafe("Tax / GST ID:", margin, y, 9, font, slateGrey);
+    drawSafe(taxId, margin + 90, y, 9.5, boldFont, darkNavy);
+    y -= 15;
+  }
 
   if (booking.user?.id) {
     drawSafe("Account ID:", margin, y, 9, font, slateGrey);

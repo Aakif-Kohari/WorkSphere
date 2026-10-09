@@ -9,6 +9,13 @@ import { PDFDocument, StandardFonts, rgb, PDFPage, PDFFont } from "pdf-lib";
 import { generateQRMatrix } from "@/lib/qr/svgQr";
 import crypto from "crypto";
 
+export interface BookingBillingInfo {
+  companyName?: string | null;
+  taxId?: string | null; // e.g. GSTIN, VAT, EIN
+  billingAddress?: string | null;
+  isTaxInvoice?: boolean;
+}
+
 export interface BookingPdfData {
   id: string;
   confirmationId?: string | null;
@@ -20,6 +27,11 @@ export interface BookingPdfData {
   totalAmount?: number | string | null;
   currency?: string | null;
   createdAt?: string | Date | null;
+  companyName?: string | null;
+  taxId?: string | null;
+  billingAddress?: string | null;
+  isTaxInvoice?: boolean;
+  billing?: BookingBillingInfo | null;
   venue?: {
     id?: string;
     name?: string | null;
@@ -32,6 +44,9 @@ export interface BookingPdfData {
     lastName?: string | null;
     email?: string | null;
     address?: unknown;
+    companyName?: string | null;
+    taxId?: string | null;
+    billingAddress?: string | null;
   } | null;
   customerEmail?: string | null;
   [key: string]: unknown;
@@ -40,6 +55,10 @@ export interface BookingPdfData {
 export interface BookingPdfOptions {
   baseUrl?: string;
   verificationSecret?: string;
+  companyName?: string | null;
+  taxId?: string | null;
+  billingAddress?: string | null;
+  isTaxInvoice?: boolean;
 }
 
 /**
@@ -233,6 +252,37 @@ export async function generateBookingPdf(
     }
   };
 
+  // Resolve customizable company branding & tax invoice metadata (#5063)
+  const companyName =
+    options.companyName ||
+    booking.companyName ||
+    booking.billing?.companyName ||
+    booking.user?.companyName ||
+    null;
+
+  const taxId =
+    options.taxId ||
+    booking.taxId ||
+    booking.billing?.taxId ||
+    booking.user?.taxId ||
+    null;
+
+  const rawBillingAddress =
+    options.billingAddress ||
+    booking.billingAddress ||
+    booking.billing?.billingAddress ||
+    booking.user?.billingAddress ||
+    null;
+  const billingAddress = typeof rawBillingAddress === "string" ? rawBillingAddress : null;
+
+  const isTaxInvoice = Boolean(
+    options.isTaxInvoice ||
+    booking.isTaxInvoice ||
+    booking.billing?.isTaxInvoice ||
+    companyName ||
+    taxId
+  );
+
   // Top Accent Bar
   page.drawRectangle({
     x: 0,
@@ -246,11 +296,33 @@ export async function generateBookingPdf(
   let y = height - 42;
 
   // Company Brand / Title (Top Left)
-  drawSafeText("WORKSPHERE", margin, y, 16, boldFont, primaryBlue);
-  y -= 15;
-  drawSafeText("BOOKING CONFIRMATION & RECEIPT", margin, y, 10, boldFont, slateGrey);
-  y -= 14;
-  drawSafeText(`Ref: ${booking.confirmationId || `WS-${booking.id}`}`, margin, y, 8.5, font, slateGrey);
+  if (companyName) {
+    drawSafeText(companyName.toUpperCase(), margin, y, 14, boldFont, primaryBlue);
+    y -= 14;
+    drawSafeText("TAX INVOICE & BOOKING RECEIPT", margin, y, 9.5, boldFont, slateGrey);
+    y -= 13;
+    drawSafeText(`Ref: ${booking.confirmationId || `WS-${booking.id}`}`, margin, y, 8.5, font, slateGrey);
+    if (taxId) {
+      y -= 12;
+      drawSafeText(`Tax ID / VAT: ${taxId}`, margin, y, 8, font, slateGrey);
+    }
+  } else if (isTaxInvoice) {
+    drawSafeText("WORKSPHERE", margin, y, 16, boldFont, primaryBlue);
+    y -= 15;
+    drawSafeText("TAX INVOICE & BOOKING RECEIPT", margin, y, 10, boldFont, slateGrey);
+    y -= 14;
+    drawSafeText(`Ref: ${booking.confirmationId || `WS-${booking.id}`}`, margin, y, 8.5, font, slateGrey);
+    if (taxId) {
+      y -= 12;
+      drawSafeText(`Tax ID / VAT: ${taxId}`, margin, y, 8, font, slateGrey);
+    }
+  } else {
+    drawSafeText("WORKSPHERE", margin, y, 16, boldFont, primaryBlue);
+    y -= 15;
+    drawSafeText("BOOKING CONFIRMATION & RECEIPT", margin, y, 10, boldFont, slateGrey);
+    y -= 14;
+    drawSafeText(`Ref: ${booking.confirmationId || `WS-${booking.id}`}`, margin, y, 8.5, font, slateGrey);
+  }
 
   // =========================================================================
   // UPPER-RIGHT HEADER: QR CODE VERIFICATION LINK WITH CAPTION
@@ -404,8 +476,10 @@ export async function generateBookingPdf(
 
   y -= 14;
 
-  // Guest Details Section
-  drawSafeText("GUEST DETAILS", margin, y, 10, boldFont, darkNavy);
+  // Guest & Billing Details Section (#5063)
+  const hasBillingDetails = Boolean(companyName || taxId || billingAddress);
+  const sectionTitle = hasBillingDetails ? "BILL TO & GUEST DETAILS" : "GUEST DETAILS";
+  drawSafeText(sectionTitle, margin, y, 10, boldFont, darkNavy);
   y -= 6;
   page.drawLine({
     start: { x: margin, y },
@@ -428,7 +502,44 @@ export async function generateBookingPdf(
   drawSafeText("Email:", margin, y, 9, font, slateGrey);
   drawSafeText(guestEmail, margin + 90, y, 9, font, darkNavy);
 
-  y -= 35;
+  if (companyName) {
+    y -= 16;
+    drawSafeText("Company:", margin, y, 9, font, slateGrey);
+    drawSafeText(companyName, margin + 90, y, 9.5, boldFont, darkNavy);
+  }
+
+  if (taxId) {
+    y -= 16;
+    drawSafeText("Tax ID / GST:", margin, y, 9, font, slateGrey);
+    drawSafeText(taxId, margin + 90, y, 9.5, boldFont, darkNavy);
+  }
+
+  if (billingAddress) {
+    y -= 16;
+    const bLabel = "Billing Address: ";
+    const bFontSize = 9;
+    const bLineHeight = 13;
+    const bLabelWidth = font.widthOfTextAtSize(bLabel, bFontSize);
+    const maxBWidth = contentWidth - bLabelWidth;
+    const bLines = wrapText(billingAddress, font, bFontSize, maxBWidth);
+
+    if (bLines.length === 0) {
+      drawSafeText(`${bLabel}${billingAddress}`, margin, y, bFontSize, font, slateGrey);
+      y -= 16;
+    } else {
+      for (let i = 0; i < bLines.length; i++) {
+        if (i === 0) {
+          drawSafeText(bLabel, margin, y, bFontSize, font, slateGrey);
+          drawSafeText(bLines[0], margin + bLabelWidth, y, bFontSize, font, darkNavy);
+        } else {
+          drawSafeText(bLines[i], margin + bLabelWidth, y, bFontSize, font, darkNavy);
+        }
+        y -= bLineHeight;
+      }
+    }
+  }
+
+  y -= 25;
 
   // Tamper-Check & Cryptographic Verification Footer Block
   const receiptHash = computeReceiptHash(booking, options.verificationSecret);
