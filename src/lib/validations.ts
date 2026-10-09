@@ -201,7 +201,15 @@ export const venueRatingSchema = z.object({
   powerTypes: z.array(z.string()).optional(),
   outletLocations: z.array(z.string()).optional(),
   noiseLevel: z.enum(["quiet", "moderate", "loud"]),
-  comment: z.string().trim().min(3).max(1000).optional(),
+  comment: z
+    .string()
+    .trim()
+    .max(1000)
+    .refine((val) => val.length === 0 || val.length >= 3, {
+      message: "Comment must be at least 3 characters if provided",
+    })
+    .optional()
+    .nullable(),
   hasErgonomic: z.boolean().optional().default(false),
   outletDensity: z
     .enum(["every_table", "some_tables", "wall_seats", "none"])
