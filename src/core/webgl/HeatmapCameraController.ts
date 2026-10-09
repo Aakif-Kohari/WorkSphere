@@ -7,15 +7,35 @@
 export class HeatmapCameraController {
     private zoom: number;
     private center: [number, number];
+    private activeFloor: string | number | null = null;
 
-    constructor(initialZoom: number = 13, initialCenter: [number, number] = [0, 0]) {
+    constructor(initialZoom: number = 13, initialCenter: [number, number] = [0, 0], initialFloor?: string | number) {
         this.zoom = initialZoom;
         this.center = initialCenter;
+        this.activeFloor = initialFloor ?? null;
     }
 
     public update(zoom: number, center: [number, number]): void {
         this.zoom = zoom;
         this.center = center;
+    }
+
+    public setFloor(floor: string | number): void {
+        this.activeFloor = floor;
+    }
+
+    public getFloor(): string | number | null {
+        return this.activeFloor;
+    }
+
+    public reset(): void {
+        this.zoom = 13;
+        this.center = [0, 0];
+        this.activeFloor = null;
+    }
+
+    public dispose(): void {
+        this.reset();
     }
 
     /**

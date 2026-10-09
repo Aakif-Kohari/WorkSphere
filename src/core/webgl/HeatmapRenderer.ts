@@ -19,6 +19,14 @@ export class HeatmapRenderer {
     private positionBuffer: WebGLBuffer | null = null;
     private valueBuffer: WebGLBuffer | null = null;
 
+    // Floorplan texture and framebuffer pooling to prevent GPU memory leak on rapid floor changes
+    private currentFloorId: string | null = null;
+    private floorTextures: Map<string, WebGLTexture> = new Map();
+    private floorFramebuffers: Map<string, WebGLFramebuffer> = new Map();
+    private texturePool: WebGLTexture[] = [];
+    private framebufferPool: WebGLFramebuffer[] = [];
+    private maxPoolSize: number = 8;
+
     private uProjectionMatrixLocation: WebGLUniformLocation | null = null;
     private uMapBoundsMinLocation: WebGLUniformLocation | null = null;
     private uMapBoundsMaxLocation: WebGLUniformLocation | null = null;
@@ -136,15 +144,177 @@ export class HeatmapRenderer {
         this.gl.drawArrays(this.gl.POINTS, 0, dataPoints.length);
     }
 
+    /**
+     * Acquires a WebGLTexture from the pool or creates a new one.
+     */
+    public acquireTexture(): WebGLTexture | null {
+        if (!this.gl) return null;
+        if (this.texturePool.length > 0) {
+            return this.texturePool.pop()!;
+        }
+        return this.gl.createTexture();
+    }
+
+    /**
+     * Returns a texture to the pool for reuse, or deletes it if pool is full.
+     */
+    public releaseTexture(texture: WebGLTexture | null): void {
+        if (!this.gl || !texture) return;
+        if (this.texturePool.length < this.maxPoolSize) {
+            this.texturePool.push(texture);
+        } else {
+            this.gl.deleteTexture(texture);
+        }
+    }
+
+    /**
+     * Acquires a WebGLFramebuffer from the pool or creates a new one.
+     */
+    public acquireFramebuffer(): WebGLFramebuffer | null {
+        if (!this.gl) return null;
+        if (this.framebufferPool.length > 0) {
+            return this.framebufferPool.pop()!;
+        }
+        return this.gl.createFramebuffer();
+    }
+
+    /**
+     * Returns a framebuffer to the pool for reuse, or deletes it if pool is full.
+     */
+    public releaseFramebuffer(framebuffer: WebGLFramebuffer | null): void {
+        if (!this.gl || !framebuffer) return;
+        if (this.framebufferPool.length < this.maxPoolSize) {
+            this.framebufferPool.push(framebuffer);
+        } else {
+            this.gl.deleteFramebuffer(framebuffer);
+        }
+    }
+
+    /**
+     * Sets or switches the active floor plan texture with pooling and resource disposal.
+     */
+    public setFloorPlan(
+        floorId: string,
+        imageSource?: TexImageSource | HTMLImageElement | HTMLCanvasElement
+    ): WebGLTexture | null {
+        if (!this.gl) return null;
+
+        // If switching from an existing floor, handle transition
+        if (this.currentFloorId && this.currentFloorId !== floorId) {
+            const oldFb = this.floorFramebuffers.get(this.currentFloorId);
+            if (oldFb) {
+                this.releaseFramebuffer(oldFb);
+                this.floorFramebuffers.delete(this.currentFloorId);
+            }
+        }
+
+        this.currentFloorId = floorId;
+
+        // Check if a texture already exists for this floor
+        let texture = this.floorTextures.get(floorId);
+        if (!texture) {
+            texture = this.acquireTexture() || undefined;
+            if (texture) {
+                this.floorTextures.set(floorId, texture);
+            }
+        }
+
+        if (texture && imageSource) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+            this.gl.texImage2D(
+                this.gl.TEXTURE_2D,
+                0,
+                this.gl.RGBA,
+                this.gl.RGBA,
+                this.gl.UNSIGNED_BYTE,
+                imageSource as TexImageSource
+            );
+        }
+
+        return texture || null;
+    }
+
+    /**
+     * Explicitly disposes of a floor plan texture and framebuffer when floor is unloaded.
+     */
+    public disposeFloorPlan(floorId: string): void {
+        if (!this.gl) return;
+
+        const texture = this.floorTextures.get(floorId);
+        if (texture) {
+            this.gl.deleteTexture(texture);
+            this.floorTextures.delete(floorId);
+        }
+
+        const framebuffer = this.floorFramebuffers.get(floorId);
+        if (framebuffer) {
+            this.gl.deleteFramebuffer(framebuffer);
+            this.floorFramebuffers.delete(floorId);
+        }
+
+        if (this.currentFloorId === floorId) {
+            this.currentFloorId = null;
+        }
+    }
+
+    /**
+     * Clears all floor plan textures and framebuffers, draining the pools.
+     */
+    public clearFloorPlans(): void {
+        if (!this.gl) return;
+
+        // Delete active floor textures
+        for (const texture of this.floorTextures.values()) {
+            this.gl.deleteTexture(texture);
+        }
+        this.floorTextures.clear();
+
+        // Delete active floor framebuffers
+        for (const fb of this.floorFramebuffers.values()) {
+            this.gl.deleteFramebuffer(fb);
+        }
+        this.floorFramebuffers.clear();
+
+        // Drain texture pool
+        for (const texture of this.texturePool) {
+            this.gl.deleteTexture(texture);
+        }
+        this.texturePool = [];
+
+        // Drain framebuffer pool
+        for (const fb of this.framebufferPool) {
+            this.gl.deleteFramebuffer(fb);
+        }
+        this.framebufferPool = [];
+
+        this.currentFloorId = null;
+    }
+
     public resize(width: number, height: number): void {
         if (!this.gl) return;
         this.gl.viewport(0, 0, width, height);
     }
 
     public destroy(): void {
-        if (this.gl && this.program) {
-            this.gl.deleteProgram(this.program);
-            this.program = null;
+        this.clearFloorPlans();
+
+        if (this.gl) {
+            if (this.positionBuffer) {
+                this.gl.deleteBuffer(this.positionBuffer);
+                this.positionBuffer = null;
+            }
+            if (this.valueBuffer) {
+                this.gl.deleteBuffer(this.valueBuffer);
+                this.valueBuffer = null;
+            }
+            if (this.program) {
+                this.gl.deleteProgram(this.program);
+                this.program = null;
+            }
         }
     }
 }
