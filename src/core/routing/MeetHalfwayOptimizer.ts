@@ -56,6 +56,9 @@ export interface OptimizationResult {
   };
   recommendedVenues: RankedVenueRecommendation[];
   searchRadiusMeters: number;
+  isCoLocated?: boolean;
+  fallbackApplied?: boolean;
+  message?: string;
 }
 
 const EARTH_RADIUS_METERS = 6371000;
@@ -100,6 +103,26 @@ function getSpeedMetersPerMinute(mode?: string): number {
 
 export class MeetHalfwayOptimizer {
   /**
+   * Checks if all team members are co-located within a proximity threshold (default 150m).
+   */
+  public static isTeamCoLocated(members: TeamMemberLocation[], thresholdMeters = 150): boolean {
+    if (members.length <= 1) return true;
+    const origin = members[0];
+    for (let i = 1; i < members.length; i++) {
+      const dist = calculateHaversineDistanceMeters(
+        origin.latitude,
+        origin.longitude,
+        members[i].latitude,
+        members[i].longitude
+      );
+      if (dist > thresholdMeters) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
    * Computes the Geometric Median (L1 Fermat-Weber center) using Weiszfeld's algorithm.
    * This minimizes the sum of Euclidean distances to all team members instead of being skewed by outliers.
    */
@@ -108,11 +131,18 @@ export class MeetHalfwayOptimizer {
     maxIterations = 100,
     tolerance = 1e-6
   ): { latitude: number; longitude: number } {
-    if (members.length === 0) {
+    if (!Array.isArray(members) || members.length === 0) {
       return { latitude: 0, longitude: 0 };
     }
     if (members.length === 1) {
       return { latitude: members[0].latitude, longitude: members[0].longitude };
+    }
+
+    // If team is already co-located, arithmetic mean is exact and avoids division oscillations
+    if (this.isTeamCoLocated(members)) {
+      const meanLat = members.reduce((sum, m) => sum + m.latitude, 0) / members.length;
+      const meanLng = members.reduce((sum, m) => sum + m.longitude, 0) / members.length;
+      return { latitude: meanLat, longitude: meanLng };
     }
 
     // Initial estimate: Center of mass (arithmetic mean)
@@ -151,105 +181,166 @@ export class MeetHalfwayOptimizer {
   }
 
   /**
+   * Evaluates and scores an individual venue for the team.
+   */
+  private static evaluateVenue(
+    venue: CandidateVenue,
+    centroid: { latitude: number; longitude: number },
+    members: TeamMemberLocation[],
+    isCoLocated: boolean
+  ): RankedVenueRecommendation {
+    const availableCapacity = Math.max(
+      0,
+      venue.availableSeatsCount ?? venue.maxCapacity - venue.currentOccupancy
+    );
+
+    const centroidDist = calculateHaversineDistanceMeters(
+      centroid.latitude,
+      centroid.longitude,
+      venue.latitude,
+      venue.longitude
+    );
+
+    const memberEstimates: MemberTravelEstimate[] = members.map((member) => {
+      const distanceMeters = calculateHaversineDistanceMeters(
+        member.latitude,
+        member.longitude,
+        venue.latitude,
+        venue.longitude
+      );
+      const speed = getSpeedMetersPerMinute(member.transitMode);
+      const durationMinutes = Math.round((distanceMeters / speed) * 1.2 + 2); // 20% routing overhead + 2 min buffer
+
+      return {
+        memberId: member.id,
+        memberName: member.name,
+        distanceMeters: Math.round(distanceMeters),
+        durationMinutes: Math.max(1, durationMinutes),
+        transitMode: member.transitMode || 'transit',
+      };
+    });
+
+    const durations = memberEstimates.map((e) => e.durationMinutes);
+    const totalDuration = durations.reduce((sum, d) => sum + d, 0);
+    const avgDuration = durations.length > 0 ? totalDuration / durations.length : 0;
+    const maxDuration = durations.length > 0 ? Math.max(...durations) : 0;
+
+    // Fairness score: for co-located participants, fairness is perfectly balanced (100)
+    let fairnessScore = 100;
+    if (!isCoLocated && durations.length > 1) {
+      const variance =
+        durations.reduce((sum, d) => sum + Math.pow(d - avgDuration, 2), 0) /
+        durations.length;
+      const stdDev = Math.sqrt(variance);
+      fairnessScore = Math.max(0, Math.round(100 - stdDev * 3));
+    }
+
+    // Quality bonuses
+    const ratingBonus = (venue.rating ?? 3.5) * 5; // up to 25 pts
+    const wifiBonus = Math.min(15, ((venue.wifiSpeed ?? 50) / 100) * 15); // up to 15 pts
+    const outletBonus = venue.hasOutlets ? 5 : 0;
+
+    // Lower aggregate travel time and higher fairness yield higher score
+    const travelPenalty = avgDuration * 1.5;
+    const compositeRankScore = Math.max(
+      0,
+      Math.round(100 - travelPenalty + (fairnessScore * 0.4) + ratingBonus + wifiBonus + outletBonus)
+    );
+
+    return {
+      venue,
+      centroidDistanceMeters: Math.round(centroidDist),
+      aggregateDurationMinutes: totalDuration,
+      averageDurationMinutes: Math.round(avgDuration),
+      maxDurationMinutes: maxDuration,
+      fairnessScore,
+      compositeRankScore,
+      memberEstimates,
+      availableCapacity,
+    };
+  }
+
+  /**
    * Ranks candidate venues based on commute time, fairness (standard deviation), seat capacity, and amenities.
+   * Gracefully handles co-located participants and zero common venue edge cases.
    */
   public static rankVenuesForTeam(
     members: TeamMemberLocation[],
     venues: CandidateVenue[],
     minRequiredSeats: number = members.length
   ): OptimizationResult {
+    if (!Array.isArray(members) || members.length === 0) {
+      return {
+        centroid: { latitude: 0, longitude: 0 },
+        recommendedVenues: [],
+        searchRadiusMeters: 0,
+        isCoLocated: true,
+        message: 'No members provided for optimization.',
+      };
+    }
+
     const centroid = this.computeGeometricMedian(members);
-    const rankedRecommendations: RankedVenueRecommendation[] = [];
+    const isCoLocated = this.isTeamCoLocated(members);
 
-    let maxObservedDistance = 0;
+    if (!Array.isArray(venues) || venues.length === 0) {
+      return {
+        centroid,
+        recommendedVenues: [],
+        searchRadiusMeters: 5000,
+        isCoLocated,
+        message: 'No candidate venues found within search radius.',
+      };
+    }
 
-    for (const venue of venues) {
+    // 1. Primary pass: filter by minRequiredSeats
+    const candidateVenues = venues.filter((venue) => {
       const availableCapacity = Math.max(
         0,
         venue.availableSeatsCount ?? venue.maxCapacity - venue.currentOccupancy
       );
+      return availableCapacity >= minRequiredSeats;
+    });
 
-      // Filter out venues with insufficient capacity
-      if (availableCapacity < minRequiredSeats) {
-        continue;
-      }
+    let rankedRecommendations: RankedVenueRecommendation[] = [];
+    let fallbackApplied = false;
 
-      const centroidDist = calculateHaversineDistanceMeters(
-        centroid.latitude,
-        centroid.longitude,
-        venue.latitude,
-        venue.longitude
+    if (candidateVenues.length > 0) {
+      rankedRecommendations = candidateVenues.map((venue) =>
+        this.evaluateVenue(venue, centroid, members, isCoLocated)
       );
-
-      if (centroidDist > maxObservedDistance) {
-        maxObservedDistance = centroidDist;
-      }
-
-      const memberEstimates: MemberTravelEstimate[] = members.map((member) => {
-        const distanceMeters = calculateHaversineDistanceMeters(
-          member.latitude,
-          member.longitude,
-          venue.latitude,
-          venue.longitude
-        );
-        const speed = getSpeedMetersPerMinute(member.transitMode);
-        const durationMinutes = Math.round((distanceMeters / speed) * 1.2 + 2); // 20% routing overhead + 2 min buffer
-
-        return {
-          memberId: member.id,
-          memberName: member.name,
-          distanceMeters: Math.round(distanceMeters),
-          durationMinutes: Math.max(1, durationMinutes),
-          transitMode: member.transitMode || 'transit',
-        };
-      });
-
-      const durations = memberEstimates.map((e) => e.durationMinutes);
-      const totalDuration = durations.reduce((sum, d) => sum + d, 0);
-      const avgDuration = totalDuration / durations.length;
-      const maxDuration = Math.max(...durations);
-
-      // Calculate variance and standard deviation for fairness scoring
-      const variance =
-        durations.reduce((sum, d) => sum + Math.pow(d - avgDuration, 2), 0) /
-        durations.length;
-      const stdDev = Math.sqrt(variance);
-
-      // Fairness Score (100 = 0 std dev, drops as difference in member commutes increases)
-      const fairnessScore = Math.max(0, Math.round(100 - stdDev * 3));
-
-      // Quality bonuses
-      const ratingBonus = (venue.rating ?? 3.5) * 5; // up to 25 pts
-      const wifiBonus = Math.min(15, ((venue.wifiSpeed ?? 50) / 100) * 15); // up to 15 pts
-      const outletBonus = venue.hasOutlets ? 5 : 0;
-
-      // Lower aggregate travel time and higher fairness yield higher score
-      const travelPenalty = avgDuration * 1.5;
-      const compositeRankScore = Math.max(
-        0,
-        Math.round(100 - travelPenalty + (fairnessScore * 0.4) + ratingBonus + wifiBonus + outletBonus)
+    } else {
+      // Zero venues found matching strict capacity: apply fallback relaxation
+      fallbackApplied = true;
+      rankedRecommendations = venues.map((venue) =>
+        this.evaluateVenue(venue, centroid, members, isCoLocated)
       );
-
-      rankedRecommendations.push({
-        venue,
-        centroidDistanceMeters: Math.round(centroidDist),
-        aggregateDurationMinutes: totalDuration,
-        averageDurationMinutes: Math.round(avgDuration),
-        maxDurationMinutes: maxDuration,
-        fairnessScore,
-        compositeRankScore,
-        memberEstimates,
-        availableCapacity,
-      });
     }
 
     // Sort descending by composite ranking score
     rankedRecommendations.sort((a, b) => b.compositeRankScore - a.compositeRankScore);
 
+    const maxObservedDistance = rankedRecommendations.reduce(
+      (max, r) => Math.max(max, r.centroidDistanceMeters),
+      5000
+    );
+
+    let message: string | undefined;
+    if (isCoLocated) {
+      message = fallbackApplied
+        ? 'Team members are co-located. Showing nearest workspaces with highest available capacity.'
+        : 'Team members are co-located. Recommendations optimized for shared proximity.';
+    } else if (fallbackApplied) {
+      message = 'No venues met the full group capacity. Showing best nearby alternatives.';
+    }
+
     return {
       centroid,
       recommendedVenues: rankedRecommendations,
-      searchRadiusMeters: Math.max(5000, maxObservedDistance),
+      searchRadiusMeters: maxObservedDistance,
+      isCoLocated,
+      fallbackApplied,
+      message,
     };
   }
 }
+

@@ -152,6 +152,9 @@ export async function POST(req: NextRequest) {
       centroid: optimization.centroid,
       totalCandidatesEvaluated: candidateVenues.length,
       recommendations: optimization.recommendedVenues.slice(0, 10),
+      isCoLocated: optimization.isCoLocated,
+      fallbackApplied: optimization.fallbackApplied,
+      message: optimization.message,
       teamSummary: {
         memberCount: members.length,
         requiredSeats,
