@@ -1,5 +1,5 @@
 export interface DayPeriod {
-  open: string;  // "08:00"
+  open: string; // "08:00"
   close: string; // "20:00"
   closed?: boolean;
 }
@@ -37,7 +37,7 @@ export const DAYS_OF_WEEK = [
 export function formatTimeBadge(time24: string): string {
   if (!time24 || typeof time24 !== "string") return "";
   const trimmed = time24.trim();
-  
+
   // Already in 12h format?
   if (/am|pm/i.test(trimmed)) {
     return trimmed;
@@ -45,16 +45,16 @@ export function formatTimeBadge(time24: string): string {
 
   const parts = trimmed.split(":");
   if (parts.length < 2) return trimmed;
-  
+
   let h = Number(parts[0]);
   const m = Number(parts[1]);
   if (isNaN(h) || isNaN(m)) return trimmed;
 
   if (h === 24) h = 0;
-  
+
   const ampm = h >= 12 && h < 24 ? "PM" : "AM";
   const displayH = h % 12 || 12;
-  
+
   if (m === 0) {
     return `${displayH} ${ampm}`;
   }
@@ -205,7 +205,6 @@ export function getVenueHoursStatus(
   }
 
   // 2. Check Structured JSON Hours
-  const structured = parseStructuredJson(trimmed);
   if (structured?.periods) {
     const periods = structured.periods;
     const todayName = DAYS_OF_WEEK[currentDayIdx];
@@ -216,7 +215,12 @@ export function getVenueHoursStatus(
     const prevPeriod = periods[prevName];
 
     // Check if open from previous day's overnight shift
-    if (prevPeriod && !prevPeriod.closed && prevPeriod.open && prevPeriod.close) {
+    if (
+      prevPeriod &&
+      !prevPeriod.closed &&
+      prevPeriod.open &&
+      prevPeriod.close
+    ) {
       const pOpen = timeToMinutes(prevPeriod.open);
       const pClose = timeToMinutes(prevPeriod.close);
       if (pClose < pOpen && currentMinutes < pClose) {
@@ -232,7 +236,12 @@ export function getVenueHoursStatus(
     }
 
     // Check today's shift
-    if (todayPeriod && !todayPeriod.closed && todayPeriod.open && todayPeriod.close) {
+    if (
+      todayPeriod &&
+      !todayPeriod.closed &&
+      todayPeriod.open &&
+      todayPeriod.close
+    ) {
       const tOpen = timeToMinutes(todayPeriod.open);
       const tClose = timeToMinutes(todayPeriod.close);
 
@@ -287,7 +296,8 @@ export function getVenueHoursStatus(
       const nextPeriod = periods[nextDayName];
       if (nextPeriod && !nextPeriod.closed && nextPeriod.open) {
         const opensNext = formatTimeBadge(nextPeriod.open);
-        const dayLabel = nextDayName.charAt(0).toUpperCase() + nextDayName.slice(1);
+        const dayLabel =
+          nextDayName.charAt(0).toUpperCase() + nextDayName.slice(1);
         return {
           isOpen: false,
           badgeText: `Closed · Opens ${opensNext} ${dayLabel}`,

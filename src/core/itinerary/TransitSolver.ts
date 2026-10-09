@@ -4,8 +4,8 @@
  * for multi-venue itinerary optimization using Branch-and-Bound traversal.
  */
 
-import { ItineraryGraph, VenueNode, TransitEdge } from './ItineraryGraph';
-import { TimeWindowConstraint } from './TimeWindowConstraint';
+import { ItineraryGraph } from "./ItineraryGraph";
+import { TimeWindowConstraint } from "./TimeWindowConstraint";
 
 export interface ItinerarySolution {
   sequence: string[]; // Ordered list of venue IDs
@@ -46,7 +46,7 @@ export class TransitSolver {
     startVenueId: string,
     targetVenueIds: string[],
     startTime: Date,
-    options: TransitSolverOptions = {}
+    options: TransitSolverOptions = {},
   ): ItinerarySolution | null {
     const maxExecutionTimeMs = options.maxExecutionTimeMs ?? 5000;
     const startTimestamp = Date.now();
@@ -56,7 +56,9 @@ export class TransitSolver {
       throw new Error(`Start venue node '${startVenueId}' not found in graph.`);
     }
 
-    const unvisited = new Set(targetVenueIds.filter((id) => id !== startVenueId));
+    const unvisited = new Set(
+      targetVenueIds.filter((id) => id !== startVenueId),
+    );
     let bestSolution: ItinerarySolution | null = null;
     let bestCost = Infinity;
 
@@ -66,7 +68,7 @@ export class TransitSolver {
       venueName: startNode.name,
       arrivalTime: startTime,
       departureTime: new Date(
-        startTime.getTime() + startNode.averageDwellTimeMinutes * 60000
+        startTime.getTime() + startNode.averageDwellTimeMinutes * 60000,
       ),
       waitTimeMinutes: 0,
     };
@@ -75,11 +77,11 @@ export class TransitSolver {
       currentVenueId: string,
       currentTime: Date,
       visited: string[],
-      currentSchedule: typeof initialScheduleItem[],
+      currentSchedule: (typeof initialScheduleItem)[],
       accumulatedTransitTime: number,
       accumulatedDwellTime: number,
       accumulatedWaitTime: number,
-      remainingTargets: Set<string>
+      remainingTargets: Set<string>,
     ) => {
       // Check execution time safety limit
       if (Date.now() - startTimestamp > maxExecutionTimeMs) {
@@ -136,7 +138,7 @@ export class TransitSolver {
 
         const transitTime = edge.transitTimeMinutes;
         const arrivalTimestamp = new Date(
-          currentTime.getTime() + transitTime * 60000
+          currentTime.getTime() + transitTime * 60000,
         );
 
         // Time Window Validation & Wait Time Computation
@@ -147,7 +149,7 @@ export class TransitSolver {
           // Attempt to find next opening window
           const nextOpen = this.timeConstraint.getNextOpeningTime(
             nextVenueId,
-            arrivalTimestamp
+            arrivalTimestamp,
           );
 
           if (!nextOpen) {
@@ -155,13 +157,13 @@ export class TransitSolver {
           }
 
           waitTime = Math.round(
-            (nextOpen.getTime() - arrivalTimestamp.getTime()) / 60000
+            (nextOpen.getTime() - arrivalTimestamp.getTime()) / 60000,
           );
           effectiveArrival = nextOpen;
         }
 
         const departureTime = new Date(
-          effectiveArrival.getTime() + nextNode.averageDwellTimeMinutes * 60000
+          effectiveArrival.getTime() + nextNode.averageDwellTimeMinutes * 60000,
         );
 
         const newRemaining = new Set(remainingTargets);
@@ -184,7 +186,7 @@ export class TransitSolver {
           accumulatedTransitTime + transitTime,
           accumulatedDwellTime + nextNode.averageDwellTimeMinutes,
           accumulatedWaitTime + waitTime,
-          newRemaining
+          newRemaining,
         );
       }
     };
@@ -197,10 +199,46 @@ export class TransitSolver {
       0,
       startNode.averageDwellTimeMinutes,
       0,
-      unvisited
+      unvisited,
     );
 
     return bestSolution;
+  }
+
+  /**
+   * Adapter for endpoint route optimization requests.
+   */
+  public optimize(
+    startVenueId: string,
+    targetVenueIds: string[],
+    startTime: Date,
+  ) {
+    const res = this.solve(startVenueId, targetVenueIds, startTime);
+    if (!res) {
+      return {
+        startVenueId,
+        stops: [],
+        totalTravelMinutes: 0,
+        totalDurationMinutes: 0,
+        isFeasible: false,
+      };
+    }
+    return {
+      startVenueId,
+      stops: res.schedule.map((s) => ({
+        venueId: s.venueId,
+        venueName: s.venueName,
+        arrivalTime: s.arrivalTime.toISOString(),
+        departureTime: s.departureTime.toISOString(),
+        transitMinutesFromPrev: 0,
+        dwellMinutes: Math.round(
+          (s.departureTime.getTime() - s.arrivalTime.getTime()) / 60000,
+        ),
+      })),
+      totalTravelMinutes: res.totalTransitTimeMinutes,
+      totalDurationMinutes: res.totalDurationMinutes,
+      isFeasible: true,
+    };
   }
 
   /**
@@ -208,7 +246,7 @@ export class TransitSolver {
    */
   private computeLowerBound(
     currentVenueId: string,
-    unvisitedNodes: Set<string>
+    unvisitedNodes: Set<string>,
   ): number {
     let bound = 0;
     const nodes = [currentVenueId, ...Array.from(unvisitedNodes)];
@@ -234,103 +272,4 @@ export class TransitSolver {
 
     return bound;
   }
-}
- * TimeWindowConstraint.ts
- * Implements the time-window validation to prevent routing to closed venues.
- * Parses opening hours and validates if a proposed arrival time falls within operational bounds.
- */
-
-import { VenueNode } from './ItineraryGraph';
-
-export interface TimeWindow {
-    startMinutes: number; // Minutes from midnight
-    endMinutes: number;   // Minutes from midnight
-    daysOfWeek: number[]; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-}
-
-export class TimeWindowConstraint {
-    private parsedWindows: Map<string, TimeWindow[]>;
-
-    constructor() {
-        this.parsedWindows = new Map();
-    }
-
-    public parseOpeningHours(venueId: string, hoursString: string): void {
-        if (hoursString.trim().toUpperCase() === '24/7') {
-            this.parsedWindows.set(venueId, [{
-                startMinutes: 0,
-                endMinutes: 1439,
-                daysOfWeek: [0, 1, 2, 3, 4, 5, 6]
-            }]);
-            return;
-        }
-
-        // Simplified parser for "Mo-Fr 08:00-18:00" format
-        const windows: TimeWindow[] = [];
-        const dayMap: Record<string, number[]> = {
-            'Mo': [1], 'Tu': [2], 'We': [3], 'Th': [4], 'Fr': [5], 'Sa': [6], 'Su': [0],
-            'Mo-Fr': [1, 2, 3, 4, 5], 'Sa-Su': [6, 0]
-        };
-
-        const segments = hoursString.split(',').map(s => s.trim());
-        for (const segment of segments) {
-            const match = segment.match(/^([A-Za-z\-]+)\s+(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
-            if (match) {
-                const daysStr = match[1];
-                const startH = parseInt(match[2], 10);
-                const startM = parseInt(match[3], 10);
-                const endH = parseInt(match[4], 10);
-                const endM = parseInt(match[5], 10);
-
-                const days = dayMap[daysStr] || [1, 2, 3, 4, 5, 6, 0];
-                windows.push({
-                    startMinutes: startH * 60 + startM,
-                    endMinutes: endH * 60 + endM,
-                    daysOfWeek: days
-                });
-            }
-        }
-        this.parsedWindows.set(venueId, windows);
-    }
-
-    public isVenueOpenAt(venueId: string, date: Date): boolean {
-        const windows = this.parsedWindows.get(venueId);
-        if (!windows || windows.length === 0) {
-            return true; // Default to open if no constraints are defined
-        }
-
-        const dayOfWeek = date.getDay();
-        const minutesFromMidnight = date.getHours() * 60 + date.getMinutes();
-
-        for (const window of windows) {
-            if (window.daysOfWeek.includes(dayOfWeek)) {
-                if (minutesFromMidnight >= window.startMinutes && minutesFromMidnight <= window.endMinutes) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    public getNextOpeningTime(venueId: string, fromDate: Date): Date | null {
-        const windows = this.parsedWindows.get(venueId);
-        if (!windows || windows.length === 0) return null;
-
-        let checkDate = new Date(fromDate);
-        for (let i = 0; i < 14; i++) { // Check up to 2 weeks ahead
-            const dayOfWeek = checkDate.getDay();
-            const relevantWindow = windows.find(w => w.daysOfWeek.includes(dayOfWeek));
-
-            if (relevantWindow) {
-                const openTime = new Date(checkDate);
-                openTime.setHours(Math.floor(relevantWindow.startMinutes / 60), relevantWindow.startMinutes % 60, 0, 0);
-                if (openTime > fromDate) {
-                    return openTime;
-                }
-            }
-            checkDate.setDate(checkDate.getDate() + 1);
-            checkDate.setHours(0, 0, 0, 0);
-        }
-        return null;
-    }
 }

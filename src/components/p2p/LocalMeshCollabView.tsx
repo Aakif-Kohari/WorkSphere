@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Wifi,
   WifiOff,
@@ -9,13 +9,9 @@ import {
   FileText,
   Upload,
   Download,
-  CheckCircle2,
-  Sparkles,
   Zap,
   Server,
   Activity,
-  Layers,
-  ArrowRight,
   ShieldCheck,
   RefreshCw,
 } from "lucide-react";
@@ -81,14 +77,19 @@ export interface LocalMeshCollabViewProps {
   initialPeers?: MeshPeerNode[];
 }
 
-export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabViewProps = {}) {
-  const [wanStatus, setWanStatus] = useState<LocalMeshTopology["wanStatus"]>("healthy_online");
-  const [peers, setPeers] = useState<MeshPeerNode[]>(initialPeers ?? INITIAL_PEERS);
-  const [activeTab, setActiveTab] = useState<"topology" | "notes" | "files">("topology");
+export default function LocalMeshCollabView({
+  initialPeers,
+}: LocalMeshCollabViewProps = {}) {
+  const [wanStatus, setWanStatus] =
+    useState<LocalMeshTopology["wanStatus"]>("healthy_online");
+  const [peers] = useState<MeshPeerNode[]>(initialPeers ?? INITIAL_PEERS);
+  const [activeTab, setActiveTab] = useState<"topology" | "notes" | "files">(
+    "topology",
+  );
 
   // CRDT Document State
   const [docContent, setDocContent] = useState(
-    `# SoMa Workspace - Offline Brainstorming Document\n\n- [x] Tested local P2P WebRTC DataChannels over 192.168.1.0/24 subnet.\n- [x] CRDT vector clocks operational for conflict-free document replication.\n- [ ] Zero-WAN local peer discovery validated during simulated ISP blackout.\n\n*Type here to broadcast live changes to all on-premise coworkers.*`
+    `# SoMa Workspace - Offline Brainstorming Document\n\n- [x] Tested local P2P WebRTC DataChannels over 192.168.1.0/24 subnet.\n- [x] CRDT vector clocks operational for conflict-free document replication.\n- [ ] Zero-WAN local peer discovery validated during simulated ISP blackout.\n\n*Type here to broadcast live changes to all on-premise coworkers.*`,
   );
   const [vectorClock, setVectorClock] = useState<Record<string, number>>({
     self: 1,
@@ -97,13 +98,30 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
   });
 
   // Local File Drop state
-  const [sharedFiles, setSharedFiles] = useState([
-    { name: "soma_floorplan_highres.pdf", size: "14.2 MB", sender: "Kenji Sato", hops: "0 (Direct)" },
-    { name: "architecture_whitepaper_v3.docx", size: "3.8 MB", sender: "Maya Lin", hops: "0 (Direct)" },
-    { name: "acoustic_sound_zoning.svg", size: "840 KB", sender: "Chloe Dubois", hops: "1 (Relayed via Maya)" },
+  const [sharedFiles] = useState([
+    {
+      name: "soma_floorplan_highres.pdf",
+      size: "14.2 MB",
+      sender: "Kenji Sato",
+      hops: "0 (Direct)",
+    },
+    {
+      name: "architecture_whitepaper_v3.docx",
+      size: "3.8 MB",
+      sender: "Maya Lin",
+      hops: "0 (Direct)",
+    },
+    {
+      name: "acoustic_sound_zoning.svg",
+      size: "840 KB",
+      sender: "Chloe Dubois",
+      hops: "1 (Relayed via Maya)",
+    },
   ]);
 
-  const [simulatedTypingPeer, setSimulatedTypingPeer] = useState<string | null>(null);
+  const [simulatedTypingPeer, setSimulatedTypingPeer] = useState<string | null>(
+    null,
+  );
 
   // Handle local text editing & simulate incoming peer delta
   const handleTextChange = (newText: string) => {
@@ -117,7 +135,9 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
     setTimeout(() => {
       const incomingDelta: CRDTDocumentDelta = {
         docId: "soma-doc-main",
-        vectorClock: { "node-alpha-101": (vectorClock["node-alpha-101"] || 2) + 1 },
+        vectorClock: {
+          "node-alpha-101": (vectorClock["node-alpha-101"] || 2) + 1,
+        },
         authorId: "node-alpha-101",
         authorName: "Maya Lin",
         deltaText:
@@ -127,14 +147,21 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
         timestamp: Date.now(),
       };
 
-      const result = MeshCollabEngine.mergeDocumentDeltas(docContent, vectorClock, incomingDelta);
+      const result = MeshCollabEngine.mergeDocumentDeltas(
+        docContent,
+        vectorClock,
+        incomingDelta,
+      );
       setDocContent(result.mergedText);
       setVectorClock(result.updatedClocks);
       setSimulatedTypingPeer(null);
     }, 1200);
   };
 
-  const resilience = MeshCollabEngine.calculateMeshResilience(peers ?? [], wanStatus);
+  const resilience = MeshCollabEngine.calculateMeshResilience(
+    peers ?? [],
+    wanStatus,
+  );
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6 text-slate-100">
@@ -152,7 +179,8 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
               </span>
             </h2>
             <p className="text-sm text-slate-400">
-              Zero-cloud local subnet peer discovery, encrypted DataChannel routing & instant file transfers
+              Zero-cloud local subnet peer discovery, encrypted DataChannel
+              routing & instant file transfers
             </p>
           </div>
         </div>
@@ -164,7 +192,7 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
               setWanStatus(
                 wanStatus === "healthy_online"
                   ? "isp_blackout_offline"
-                  : "healthy_online"
+                  : "healthy_online",
               )
             }
             className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all flex items-center gap-2 ${
@@ -175,11 +203,13 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
           >
             {wanStatus === "healthy_online" ? (
               <>
-                <Wifi className="w-4 h-4 text-emerald-400" /> WAN Online (Click to Simulate Outage)
+                <Wifi className="w-4 h-4 text-emerald-400" /> WAN Online (Click
+                to Simulate Outage)
               </>
             ) : (
               <>
-                <WifiOff className="w-4 h-4 text-rose-400" /> ISP Blackout (P2P Mesh Operating!)
+                <WifiOff className="w-4 h-4 text-rose-400" /> ISP Blackout (P2P
+                Mesh Operating!)
               </>
             )}
           </button>
@@ -206,7 +236,8 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
       <div className="p-4 bg-slate-900/60 rounded-2xl border border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5 text-slate-300">
-            <Server className="w-4 h-4 text-violet-400" /> Subnet: <span className="font-mono text-white">192.168.1.0/24</span>
+            <Server className="w-4 h-4 text-violet-400" /> Subnet:{" "}
+            <span className="font-mono text-white">192.168.1.0/24</span>
           </div>
           <div
             className="flex items-center gap-1.5 text-slate-300"
@@ -216,7 +247,9 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
           >
             <Activity
               className={`w-4 h-4 ${
-                (peers?.length ?? 0) > 0 ? "text-cyan-400" : "text-amber-400 animate-pulse"
+                (peers?.length ?? 0) > 0
+                  ? "text-cyan-400"
+                  : "text-amber-400 animate-pulse"
               }`}
             />
             <span>Connected Peers:</span>
@@ -227,7 +260,10 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
             </span>
           </div>
           <div className="flex items-center gap-1.5 text-slate-300">
-            <Zap className="w-4 h-4 text-yellow-400" /> Avg Mesh Latency: <span className="font-mono text-emerald-400 font-bold">~4.8 ms</span>
+            <Zap className="w-4 h-4 text-yellow-400" /> Avg Mesh Latency:{" "}
+            <span className="font-mono text-emerald-400 font-bold">
+              ~4.8 ms
+            </span>
           </div>
         </div>
 
@@ -246,50 +282,64 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
           <div className="lg:col-span-2 space-y-4">
             <div className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
               <span>Discovered Local Subnet Peers ({peers?.length ?? 0})</span>
-              <span className="text-slate-500 text-[11px]">mDNS & WebRTC DataChannels Active</span>
+              <span className="text-slate-500 text-[11px]">
+                mDNS & WebRTC DataChannels Active
+              </span>
             </div>
 
-            {(!peers || peers.length === 0) ? (
+            {!peers || peers.length === 0 ? (
               <div
                 className="p-8 bg-slate-900/60 rounded-2xl border border-dashed border-slate-800 text-center space-y-2"
                 role="status"
                 aria-live="polite"
               >
                 <Radio className="w-8 h-8 text-amber-400/60 mx-auto animate-pulse" />
-                <p className="text-sm font-semibold text-slate-300">0 Peers Connected - Searching...</p>
+                <p className="text-sm font-semibold text-slate-300">
+                  0 Peers Connected - Searching...
+                </p>
                 <p className="text-xs text-slate-500">
-                  Scanning 192.168.1.0/24 local subnet for nearby WorkSphere nodes via mDNS broadcast.
+                  Scanning 192.168.1.0/24 local subnet for nearby WorkSphere
+                  nodes via mDNS broadcast.
                 </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {peers.map((peer) => (
-                <div
-                  key={peer.peerId}
-                  className="p-5 bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-800 hover:border-violet-500/40 transition-all flex flex-col justify-between space-y-3"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                        {peer.displayName}
-                      </span>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-800 text-violet-300 border border-slate-700">
-                        {peer.hopCount === 0 ? "Direct LAN" : `${peer.hopCount}-Hop Relay`}
-                      </span>
+                  <div
+                    key={peer.peerId}
+                    className="p-5 bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-800 hover:border-violet-500/40 transition-all flex flex-col justify-between space-y-3"
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                          {peer.displayName}
+                        </span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-800 text-violet-300 border border-slate-700">
+                          {peer.hopCount === 0
+                            ? "Direct LAN"
+                            : `${peer.hopCount}-Hop Relay`}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {peer.deskLocation}
+                      </div>
                     </div>
-                    <div className="text-xs text-slate-400">{peer.deskLocation}</div>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800 text-[11px] text-slate-300 font-mono">
-                    <div>IP: {peer.ipSubnet}</div>
-                    <div className="text-right text-emerald-400">{peer.latencyMs} ms</div>
-                    <div>RSSI: {peer.signalStrengthRssi} dBm</div>
-                    <div className="text-right text-cyan-400">{peer.sharedFilesCount} files shared</div>
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800 text-[11px] text-slate-300 font-mono">
+                      <div>IP: {peer.ipSubnet}</div>
+                      <div className="text-right text-emerald-400">
+                        {peer.latencyMs} ms
+                      </div>
+                      <div>RSSI: {peer.signalStrengthRssi} dBm</div>
+                      <div className="text-right text-cyan-400">
+                        {peer.sharedFilesCount} files shared
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Mesh Topology Summary & Encryption Info */}
@@ -297,25 +347,33 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
             <div className="p-6 bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-800 space-y-4">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                <h3 className="font-bold text-sm text-white">P2P Mesh Security</h3>
+                <h3 className="font-bold text-sm text-white">
+                  P2P Mesh Security
+                </h3>
               </div>
               <p className="text-xs text-slate-400 leading-relaxed">
-                All data packet exchanges use DTLS / SCTP authenticated streams with zero external
-                relays or cloud telemetry logging.
+                All data packet exchanges use DTLS / SCTP authenticated streams
+                with zero external relays or cloud telemetry logging.
               </p>
 
               <div className="space-y-2 pt-2 border-t border-slate-800 text-xs">
                 <div className="flex justify-between text-slate-400">
                   <span>Signaling Protocol:</span>
-                  <span className="font-mono text-slate-200">Local Broadcast</span>
+                  <span className="font-mono text-slate-200">
+                    Local Broadcast
+                  </span>
                 </div>
                 <div className="flex justify-between text-slate-400">
                   <span>Encryption Standard:</span>
-                  <span className="font-mono text-emerald-400 font-bold">DTLS 1.3 + AES-GCM</span>
+                  <span className="font-mono text-emerald-400 font-bold">
+                    DTLS 1.3 + AES-GCM
+                  </span>
                 </div>
                 <div className="flex justify-between text-slate-400">
                   <span>Routing Strategy:</span>
-                  <span className="font-mono text-violet-300 font-bold">Ad-Hoc Shortest-Hop</span>
+                  <span className="font-mono text-violet-300 font-bold">
+                    Ad-Hoc Shortest-Hop
+                  </span>
                 </div>
               </div>
             </div>
@@ -333,7 +391,8 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
                 Offline Collaborative Scratchpad (CRDT Sync)
               </h3>
               <p className="text-xs text-slate-400">
-                Synchronizes seamlessly across all connected peers with Lamport causality even if the ISP is down.
+                Synchronizes seamlessly across all connected peers with Lamport
+                causality even if the ISP is down.
               </p>
             </div>
 
@@ -342,14 +401,17 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
               disabled={!!simulatedTypingPeer}
               className="px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs rounded-xl transition-all shadow flex items-center gap-1.5"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${simulatedTypingPeer ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${simulatedTypingPeer ? "animate-spin" : ""}`}
+              />
               Simulate Peer Edit (Maya Lin)
             </button>
           </div>
 
           {simulatedTypingPeer && (
             <div className="text-xs font-mono text-violet-300 flex items-center gap-1.5 animate-pulse">
-              <span className="w-2 h-2 rounded-full bg-violet-400" /> {simulatedTypingPeer} is typing via peer mesh...
+              <span className="w-2 h-2 rounded-full bg-violet-400" />{" "}
+              {simulatedTypingPeer} is typing via peer mesh...
             </div>
           )}
 
@@ -362,7 +424,9 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
 
           <div className="flex items-center justify-between text-xs text-slate-500 font-mono">
             <span>Vector Clocks: {JSON.stringify(vectorClock)}</span>
-            <span className="text-emerald-400 font-bold">100% Replicated Locally</span>
+            <span className="text-emerald-400 font-bold">
+              100% Replicated Locally
+            </span>
           </div>
         </div>
       )}
@@ -377,7 +441,8 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
                 Local P2P File Distribution Tray
               </h3>
               <p className="text-xs text-slate-400">
-                Direct peer-to-peer file transfers up to 100 MB/s over local Wi-Fi with zero WAN consumption.
+                Direct peer-to-peer file transfers up to 100 MB/s over local
+                Wi-Fi with zero WAN consumption.
               </p>
             </div>
           </div>
@@ -386,8 +451,12 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
           <div className="p-8 border-2 border-dashed border-slate-700 hover:border-violet-500 rounded-2xl text-center space-y-3 cursor-pointer bg-slate-950/40 transition-all">
             <Upload className="w-8 h-8 text-violet-400 mx-auto" />
             <div>
-              <div className="text-sm font-bold text-white">Drag & drop files to broadcast locally</div>
-              <p className="text-xs text-slate-500">Fast chunked WebRTC DataChannel transfer to all nearby peers</p>
+              <div className="text-sm font-bold text-white">
+                Drag & drop files to broadcast locally
+              </div>
+              <p className="text-xs text-slate-500">
+                Fast chunked WebRTC DataChannel transfer to all nearby peers
+              </p>
             </div>
           </div>
 
@@ -415,7 +484,9 @@ export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabVie
                 </div>
 
                 <button
-                  onClick={() => alert(`Downloading ${file.name} via local peer mesh!`)}
+                  onClick={() =>
+                    alert(`Downloading ${file.name} via local peer mesh!`)
+                  }
                   className="px-3.5 py-1.5 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-lg transition-all flex items-center gap-1.5"
                 >
                   <Download className="w-3.5 h-3.5" /> P2P Pull

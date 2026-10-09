@@ -1,13 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Bot,
   CloudRain,
   Volume2,
   Wind,
   Thermometer,
-  ShieldCheck,
   Zap,
   ArrowRight,
   AlertTriangle,
@@ -15,10 +14,7 @@ import {
   CheckCircle2,
   RefreshCw,
   Sliders,
-  Compass,
-  Layers,
   Activity,
-  ChevronRight,
   User,
 } from "lucide-react";
 import {
@@ -182,6 +178,48 @@ export interface AutonomousConciergeDashboardProps {
   className?: string;
 }
 
+interface BoundarySafeTooltipProps {
+  content: React.ReactNode;
+  align?: "left" | "right" | "center";
+  children: React.ReactNode;
+  className?: string;
+}
+
+function BoundarySafeTooltip({
+  content,
+  align = "center",
+  children,
+  className = "",
+}: BoundarySafeTooltipProps) {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <div
+      className={`relative inline-flex ${className}`}
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+      onFocus={() => setVisible(true)}
+      onBlur={() => setVisible(false)}
+    >
+      {children}
+      {visible && (
+        <div
+          role="tooltip"
+          className={`absolute bottom-full mb-2 z-50 px-2.5 py-1 text-xs font-medium text-white bg-slate-900 border border-slate-700 rounded-lg shadow-xl whitespace-normal max-w-xs pointer-events-none transition-opacity duration-150 ${
+            align === "right"
+              ? "right-0"
+              : align === "left"
+                ? "left-0"
+                : "left-1/2 -translate-x-1/2"
+          }`}
+        >
+          {content}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Autonomous AI Concierge & Weather/Noise Re-Balancing Dashboard.
  *
@@ -198,14 +236,18 @@ export default function AutonomousConciergeDashboard({
   onScenarioTriggered,
   className = "",
 }: AutonomousConciergeDashboardProps = {}) {
-  const [sensors, setSensors] = useState<EnvironmentalSensorFeed[]>(initialSensors);
-  const [members, setMembers] = useState<MemberWorkspaceSession[]>(initialMembers);
+  const [sensors, setSensors] =
+    useState<EnvironmentalSensorFeed[]>(initialSensors);
+  const [members] = useState<MemberWorkspaceSession[]>(initialMembers);
   const [autoPilotGlobal, setAutoPilotGlobal] = useState(defaultAutoPilot);
   const [appliedMigrations, setAppliedMigrations] = useState<string[]>([]);
   const [isSimulating, setIsSimulating] = useState(false);
 
   // Compute rebalance recommendations
-  const analysis = AutonomousConciergeEngine.runRebalanceOptimizationPass(sensors, members);
+  const analysis = AutonomousConciergeEngine.runRebalanceOptimizationPass(
+    sensors,
+    members,
+  );
 
   // Trigger sudden scenario simulator
   const triggerScenario = (type: "rain" | "noise" | "hvac_reset") => {
@@ -216,7 +258,12 @@ export default function AutonomousConciergeDashboard({
       setSensors((prev) => {
         return prev.map((s) => {
           if (type === "rain" && s.zoneType === "outdoor_terrace") {
-            return { ...s, weatherCondition: "rain_storm", temperatureC: 16.0, humidityPercent: 92 };
+            return {
+              ...s,
+              weatherCondition: "rain_storm",
+              temperatureC: 16.0,
+              humidityPercent: 92,
+            };
           }
           if (type === "noise" && s.zoneType === "open_floor") {
             return { ...s, decibelLevel: 78, co2Ppm: 1400 };
@@ -249,8 +296,9 @@ export default function AutonomousConciergeDashboard({
   };
 
   return (
-    <div className={`w-full max-w-6xl mx-auto space-y-6 text-slate-100 ${className}`}>
-
+    <div
+      className={`w-full max-w-6xl mx-auto space-y-6 text-slate-100 ${className}`}
+    >
       {/* Top Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-800 shadow-xl">
         <div className="flex items-center gap-3">
@@ -270,15 +318,15 @@ export default function AutonomousConciergeDashboard({
               </BoundarySafeTooltip>
             </h2>
             <p className="text-sm text-slate-400">
-              Proactive micro-climate, sudden weather shift & acoustic noise re-balancing agent
+              Proactive micro-climate, sudden weather shift & acoustic noise
+              re-balancing agent
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleToggleAutoPilot}
-            className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all flex items-center gap-2 ${
+          <BoundarySafeTooltip
+            content={
               autoPilotGlobal
                 ? "Auto-Pilot: High-priority migrations (rain, noise spikes) are automatically confirmed."
                 : "Prompt Mode: You will receive one-click notification prompts before desk migration."
@@ -294,7 +342,8 @@ export default function AutonomousConciergeDashboard({
               }`}
             >
               <Zap className="w-4 h-4 text-emerald-400" />
-              Auto-Pilot {autoPilotGlobal ? "Engaged (Auto-Migrate)" : "Prompt Only"}
+              Auto-Pilot{" "}
+              {autoPilotGlobal ? "Engaged (Auto-Migrate)" : "Prompt Only"}
             </button>
           </BoundarySafeTooltip>
         </div>
@@ -303,7 +352,8 @@ export default function AutonomousConciergeDashboard({
       {/* Scenario Simulator Buttons */}
       <div className="p-4 bg-slate-900/60 rounded-2xl border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
         <span className="font-bold text-slate-300 flex items-center gap-1.5">
-          <Sliders className="w-4 h-4 text-cyan-400" /> Environmental Event Injector:
+          <Sliders className="w-4 h-4 text-cyan-400" /> Environmental Event
+          Injector:
         </span>
         <div className="flex flex-wrap gap-2">
           <button
@@ -333,10 +383,16 @@ export default function AutonomousConciergeDashboard({
       {/* Live Environmental Zones Matrix */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {sensors.map((sensor, idx) => {
-          const comfort = AutonomousConciergeEngine.calculateZoneComfort(sensor);
+          const comfort =
+            AutonomousConciergeEngine.calculateZoneComfort(sensor);
           const isOptimal = comfort >= 75;
           const isWarning = comfort < 50;
-          const tooltipAlign = idx === 0 ? "left" : idx === sensors.length - 1 ? "right" : "center";
+          const tooltipAlign =
+            idx === 0
+              ? "left"
+              : idx === sensors.length - 1
+                ? "right"
+                : "center";
 
           return (
             <div
@@ -345,8 +401,8 @@ export default function AutonomousConciergeDashboard({
                 isWarning
                   ? "bg-rose-950/20 border-rose-500/40"
                   : isOptimal
-                  ? "bg-slate-900/80 border-slate-800"
-                  : "bg-amber-950/20 border-amber-500/40"
+                    ? "bg-slate-900/80 border-slate-800"
+                    : "bg-amber-950/20 border-amber-500/40"
               }`}
             >
               <div className="space-y-2">
@@ -363,8 +419,8 @@ export default function AutonomousConciergeDashboard({
                         isWarning
                           ? "text-rose-400"
                           : isOptimal
-                          ? "text-emerald-400"
-                          : "text-amber-400"
+                            ? "text-emerald-400"
+                            : "text-amber-400"
                       }`}
                     >
                       {comfort}% Comfort
@@ -372,35 +428,51 @@ export default function AutonomousConciergeDashboard({
                   </BoundarySafeTooltip>
                 </div>
 
-                <h3 className="font-bold text-white text-sm">{sensor.zoneName}</h3>
+                <h3 className="font-bold text-white text-sm">
+                  {sensor.zoneName}
+                </h3>
 
                 {/* Key Metrics */}
                 <div className="grid grid-cols-2 gap-2 pt-1 text-[11px] text-slate-300">
-                  <BoundarySafeTooltip content="Optimal thermal zone: 21-23°C" align={tooltipAlign}>
+                  <BoundarySafeTooltip
+                    content="Optimal thermal zone: 21-23°C"
+                    align={tooltipAlign}
+                  >
                     <div className="flex items-center gap-1.5 cursor-help">
                       <Thermometer className="w-3.5 h-3.5 text-orange-400" />
                       <span>{sensor.temperatureC}°C</span>
                     </div>
                   </BoundarySafeTooltip>
 
-                  <BoundarySafeTooltip content="Acoustic focus threshold: <55dB" align={tooltipAlign}>
+                  <BoundarySafeTooltip
+                    content="Acoustic focus threshold: <55dB"
+                    align={tooltipAlign}
+                  >
                     <div className="flex items-center gap-1.5 cursor-help">
                       <Volume2 className="w-3.5 h-3.5 text-yellow-400" />
                       <span>{sensor.decibelLevel} dB</span>
                     </div>
                   </BoundarySafeTooltip>
 
-                  <BoundarySafeTooltip content="CO2 concentration. Levels >1000ppm induce cognitive fatigue." align={tooltipAlign}>
+                  <BoundarySafeTooltip
+                    content="CO2 concentration. Levels >1000ppm induce cognitive fatigue."
+                    align={tooltipAlign}
+                  >
                     <div className="flex items-center gap-1.5 cursor-help">
                       <Wind className="w-3.5 h-3.5 text-cyan-400" />
                       <span>{sensor.co2Ppm} ppm</span>
                     </div>
                   </BoundarySafeTooltip>
 
-                  <BoundarySafeTooltip content="Real-time localized micro-climate radar" align={tooltipAlign}>
+                  <BoundarySafeTooltip
+                    content="Real-time localized micro-climate radar"
+                    align={tooltipAlign}
+                  >
                     <div className="flex items-center gap-1.5 cursor-help">
                       <CloudRain className="w-3.5 h-3.5 text-blue-400" />
-                      <span className="capitalize">{sensor.weatherCondition.replace("_", " ")}</span>
+                      <span className="capitalize">
+                        {sensor.weatherCondition.replace("_", " ")}
+                      </span>
                     </div>
                   </BoundarySafeTooltip>
                 </div>
@@ -410,13 +482,17 @@ export default function AutonomousConciergeDashboard({
                 <span>
                   Occupancy: {sensor.occupancyCount} / {sensor.maxCapacity}
                 </span>
-                {sensor.weatherCondition === "rain_storm" && sensor.zoneType === "outdoor_terrace" && (
-                  <BoundarySafeTooltip content="Critical rain alert! Terrace is actively exposed." align="right">
-                    <span className="text-rose-400 font-bold flex items-center gap-1 animate-pulse cursor-help">
-                      <AlertTriangle className="w-3 h-3" /> Rain Hazard
-                    </span>
-                  </BoundarySafeTooltip>
-                )}
+                {sensor.weatherCondition === "rain_storm" &&
+                  sensor.zoneType === "outdoor_terrace" && (
+                    <BoundarySafeTooltip
+                      content="Critical rain alert! Terrace is actively exposed."
+                      align="right"
+                    >
+                      <span className="text-rose-400 font-bold flex items-center gap-1 animate-pulse cursor-help">
+                        <AlertTriangle className="w-3 h-3" /> Rain Hazard
+                      </span>
+                    </BoundarySafeTooltip>
+                  )}
               </div>
             </div>
           );
@@ -429,10 +505,12 @@ export default function AutonomousConciergeDashboard({
           <div>
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-cyan-400" />
-              Autonomous Re-Balancing Proposals ({analysis.recommendations.length})
+              Autonomous Re-Balancing Proposals (
+              {analysis.recommendations.length})
             </h3>
             <p className="text-xs text-slate-400">
-              Avg. comfort delta: +{analysis.avgComfortImprovement} points across affected coworkers
+              Avg. comfort delta: +{analysis.avgComfortImprovement} points
+              across affected coworkers
             </p>
           </div>
         </div>
@@ -440,7 +518,9 @@ export default function AutonomousConciergeDashboard({
         {analysis.recommendations.length === 0 ? (
           <div className="p-8 text-center bg-slate-800/30 rounded-xl border border-slate-800 space-y-2">
             <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
-            <div className="text-sm font-bold text-white">All Workspaces in Optimal Equilibrium</div>
+            <div className="text-sm font-bold text-white">
+              All Workspaces in Optimal Equilibrium
+            </div>
             <p className="text-xs text-slate-400">
               No sudden precipitation, noise spikes, or thermal drift detected.
             </p>
@@ -448,7 +528,8 @@ export default function AutonomousConciergeDashboard({
         ) : (
           <div className="space-y-3">
             {analysis.recommendations.map((rec) => {
-              const isApplied = appliedMigrations.includes(rec.id) || rec.isAutoApplied;
+              const isApplied =
+                appliedMigrations.includes(rec.id) || rec.isAutoApplied;
 
               return (
                 <div
@@ -472,7 +553,8 @@ export default function AutonomousConciergeDashboard({
                         </span>
                       </BoundarySafeTooltip>
                       <span className="text-xs font-bold text-white flex items-center gap-1">
-                        <User className="w-3.5 h-3.5 text-slate-400" /> {rec.memberName}
+                        <User className="w-3.5 h-3.5 text-slate-400" />{" "}
+                        {rec.memberName}
                       </span>
                       <span className="text-xs text-emerald-400 font-mono font-bold">
                         +{rec.comfortDelta}% Comfort
@@ -489,13 +571,16 @@ export default function AutonomousConciergeDashboard({
                       </span>
                     </div>
 
-                    <p className="text-xs text-slate-400">{rec.conciergeExplanation}</p>
+                    <p className="text-xs text-slate-400">
+                      {rec.conciergeExplanation}
+                    </p>
                   </div>
 
                   <div className="flex items-center gap-3 shrink-0">
                     {isApplied ? (
                       <span className="px-3 py-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Auto-Relocated
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />{" "}
+                        Auto-Relocated
                       </span>
                     ) : (
                       <button
@@ -513,18 +598,27 @@ export default function AutonomousConciergeDashboard({
         )}
       </div>
 
-
       {/* Concierge Autonomous Reasoning Log */}
       <div className="p-6 bg-slate-900/60 rounded-2xl border border-slate-800 space-y-3">
         <div className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-          <Activity className="w-4 h-4 text-cyan-400" /> Real-Time Concierge Agent Telemetry Stream
+          <Activity className="w-4 h-4 text-cyan-400" /> Real-Time Concierge
+          Agent Telemetry Stream
         </div>
         <div className="p-3.5 bg-black/40 rounded-xl border border-slate-800 font-mono text-[11px] text-slate-400 space-y-1">
-          <div>[AI-ENGINE] Continuous environmental scan interval: 15,000ms</div>
-          <div>[SENSORS] Multi-sensor ingest: 4 zones, 12 environmental metrics loaded</div>
-          <div>[DECISION] Optimization algorithm: Weiszfeld-Weighted Thermal & Acoustic Comfort Matrix</div>
+          <div>
+            [AI-ENGINE] Continuous environmental scan interval: 15,000ms
+          </div>
+          <div>
+            [SENSORS] Multi-sensor ingest: 4 zones, 12 environmental metrics
+            loaded
+          </div>
+          <div>
+            [DECISION] Optimization algorithm: Weiszfeld-Weighted Thermal &
+            Acoustic Comfort Matrix
+          </div>
           <div className="text-emerald-400">
-            [STATUS] Autonomous Rebalancing Auto-Pilot operational. High-priority migrations auto-dispatched.
+            [STATUS] Autonomous Rebalancing Auto-Pilot operational.
+            High-priority migrations auto-dispatched.
           </div>
         </div>
       </div>

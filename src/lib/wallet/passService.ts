@@ -51,7 +51,12 @@ export async function registerApplePassDevice(params: {
     bookingId,
   } = params;
 
-  if (!deviceLibraryIdentifier || !passTypeIdentifier || !serialNumber || !pushToken) {
+  if (
+    !deviceLibraryIdentifier ||
+    !passTypeIdentifier ||
+    !serialNumber ||
+    !pushToken
+  ) {
     throw new Error("Missing required registration parameters");
   }
 
@@ -73,7 +78,9 @@ export async function registerApplePassDevice(params: {
 
   try {
     // Attempt database persistence if schema supports it or raw store
-    await prisma.$executeRawUnsafe(`
+    await prisma
+      .$executeRawUnsafe(
+        `
       CREATE TABLE IF NOT EXISTS "ApplePassRegistration" (
         "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
         "deviceLibraryIdentifier" TEXT NOT NULL,
@@ -86,21 +93,25 @@ export async function registerApplePassDevice(params: {
         "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT "ApplePassRegistration_unique_device_pass" UNIQUE ("deviceLibraryIdentifier", "passTypeIdentifier", "serialNumber")
       )
-    `).catch(() => {});
+    `,
+      )
+      .catch(() => {});
 
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO "ApplePassRegistration" 
+    await prisma
+      .$executeRawUnsafe(
+        `INSERT INTO "ApplePassRegistration" 
        ("id", "deviceLibraryIdentifier", "passTypeIdentifier", "serialNumber", "pushToken", "authorizationToken", "bookingId", "createdAt", "updatedAt")
        VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, NOW(), NOW())
        ON CONFLICT ("deviceLibraryIdentifier", "passTypeIdentifier", "serialNumber")
        DO UPDATE SET "pushToken" = EXCLUDED."pushToken", "authorizationToken" = EXCLUDED."authorizationToken", "updatedAt" = NOW()`,
-      deviceLibraryIdentifier,
-      passTypeIdentifier,
-      serialNumber,
-      pushToken,
-      authorizationToken,
-      bookingId || null,
-    ).catch(() => {});
+        deviceLibraryIdentifier,
+        passTypeIdentifier,
+        serialNumber,
+        pushToken,
+        authorizationToken,
+        bookingId || null,
+      )
+      .catch(() => {});
   } catch (err) {
     console.warn("[AppleWallet] DB storage fallback to memory:", err);
   }
@@ -118,7 +129,12 @@ export async function unregisterApplePassDevice(params: {
   serialNumber: string;
   authorizationToken: string;
 }): Promise<{ status: "unregistered" | "not_found" | "unauthorized" }> {
-  const { deviceLibraryIdentifier, passTypeIdentifier, serialNumber, authorizationToken } = params;
+  const {
+    deviceLibraryIdentifier,
+    passTypeIdentifier,
+    serialNumber,
+    authorizationToken,
+  } = params;
 
   const key = `${deviceLibraryIdentifier}:${passTypeIdentifier}:${serialNumber}`;
   const record = deviceRegistrationStore.get(key);
@@ -130,15 +146,17 @@ export async function unregisterApplePassDevice(params: {
   const existed = deviceRegistrationStore.delete(key);
 
   try {
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM "ApplePassRegistration"
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM "ApplePassRegistration"
        WHERE "deviceLibraryIdentifier" = $1
          AND "passTypeIdentifier" = $2
          AND "serialNumber" = $3`,
-      deviceLibraryIdentifier,
-      passTypeIdentifier,
-      serialNumber,
-    ).catch(() => {});
+        deviceLibraryIdentifier,
+        passTypeIdentifier,
+        serialNumber,
+      )
+      .catch(() => {});
   } catch (err) {
     console.warn("[AppleWallet] DB unregister error:", err);
   }
@@ -154,7 +172,9 @@ export async function getRegisteredDevicesForPass(
   serialNumber: string,
 ): Promise<ApplePassRegistration[]> {
   const memoryMatches = Array.from(deviceRegistrationStore.values()).filter(
-    (reg) => reg.passTypeIdentifier === passTypeIdentifier && reg.serialNumber === serialNumber,
+    (reg) =>
+      reg.passTypeIdentifier === passTypeIdentifier &&
+      reg.serialNumber === serialNumber,
   );
 
   try {
@@ -184,7 +204,10 @@ export async function sendApplePassUpdatePushNotification(
   payload: ApplePassUpdatePayload,
 ): Promise<SendPushResult[]> {
   const { passTypeIdentifier, serialNumber, bookingId, event } = payload;
-  const registrations = await getRegisteredDevicesForPass(passTypeIdentifier, serialNumber);
+  const registrations = await getRegisteredDevicesForPass(
+    passTypeIdentifier,
+    serialNumber,
+  );
 
   console.log(
     `[AppleWallet] Triggering APNs update for pass ${serialNumber} (${event}, booking ${bookingId}) across ${registrations.length} device(s)`,
@@ -197,8 +220,12 @@ export async function sendApplePassUpdatePushNotification(
       // In production APNs HTTP/2 communication:
       // POST https://api.push.apple.com/3/device/{pushToken} with header apns-topic: passTypeIdentifier
       // and empty body '{}'
-      const apnsEndpoint = process.env.APNS_GATEWAY_URL || "https://api.sandbox.push.apple.com/3/device";
-      const isConfigured = Boolean(process.env.APPLE_PASS_CERT_PEM || process.env.APNS_AUTH_KEY);
+      const apnsEndpoint =
+        process.env.APNS_GATEWAY_URL ||
+        "https://api.sandbox.push.apple.com/3/device";
+      const isConfigured = Boolean(
+        process.env.APPLE_PASS_CERT_PEM || process.env.APNS_AUTH_KEY,
+      );
 
       if (isConfigured && typeof fetch === "function") {
         const response = await fetch(`${apnsEndpoint}/${reg.pushToken}`, {
@@ -250,7 +277,10 @@ export async function notifyAppleWalletOnBookingUpdate(params: {
   passTypeIdentifier?: string;
   event: "modified" | "cancelled" | "checked_in" | "expired";
 }): Promise<SendPushResult[]> {
-  const passType = params.passTypeIdentifier || process.env.APPLE_PASS_TYPE_ID || "pass.com.worksphere.booking";
+  const passType =
+    params.passTypeIdentifier ||
+    process.env.APPLE_PASS_TYPE_ID ||
+    "pass.com.worksphere.booking";
   const serialNumber = params.serialNumber || `booking-${params.bookingId}`;
 
   return sendApplePassUpdatePushNotification({
@@ -259,4 +289,218 @@ export async function notifyAppleWalletOnBookingUpdate(params: {
     bookingId: params.bookingId,
     event: params.event,
   });
+}
+
+export interface WalletBookingDetails {
+  id: string;
+  confirmationId: string;
+  date: string;
+  time: string;
+  duration?: number | null;
+  seatNumber?: string | null;
+  status?: string;
+  userName?: string;
+  venue: {
+    id?: string;
+    name: string;
+    category?: string;
+    address?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    imageUrl?: string | null;
+  } | null;
+}
+
+export function buildApplePassJson(booking: WalletBookingDetails) {
+  const venueName = booking.venue?.name || "WorkSphere Workspace";
+  const address = booking.venue?.address || "Selected Venue Location";
+  const seat = booking.seatNumber
+    ? `Desk ${booking.seatNumber}`
+    : "Reserved Hot Desk";
+  const durationText = `${booking.duration || 60} minutes`;
+  const relevantDate = `${booking.date}T${booking.time}:00Z`;
+
+  const locations =
+    booking.venue?.latitude && booking.venue?.longitude
+      ? [
+          {
+            latitude: Number(booking.venue.latitude),
+            longitude: Number(booking.venue.longitude),
+            relevantText: `Welcome to ${venueName}! Tap to show your pass for check-in.`,
+          },
+        ]
+      : undefined;
+
+  return {
+    formatVersion: 1,
+    passTypeIdentifier:
+      process.env.APPLE_PASS_TYPE_ID || "pass.app.worksphere.coworking",
+    teamIdentifier: "WORKSPHERE99",
+    organizationName: "WorkSphere",
+    serialNumber: booking.confirmationId,
+    description: `WorkSphere Pass for ${venueName}`,
+    foregroundColor: "rgb(255, 255, 255)",
+    backgroundColor: "rgb(24, 24, 27)",
+    labelColor: "rgb(161, 161, 170)",
+    logoText: "WorkSphere",
+    relevantDate,
+    locations,
+    barcodes: [
+      {
+        format: "PKBarcodeFormatQR",
+        message: `https://worksphere.app/checkin/${booking.confirmationId}`,
+        messageEncoding: "iso-8859-1",
+        altText: booking.confirmationId,
+      },
+    ],
+    generic: {
+      headerFields: [
+        {
+          key: "status",
+          label: "STATUS",
+          value: booking.status || "CONFIRMED",
+        },
+      ],
+      primaryFields: [
+        {
+          key: "venue",
+          label: "VENUE",
+          value: venueName,
+        },
+      ],
+      secondaryFields: [
+        {
+          key: "seat",
+          label: "SEAT / DESK",
+          value: seat,
+        },
+        {
+          key: "datetime",
+          label: "DATE & TIME",
+          value: `${booking.date} @ ${booking.time}`,
+        },
+      ],
+      auxiliaryFields: [
+        {
+          key: "duration",
+          label: "DURATION",
+          value: durationText,
+        },
+        {
+          key: "conf",
+          label: "CONFIRMATION ID",
+          value: booking.confirmationId,
+        },
+      ],
+      backFields: [
+        {
+          key: "address",
+          label: "Venue Address",
+          value: address,
+        },
+        {
+          key: "amenities",
+          label: "Included Amenities",
+          value:
+            "High-Speed Wi-Fi, Power Outlets, Coffee Bar Access, Silent Phone Booths",
+        },
+        {
+          key: "support",
+          label: "Need Assistance?",
+          value:
+            "Visit https://worksphere.app or speak with the host at front desk.",
+        },
+      ],
+    },
+  };
+}
+
+export function buildGoogleWalletPass(booking: WalletBookingDetails) {
+  const venueName = booking.venue?.name || "WorkSphere Workspace";
+  const seat = booking.seatNumber
+    ? `Desk ${booking.seatNumber}`
+    : "Reserved Hot Desk";
+  const durationText = `${booking.duration || 60} mins`;
+
+  const issuerId = "3388000000022312345";
+  const classId = `${issuerId}.worksphere_pass_class`;
+  const objectId = `${issuerId}.${booking.confirmationId}`;
+
+  const passPayload = {
+    iss: "worksphere-wallet-issuer@worksphere.iam.gserviceaccount.com",
+    aud: "google",
+    typ: "savetowallet",
+    origins: ["https://worksphere.app"],
+    payload: {
+      genericObjects: [
+        {
+          id: objectId,
+          classId: classId,
+          cardTitle: {
+            defaultValue: {
+              language: "en",
+              value: "WorkSphere Coworking Pass",
+            },
+          },
+          header: {
+            defaultValue: {
+              language: "en",
+              value: venueName,
+            },
+          },
+          subheader: {
+            defaultValue: {
+              language: "en",
+              value: `${booking.date} • ${booking.time}`,
+            },
+          },
+          hexBackgroundColor: "#18181b",
+          barcode: {
+            type: "QR_CODE",
+            value: `https://worksphere.app/checkin/${booking.confirmationId}`,
+            alternateText: booking.confirmationId,
+          },
+          textModulesData: [
+            {
+              id: "desk",
+              header: "DESK / SEAT",
+              body: seat,
+            },
+            {
+              id: "confirmation",
+              header: "CONFIRMATION ID",
+              body: booking.confirmationId,
+            },
+            {
+              id: "duration",
+              header: "DURATION",
+              body: durationText,
+            },
+            {
+              id: "status",
+              header: "STATUS",
+              body: booking.status || "CONFIRMED",
+            },
+          ],
+          linksModuleData: {
+            uris: [
+              {
+                uri: `https://worksphere.app/venues/${booking.venue?.id || ""}`,
+                description: "View Venue Guide & Wi-Fi",
+              },
+            ],
+          },
+        },
+      ],
+    },
+  };
+
+  const jsonString = JSON.stringify(passPayload);
+  const base64Jwt = Buffer.from(jsonString).toString("base64url");
+  const saveUrl = `https://pay.google.com/gp/v/save/${base64Jwt}`;
+
+  return {
+    saveUrl,
+    passPayload,
+  };
 }
