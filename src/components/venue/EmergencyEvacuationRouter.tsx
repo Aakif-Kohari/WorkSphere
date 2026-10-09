@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   AlertTriangle,
   Flame,
@@ -17,6 +17,8 @@ import {
   Sparkles,
   RefreshCw,
   BellRing,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import type {
   EvacuationPlan,
@@ -45,6 +47,79 @@ export default function EmergencyEvacuationRouter({
   const [plan, setPlan] = useState<EvacuationPlan | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [currentStep, setCurrentStep] = useState<number>(0);
+  const [isPlayingChime, setIsPlayingChime] = useState<boolean>(false);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const chimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopChime = useCallback(() => {
+    if (chimeTimeoutRef.current) {
+      clearTimeout(chimeTimeoutRef.current);
+      chimeTimeoutRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      try {
+        audioCtxRef.current.close();
+      } catch {
+        // ignore
+      }
+      audioCtxRef.current = null;
+    }
+    setIsPlayingChime(false);
+  }, []);
+
+  const toggleChime = useCallback(() => {
+    if (isPlayingChime) {
+      stopChime();
+      return;
+    }
+
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+
+      const ctx = new AudioCtx();
+      audioCtxRef.current = ctx;
+      setIsPlayingChime(true);
+
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      // 2-second two-tone alert chime (880Hz / 660Hz pulse)
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.setValueAtTime(880, now + 0.5);
+      osc.frequency.setValueAtTime(660, now + 0.5);
+      osc.frequency.setValueAtTime(660, now + 1.0);
+      osc.frequency.setValueAtTime(880, now + 1.0);
+      osc.frequency.setValueAtTime(880, now + 1.5);
+      osc.frequency.setValueAtTime(660, now + 1.5);
+
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 2.0);
+
+      chimeTimeoutRef.current = setTimeout(() => {
+        stopChime();
+      }, 2000);
+    } catch (err) {
+      console.error("Failed to play evacuation chime:", err);
+      stopChime();
+    }
+  }, [isPlayingChime, stopChime]);
+
+  useEffect(() => {
+    return () => {
+      stopChime();
+    };
+  }, [stopChime]);
 
   const fetchEvacuationPlan = async (
     type: EmergencyType,
@@ -131,27 +206,56 @@ export default function EmergencyEvacuationRouter({
             </p>
           </div>
 
-          {/* Emergency Type Selector */}
-          <div className="flex items-center gap-2 shrink-0 bg-slate-950/80 p-2 rounded-2xl border border-rose-500/30 text-xs">
-            <span className="text-slate-400 text-[11px] px-2 font-mono">Simulate:</span>
-            {(["FIRE_ALARM", "EARTHQUAKE", "POWER_OUTAGE"] as EmergencyType[]).map((type) => (
-              <button
-                key={type}
-                onClick={() => {
-                  setEmergencyType(type);
-                  if (userCoordinates) {
-                    fetchEvacuationPlan(type, userCoordinates);
-                  }
-                }}
-                className={`px-3 py-1.5 rounded-xl font-bold transition text-xs ${
-                  emergencyType === type
-                    ? "bg-rose-600 text-white shadow-lg shadow-rose-600/30"
-                    : "bg-slate-900 text-slate-400 hover:text-white"
-                }`}
-              >
-                {type.replace("_", " ")}
-              </button>
-            ))}
+          {/* Banner Controls: Test Evacuation Chime & Simulator */}
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            {/* Test Evacuation Chime Button */}
+            <button
+              type="button"
+              onClick={toggleChime}
+              data-testid="test-evacuation-chime-btn"
+              aria-label={isPlayingChime ? "Stop Evacuation Chime" : "Test Evacuation Chime"}
+              title={isPlayingChime ? "Stop audio chime immediately" : "Test 2-second synthesized evacuation chime"}
+              className={`px-3.5 py-2 rounded-2xl font-bold transition text-xs flex items-center gap-1.5 border shadow-sm ${
+                isPlayingChime
+                  ? "bg-rose-600 text-white border-rose-400 animate-pulse shadow-rose-600/40"
+                  : "bg-slate-950/80 text-rose-300 border-rose-500/40 hover:bg-rose-950/50 hover:text-white"
+              }`}
+            >
+              {isPlayingChime ? (
+                <>
+                  <VolumeX className="w-4 h-4 text-white" />
+                  <span>Stop Chime</span>
+                </>
+              ) : (
+                <>
+                  <Volume2 className="w-4 h-4 text-rose-400" />
+                  <span>Test Evacuation Chime</span>
+                </>
+              )}
+            </button>
+
+            {/* Emergency Type Selector */}
+            <div className="flex items-center gap-2 bg-slate-950/80 p-2 rounded-2xl border border-rose-500/30 text-xs">
+              <span className="text-slate-400 text-[11px] px-2 font-mono">Simulate:</span>
+              {(["FIRE_ALARM", "EARTHQUAKE", "POWER_OUTAGE"] as EmergencyType[]).map((type) => (
+                <button
+                  key={type}
+                  onClick={() => {
+                    setEmergencyType(type);
+                    if (userCoordinates) {
+                      fetchEvacuationPlan(type, userCoordinates);
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-xl font-bold transition text-xs ${
+                    emergencyType === type
+                      ? "bg-rose-600 text-white shadow-lg shadow-rose-600/30"
+                      : "bg-slate-900 text-slate-400 hover:text-white"
+                  }`}
+                >
+                  {type.replace("_", " ")}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
