@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
-import { X, CheckCircle2, AlertCircle, Loader2, QrCode, Tag } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { X, CheckCircle2, AlertCircle, Loader2, QrCode, Tag, Flame } from "lucide-react";
+import confetti from "canvas-confetti";
 
 export interface CheckInModalProps {
   isOpen: boolean;
@@ -10,11 +11,12 @@ export interface CheckInModalProps {
   venueId?: string;
   /** Whether browser GPS geolocation location acquisition is currently pending */
   isLocating?: boolean;
+  currentStreak?: number;
   onCheckIn?: (data: {
     code: string;
     couponCode?: string;
     location?: { lat: number; lng: number; accuracy?: number } | null;
-  }) => Promise<void> | void;
+  }) => Promise<{ currentStreak?: number; message?: string } | void> | void;
 }
 
 /**
@@ -33,7 +35,8 @@ export function sanitizeCouponCode(coupon: string): string {
 
 /**
  * CheckInModal with automatic whitespace trimming, uppercase conversion,
- * pure-whitespace validation feedback, and pending geolocation accuracy locks.
+ * pure-whitespace validation feedback, pending geolocation accuracy locks,
+ * and confetti celebration on successful check-in.
  */
 export function CheckInModal({
   isOpen,
@@ -41,6 +44,7 @@ export function CheckInModal({
   venueName = "Workspace",
   venueId,
   isLocating: isLocatingProp,
+  currentStreak,
   onCheckIn,
 }: CheckInModalProps) {
   const [checkInCode, setCheckInCode] = useState("");
@@ -48,10 +52,34 @@ export function CheckInModal({
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [streak, setStreak] = useState<number | null>(currentStreak ?? null);
   const [internalLocating, setInternalLocating] = useState(false);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
 
   const isGpsPending = isLocatingProp !== undefined ? isLocatingProp : internalLocating;
+
+  // Celebrate successful check-in with confetti (respects reduced motion) (#5058)
+  useEffect(() => {
+    let animationFrameId: number | undefined;
+    if (isSuccess) {
+      const respectsReducedMotion =
+        typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      if (!respectsReducedMotion) {
+        confetti({
+          particleCount: 80,
+          spread: 70,
+          origin: { y: 0.6 },
+          zIndex: 25000,
+        });
+      }
+    }
+    return () => {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    };
+  }, [isSuccess]);
 
   if (!isOpen) return null;
 
@@ -71,10 +99,15 @@ export function CheckInModal({
     setIsLoading(true);
     try {
       if (onCheckIn) {
-        await onCheckIn({
+        const res = await onCheckIn({
           code: trimmedCode,
           couponCode: trimmedCoupon || undefined,
         });
+        if (res && typeof res === "object" && "currentStreak" in res && typeof res.currentStreak === "number") {
+          setStreak(res.currentStreak);
+        } else if (currentStreak !== undefined) {
+          setStreak(currentStreak + 1);
+        }
       } else {
         // Fallback default API call
         const response = await fetch("/api/check-in", {
@@ -91,12 +124,19 @@ export function CheckInModal({
           const errData = await response.json().catch(() => ({}));
           throw new Error(errData.error || "Check-in failed. Please verify your code.");
         }
+
+        const data = await response.json().catch(() => ({}));
+        if (data && typeof data.currentStreak === "number") {
+          setStreak(data.currentStreak);
+        } else if (currentStreak !== undefined) {
+          setStreak(currentStreak + 1);
+        }
       }
 
       setIsSuccess(true);
       setTimeout(() => {
         handleClose();
-      }, 1200);
+      }, 1800);
     } catch (err: any) {
       setValidationError(err.message || "Failed to process check-in.");
     } finally {
@@ -110,6 +150,7 @@ export function CheckInModal({
     setValidationError(null);
     setIsLoading(false);
     setIsSuccess(false);
+    setStreak(currentStreak ?? null);
     onClose();
   };
 
@@ -145,14 +186,34 @@ export function CheckInModal({
         </button>
 
         {isSuccess ? (
-          <div className="py-8 flex flex-col items-center justify-center text-center space-y-3">
-            <CheckCircle2 className="w-12 h-12 text-emerald-500 animate-bounce" />
-            <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
+          <div
+            data-testid="checkin-success-view"
+            className="py-8 flex flex-col items-center justify-center text-center space-y-3 animate-in fade-in duration-200"
+          >
+            <div className="relative">
+              <CheckCircle2 className="w-14 h-14 text-emerald-500 animate-bounce" />
+              <div className="absolute -top-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-amber-400 text-amber-950 font-bold text-xs shadow-md">
+                🎉
+              </div>
+            </div>
+            <h3 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
               Check-In Successful!
             </h3>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-xs">
               Welcome to {venueName}. Enjoy your productive session.
             </p>
+
+            {streak !== null && streak > 0 && (
+              <div
+                data-testid="checkin-streak-banner"
+                className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500/15 via-orange-500/15 to-red-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-bold shadow-sm animate-in fade-in zoom-in duration-300"
+              >
+                <Flame className="w-4 h-4 text-orange-500 fill-orange-500 animate-pulse" />
+                <span>
+                  {streak} Day Check-In Streak! 🔥
+                </span>
+              </div>
+            )}
           </div>
         ) : (
           <div>

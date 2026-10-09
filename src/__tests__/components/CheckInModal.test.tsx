@@ -7,6 +7,8 @@ import {
   sanitizeCouponCode,
 } from "@/components/CheckInModal";
 
+jest.mock("canvas-confetti", () => jest.fn());
+
 describe("CheckInModal Component & Input Sanitation", () => {
   describe("Sanitization Helpers", () => {
     it("trims whitespace and converts check-in codes to uppercase", () => {
@@ -106,6 +108,37 @@ describe("CheckInModal Component & Input Sanitation", () => {
       const submitBtn = screen.getByTestId("checkin-submit-btn");
       expect(submitBtn).toBeDisabled();
       expect(submitBtn).toHaveTextContent("Acquiring location...");
+    });
+
+    it("triggers confetti animation and displays streak banner upon successful check-in", async () => {
+      const handleCheckIn = jest.fn().mockResolvedValue({ currentStreak: 5 });
+      const handleClose = jest.fn();
+
+      render(
+        <CheckInModal
+          isOpen={true}
+          onClose={handleClose}
+          onCheckIn={handleCheckIn}
+          currentStreak={4}
+          venueName="Artisan Roastery"
+        />
+      );
+
+      const codeInput = screen.getByTestId("checkin-code-input");
+      const submitBtn = screen.getByTestId("checkin-submit-btn");
+
+      fireEvent.change(codeInput, { target: { value: "WS-VALID-123" } });
+      fireEvent.click(submitBtn);
+
+      // Check success view appears
+      const successView = await screen.findByTestId("checkin-success-view");
+      expect(successView).toBeInTheDocument();
+      expect(screen.getByText(/Check-In Successful!/i)).toBeInTheDocument();
+
+      // Check streak banner
+      const streakBanner = await screen.findByTestId("checkin-streak-banner");
+      expect(streakBanner).toBeInTheDocument();
+      expect(streakBanner).toHaveTextContent("5 Day Check-In Streak!");
     });
   });
 });
