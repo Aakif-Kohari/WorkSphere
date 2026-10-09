@@ -54,7 +54,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
         id: g.id,
         email: g.email,
         name: g.name || undefined,
-        paid: g.status === "ACCEPTED",
+        paid: g.paidAt != null,
       })),
       origin,
     });
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         id: g.id,
         email: g.email,
         name: g.name || undefined,
-        paid: g.status === "ACCEPTED",
+        paid: g.paidAt != null,
         customAmount: customGuestAmounts[g.id],
       })),
       origin,

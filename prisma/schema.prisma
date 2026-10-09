@@ -342,6 +342,11 @@ model BookingGuest {
   status      GuestStatus @default(PENDING)
   calendarUid String?
   sentAt      DateTime?
+  // Split-bill payment state. `status = ACCEPTED` only means the guest RSVP'd
+  // "yes"; a guest has paid if and only if `paidAt` is set.
+  paidAt          DateTime?
+  paidAmountCents Int?
+  paidCurrency    String?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
