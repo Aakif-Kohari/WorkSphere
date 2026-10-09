@@ -146,7 +146,11 @@ export function DeskFavoriteAlertButton({
         )}
 
         {toastMsg && (
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 rounded-lg bg-zinc-900 text-zinc-100 text-[10px] font-semibold whitespace-nowrap shadow-xl border border-zinc-700 z-50 animate-in fade-in zoom-in-95">
+          <div
+            role="status"
+            data-testid="desk-favorite-toast"
+            className="absolute bottom-full right-0 sm:left-1/2 mb-2 translate-x-0 sm:-translate-x-1/2 px-2.5 py-1 rounded-lg bg-zinc-900 text-zinc-100 text-[10px] font-semibold whitespace-nowrap shadow-xl border border-zinc-700 z-50 animate-in fade-in zoom-in-95"
+          >
             {toastMsg}
           </div>
         )}
