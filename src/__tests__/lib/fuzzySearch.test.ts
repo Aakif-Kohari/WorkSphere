@@ -93,5 +93,20 @@ describe("Fuzzy Typo-Tolerant Search (#3958)", () => {
       expect(matched[0].name).toBe("Starbucks Reserve");
       expect(elapsed).toBeLessThan(15); // Performance tolerance under fast threshold
     });
+
+    it("handles null and undefined inputs gracefully without throwing", () => {
+      expect(damerauLevenshteinDistance(null as any, "test")).toBe(4);
+      expect(damerauLevenshteinDistance("test", undefined as any)).toBe(4);
+      expect(damerauLevenshteinDistance(null as any, undefined as any)).toBe(0);
+      expect(isFuzzyMatch(null as any, "test")).toEqual({
+        matched: false,
+        distance: Infinity,
+      });
+      expect(isFuzzyMatch("test", undefined as any)).toEqual({
+        matched: false,
+        distance: Infinity,
+      });
+    });
   });
 });
+

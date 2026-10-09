@@ -7,8 +7,8 @@
  * counting insertions, deletions, substitutions, and transpositions of adjacent characters.
  */
 export function damerauLevenshteinDistance(a: string, b: string): number {
-  const s1 = a.toLowerCase();
-  const s2 = b.toLowerCase();
+  const s1 = typeof a === "string" ? a.toLowerCase() : "";
+  const s2 = typeof b === "string" ? b.toLowerCase() : "";
 
   const len1 = s1.length;
   const len2 = s2.length;
@@ -73,8 +73,8 @@ export function isFuzzyMatch(
   target: string,
   threshold?: number
 ): { matched: boolean; distance: number } {
-  const cleanQuery = query.trim().toLowerCase();
-  const cleanTarget = target.trim().toLowerCase();
+  const cleanQuery = typeof query === "string" ? query.trim().toLowerCase() : "";
+  const cleanTarget = typeof target === "string" ? target.trim().toLowerCase() : "";
 
   if (!cleanQuery || !cleanTarget) {
     return { matched: false, distance: Infinity };
