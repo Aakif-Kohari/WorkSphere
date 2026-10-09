@@ -86,6 +86,37 @@ export default function SessionDetailClient({ session }: Props) {
     [rsvps, user?.id],
   );
 
+  const waitlistPosition = useMemo(() => {
+    if (!user?.id || currentRsvp?.status !== "MAYBE") return null;
+    const idx = waitlisted.findIndex((r) => r.user.id === user.id);
+    return idx !== -1 ? idx + 1 : null;
+  }, [waitlisted, user?.id, currentRsvp?.status]);
+
+  // Real-time polling to refresh RSVPs and waitlist positions (#5035)
+  useEffect(() => {
+    let mounted = true;
+    const interval = setInterval(async () => {
+      try {
+        const refreshed = await fetch(`/api/social/sessions/${session.slug}`, {
+          cache: "no-store",
+        });
+        if (refreshed.ok && mounted) {
+          const data = await refreshed.json();
+          if (data.rsvps) {
+            setRsvps(data.rsvps);
+          }
+        }
+      } catch {
+        // Silently ignore background polling errors
+      }
+    }, 10000);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [session.slug]);
+
   const attendeeId = user?.id || currentRsvp?.user?.id || "attendee";
   const ticketQrSvg = useMemo(() => {
     return generateAdmissionTicketQR({
@@ -215,6 +246,14 @@ export default function SessionDetailClient({ session }: Props) {
                   Your status: {currentRsvp.status === "MAYBE" ? "Waitlisted / Maybe" : currentRsvp.status}
                 </span>
               )}
+              {currentRsvp?.status === "MAYBE" && waitlistPosition !== null && (
+                <span
+                  data-testid="waitlist-position-badge"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/20 px-3 py-1 text-xs font-semibold text-amber-200"
+                >
+                  Waitlist Position: #{waitlistPosition} of {waitlisted.length}
+                </span>
+              )}
             </div>
 
             <h1 className="mt-5 text-4xl font-semibold tracking-tight md:text-6xl">
@@ -342,6 +381,37 @@ export default function SessionDetailClient({ session }: Props) {
 
             {message && (
               <p className="mt-4 text-sm text-violet-200">{message}</p>
+            )}
+
+            {/* Waitlist Status & Position Banner (#5035) */}
+            {currentRsvp?.status === "MAYBE" && waitlistPosition !== null && (
+              <div
+                data-testid="waitlist-status-card"
+                className="mt-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-2xl border border-amber-500/30 bg-amber-950/20 p-5 backdrop-blur-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 text-amber-300">
+                    <Clock3 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-amber-200">
+                      You are on the Waitlist
+                    </h4>
+                    <p className="text-xs text-zinc-400">
+                      You will be automatically promoted if an attendee cancels their spot.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/30 px-4 py-2">
+                  <span className="text-xs text-amber-300/80 font-medium">Position</span>
+                  <span
+                    data-testid="waitlist-position-counter"
+                    className="text-sm font-bold text-amber-200 font-mono"
+                  >
+                    #{waitlistPosition} of {waitlisted.length}
+                  </span>
+                </div>
+              </div>
             )}
 
             {/* RSVP Confirmation, Calendar Export & Ticket Display (#4953, #5066) */}
@@ -508,15 +578,32 @@ export default function SessionDetailClient({ session }: Props) {
                   </h3>
                   <div className="mt-3 space-y-2">
                     {waitlisted.map((item, idx) => {
+                      const isCurrentUser = Boolean(user?.id && item.user.id === user.id);
                       const name =
                         [item.user.firstName, item.user.lastName]
                           .filter(Boolean)
                           .join(" ") || "WorkSphere member";
 
                       return (
-                        <div key={item.user.id} className="flex items-center justify-between text-xs text-zinc-400">
-                          <span className="truncate">{name}</span>
-                          <span className="font-mono text-zinc-500">#{idx + 1}</span>
+                        <div
+                          key={item.user.id}
+                          data-testid={isCurrentUser ? "user-waitlist-entry" : undefined}
+                          className={`flex items-center justify-between text-xs rounded-lg px-2 py-1.5 transition ${
+                            isCurrentUser
+                              ? "bg-amber-500/15 border border-amber-500/30 text-amber-200 font-medium"
+                              : "text-zinc-400"
+                          }`}
+                        >
+                          <span className="truncate">
+                            {name} {isCurrentUser && "(You)"}
+                          </span>
+                          <span
+                            className={`font-mono ${
+                              isCurrentUser ? "text-amber-300 font-bold" : "text-zinc-500"
+                            }`}
+                          >
+                            #{idx + 1}
+                          </span>
                         </div>
                       );
                     })}
