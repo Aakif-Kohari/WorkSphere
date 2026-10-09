@@ -260,9 +260,14 @@ export default function AutonomousConciergeDashboard({
           <div>
             <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
               Autonomous AI Concierge
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono">
-                AUTO-PILOT ACTIVE
-              </span>
+              <BoundarySafeTooltip
+                content="Continuous 15-second multi-sensor scanning & automated desk migration engine."
+                align="left"
+              >
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono cursor-help">
+                  AUTO-PILOT ACTIVE
+                </span>
+              </BoundarySafeTooltip>
             </h2>
             <p className="text-sm text-slate-400">
               Proactive micro-climate, sudden weather shift & acoustic noise re-balancing agent
@@ -275,13 +280,23 @@ export default function AutonomousConciergeDashboard({
             onClick={handleToggleAutoPilot}
             className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all flex items-center gap-2 ${
               autoPilotGlobal
-                ? "bg-emerald-600/20 border-emerald-500/40 text-emerald-300"
-                : "bg-slate-800 border-slate-700 text-slate-400"
-            }`}
+                ? "Auto-Pilot: High-priority migrations (rain, noise spikes) are automatically confirmed."
+                : "Prompt Mode: You will receive one-click notification prompts before desk migration."
+            }
+            align="right"
           >
-            <Zap className="w-4 h-4 text-emerald-400" />
-            Auto-Pilot {autoPilotGlobal ? "Engaged (Auto-Migrate)" : "Prompt Only"}
-          </button>
+            <button
+              onClick={handleToggleAutoPilot}
+              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all flex items-center gap-2 ${
+                autoPilotGlobal
+                  ? "bg-emerald-600/20 border-emerald-500/40 text-emerald-300"
+                  : "bg-slate-800 border-slate-700 text-slate-400"
+              }`}
+            >
+              <Zap className="w-4 h-4 text-emerald-400" />
+              Auto-Pilot {autoPilotGlobal ? "Engaged (Auto-Migrate)" : "Prompt Only"}
+            </button>
+          </BoundarySafeTooltip>
         </div>
       </div>
 
@@ -317,10 +332,11 @@ export default function AutonomousConciergeDashboard({
 
       {/* Live Environmental Zones Matrix */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {sensors.map((sensor) => {
+        {sensors.map((sensor, idx) => {
           const comfort = AutonomousConciergeEngine.calculateZoneComfort(sensor);
           const isOptimal = comfort >= 75;
           const isWarning = comfort < 50;
+          const tooltipAlign = idx === 0 ? "left" : idx === sensors.length - 1 ? "right" : "center";
 
           return (
             <div
@@ -338,39 +354,55 @@ export default function AutonomousConciergeDashboard({
                   <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
                     {sensor.zoneType.replace("_", " ")}
                   </span>
-                  <span
-                    className={`text-xs font-mono font-bold ${
-                      isWarning
-                        ? "text-rose-400"
-                        : isOptimal
-                        ? "text-emerald-400"
-                        : "text-amber-400"
-                    }`}
+                  <BoundarySafeTooltip
+                    content={`Comfort Index: ${comfort}%. Evaluates temperature, decibel levels, CO2 concentration, and weather.`}
+                    align={tooltipAlign}
                   >
-                    {comfort}% Comfort
-                  </span>
+                    <span
+                      className={`text-xs font-mono font-bold cursor-help ${
+                        isWarning
+                          ? "text-rose-400"
+                          : isOptimal
+                          ? "text-emerald-400"
+                          : "text-amber-400"
+                      }`}
+                    >
+                      {comfort}% Comfort
+                    </span>
+                  </BoundarySafeTooltip>
                 </div>
 
                 <h3 className="font-bold text-white text-sm">{sensor.zoneName}</h3>
 
                 {/* Key Metrics */}
                 <div className="grid grid-cols-2 gap-2 pt-1 text-[11px] text-slate-300">
-                  <div className="flex items-center gap-1.5">
-                    <Thermometer className="w-3.5 h-3.5 text-orange-400" />
-                    <span>{sensor.temperatureC}°C</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Volume2 className="w-3.5 h-3.5 text-yellow-400" />
-                    <span>{sensor.decibelLevel} dB</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Wind className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>{sensor.co2Ppm} ppm</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <CloudRain className="w-3.5 h-3.5 text-blue-400" />
-                    <span className="capitalize">{sensor.weatherCondition.replace("_", " ")}</span>
-                  </div>
+                  <BoundarySafeTooltip content="Optimal thermal zone: 21-23°C" align={tooltipAlign}>
+                    <div className="flex items-center gap-1.5 cursor-help">
+                      <Thermometer className="w-3.5 h-3.5 text-orange-400" />
+                      <span>{sensor.temperatureC}°C</span>
+                    </div>
+                  </BoundarySafeTooltip>
+
+                  <BoundarySafeTooltip content="Acoustic focus threshold: <55dB" align={tooltipAlign}>
+                    <div className="flex items-center gap-1.5 cursor-help">
+                      <Volume2 className="w-3.5 h-3.5 text-yellow-400" />
+                      <span>{sensor.decibelLevel} dB</span>
+                    </div>
+                  </BoundarySafeTooltip>
+
+                  <BoundarySafeTooltip content="CO2 concentration. Levels >1000ppm induce cognitive fatigue." align={tooltipAlign}>
+                    <div className="flex items-center gap-1.5 cursor-help">
+                      <Wind className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>{sensor.co2Ppm} ppm</span>
+                    </div>
+                  </BoundarySafeTooltip>
+
+                  <BoundarySafeTooltip content="Real-time localized micro-climate radar" align={tooltipAlign}>
+                    <div className="flex items-center gap-1.5 cursor-help">
+                      <CloudRain className="w-3.5 h-3.5 text-blue-400" />
+                      <span className="capitalize">{sensor.weatherCondition.replace("_", " ")}</span>
+                    </div>
+                  </BoundarySafeTooltip>
                 </div>
               </div>
 
@@ -379,9 +411,11 @@ export default function AutonomousConciergeDashboard({
                   Occupancy: {sensor.occupancyCount} / {sensor.maxCapacity}
                 </span>
                 {sensor.weatherCondition === "rain_storm" && sensor.zoneType === "outdoor_terrace" && (
-                  <span className="text-rose-400 font-bold flex items-center gap-1 animate-pulse">
-                    <AlertTriangle className="w-3 h-3" /> Rain Hazard
-                  </span>
+                  <BoundarySafeTooltip content="Critical rain alert! Terrace is actively exposed." align="right">
+                    <span className="text-rose-400 font-bold flex items-center gap-1 animate-pulse cursor-help">
+                      <AlertTriangle className="w-3 h-3" /> Rain Hazard
+                    </span>
+                  </BoundarySafeTooltip>
                 )}
               </div>
             </div>
@@ -423,15 +457,20 @@ export default function AutonomousConciergeDashboard({
                 >
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-2">
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                          rec.urgency === "critical"
-                            ? "bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse"
-                            : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                        }`}
+                      <BoundarySafeTooltip
+                        content={`Urgency: ${rec.urgency}. ${rec.conciergeExplanation}`}
+                        align="left"
                       >
-                        {rec.urgency} Urgency
-                      </span>
+                        <span
+                          className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full cursor-help ${
+                            rec.urgency === "critical"
+                              ? "bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse"
+                              : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                          }`}
+                        >
+                          {rec.urgency} Urgency
+                        </span>
+                      </BoundarySafeTooltip>
                       <span className="text-xs font-bold text-white flex items-center gap-1">
                         <User className="w-3.5 h-3.5 text-slate-400" /> {rec.memberName}
                       </span>
@@ -473,6 +512,7 @@ export default function AutonomousConciergeDashboard({
           </div>
         )}
       </div>
+
 
       {/* Concierge Autonomous Reasoning Log */}
       <div className="p-6 bg-slate-900/60 rounded-2xl border border-slate-800 space-y-3">
