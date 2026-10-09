@@ -135,10 +135,72 @@ const INITIAL_MEMBERS: MemberWorkspaceSession[] = [
   },
 ];
 
-export default function AutonomousConciergeDashboard() {
-  const [sensors, setSensors] = useState<EnvironmentalSensorFeed[]>(INITIAL_SENSORS);
-  const [members, setMembers] = useState<MemberWorkspaceSession[]>(INITIAL_MEMBERS);
-  const [autoPilotGlobal, setAutoPilotGlobal] = useState(true);
+/**
+ * Props for the {@link AutonomousConciergeDashboard} component.
+ */
+export interface AutonomousConciergeDashboardProps {
+  /**
+   * Initial environmental telemetry sensor feeds across workspace zones.
+   * If not provided, default mock sensors (Terrace, Atrium, Quiet Library, Biophilic Bay) are used.
+   */
+  initialSensors?: EnvironmentalSensorFeed[];
+
+  /**
+   * Initial workspace member sessions and preferences.
+   * If not provided, default active member sessions are used.
+   */
+  initialMembers?: MemberWorkspaceSession[];
+
+  /**
+   * Default state for the global autonomous re-balancing auto-pilot.
+   * When true, high-priority migrations are auto-applied without manual confirmation.
+   * @default true
+   */
+  defaultAutoPilot?: boolean;
+
+  /**
+   * Callback invoked whenever a desk migration recommendation is confirmed or auto-applied.
+   * @param recommendation The rebalancing recommendation that was applied.
+   */
+  onMigrationApplied?: (recommendation: RebalanceRecommendation) => void;
+
+  /**
+   * Callback invoked when the user toggles the global Auto-Pilot switch.
+   * @param enabled True if auto-pilot was enabled, false if prompt-only mode.
+   */
+  onAutoPilotToggle?: (enabled: boolean) => void;
+
+  /**
+   * Callback invoked when an environmental event simulation is triggered.
+   * @param scenario The injected event type ('rain' | 'noise' | 'hvac_reset').
+   */
+  onScenarioTriggered?: (scenario: "rain" | "noise" | "hvac_reset") => void;
+
+  /**
+   * Optional custom CSS class names to apply to the root container.
+   */
+  className?: string;
+}
+
+/**
+ * Autonomous AI Concierge & Weather/Noise Re-Balancing Dashboard.
+ *
+ * Renders real-time zone micro-climate telemetry, computes dynamic comfort scores,
+ * detects sudden weather storms and acoustic spikes, and provides automated or one-click
+ * desk migration proposals to maintain optimal focus equilibrium.
+ */
+export default function AutonomousConciergeDashboard({
+  initialSensors = INITIAL_SENSORS,
+  initialMembers = INITIAL_MEMBERS,
+  defaultAutoPilot = true,
+  onMigrationApplied,
+  onAutoPilotToggle,
+  onScenarioTriggered,
+  className = "",
+}: AutonomousConciergeDashboardProps = {}) {
+  const [sensors, setSensors] = useState<EnvironmentalSensorFeed[]>(initialSensors);
+  const [members, setMembers] = useState<MemberWorkspaceSession[]>(initialMembers);
+  const [autoPilotGlobal, setAutoPilotGlobal] = useState(defaultAutoPilot);
   const [appliedMigrations, setAppliedMigrations] = useState<string[]>([]);
   const [isSimulating, setIsSimulating] = useState(false);
 
@@ -148,6 +210,8 @@ export default function AutonomousConciergeDashboard() {
   // Trigger sudden scenario simulator
   const triggerScenario = (type: "rain" | "noise" | "hvac_reset") => {
     setIsSimulating(true);
+    onScenarioTriggered?.(type);
+
     setTimeout(() => {
       setSensors((prev) => {
         return prev.map((s) => {
@@ -173,12 +237,20 @@ export default function AutonomousConciergeDashboard() {
     }, 600);
   };
 
-  const applyMigration = (recId: string) => {
-    setAppliedMigrations((prev) => [...prev, recId]);
+  const handleToggleAutoPilot = () => {
+    const nextState = !autoPilotGlobal;
+    setAutoPilotGlobal(nextState);
+    onAutoPilotToggle?.(nextState);
+  };
+
+  const applyMigration = (rec: RebalanceRecommendation) => {
+    setAppliedMigrations((prev) => [...prev, rec.id]);
+    onMigrationApplied?.(rec);
   };
 
   return (
-    <div className="w-full max-w-6xl mx-auto space-y-6 text-slate-100">
+    <div className={`w-full max-w-6xl mx-auto space-y-6 text-slate-100 ${className}`}>
+
       {/* Top Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-800 shadow-xl">
         <div className="flex items-center gap-3">
@@ -200,7 +272,7 @@ export default function AutonomousConciergeDashboard() {
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setAutoPilotGlobal(!autoPilotGlobal)}
+            onClick={handleToggleAutoPilot}
             className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all flex items-center gap-2 ${
               autoPilotGlobal
                 ? "bg-emerald-600/20 border-emerald-500/40 text-emerald-300"
@@ -388,7 +460,7 @@ export default function AutonomousConciergeDashboard() {
                       </span>
                     ) : (
                       <button
-                        onClick={() => applyMigration(rec.id)}
+                        onClick={() => applyMigration(rec)}
                         className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl transition-all shadow"
                       >
                         Confirm Relocation
