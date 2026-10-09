@@ -30,6 +30,13 @@ interface ProofOfBandwidthModalProps {
   onBenchmarkComplete?: (metrics: BenchmarkMetrics) => void;
 }
 
+export function formatSpeed(mbps: number | null | undefined): string {
+  if (mbps == null || !Number.isFinite(mbps) || mbps <= 0) {
+    return "0.0";
+  }
+  return mbps.toFixed(1);
+}
+
 export default function ProofOfBandwidthModal({
   venueId = "sample-venue-sf",
   venueName = "Workshop Cafe SoMa",
@@ -189,9 +196,11 @@ export default function ProofOfBandwidthModal({
           <div className="flex items-baseline gap-2">
             <span className="text-5xl md:text-6xl font-black tracking-tight text-white font-mono">
               {isRunning
-                ? progress.instantaneousSpeedMbps ?? progress.currentPingMs ?? "..."
+                ? progress.instantaneousSpeedMbps != null && Number.isFinite(progress.instantaneousSpeedMbps)
+                  ? formatSpeed(progress.instantaneousSpeedMbps)
+                  : progress.currentPingMs ?? "..."
                 : metrics
-                ? metrics.downloadMbps
+                ? formatSpeed(metrics.downloadMbps)
                 : "--"}
             </span>
             <span className="text-sm font-bold text-blue-400 font-mono">
@@ -233,7 +242,7 @@ export default function ProofOfBandwidthModal({
             <ArrowDown className="w-3.5 h-3.5 text-blue-400" /> Download
           </span>
           <div className="text-lg font-bold text-white font-mono">
-            {metrics ? `${metrics.downloadMbps} Mbps` : "--"}
+            {metrics ? `${formatSpeed(metrics.downloadMbps)} Mbps` : "--"}
           </div>
         </div>
 
@@ -242,7 +251,7 @@ export default function ProofOfBandwidthModal({
             <ArrowUp className="w-3.5 h-3.5 text-emerald-400" /> Upload
           </span>
           <div className="text-lg font-bold text-white font-mono">
-            {metrics ? `${metrics.uploadMbps} Mbps` : "--"}
+            {metrics ? `${formatSpeed(metrics.uploadMbps)} Mbps` : "--"}
           </div>
         </div>
 

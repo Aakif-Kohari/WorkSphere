@@ -47,6 +47,9 @@ export function classifyNetworkTier(
   latencyMs: number,
   jitterMs: number
 ): BenchmarkMetrics["tier"] {
+  if (downloadMbps <= 0 || uploadMbps <= 0) {
+    return "UNSTABLE";
+  }
   if (downloadMbps >= 45 && uploadMbps >= 15 && latencyMs <= 35 && jitterMs <= 6) {
     return "4K_CONFERENCING";
   }
@@ -128,11 +131,11 @@ export class SpeedBenchmarkRunner {
         if (value) {
           totalBytesReceived += value.length;
           const elapsedSec = (performance.now() - dlStart) / 1000;
-          const currentMbps = (totalBytesReceived * 8) / (elapsedSec * 1_000_000);
+          const currentMbps = elapsedSec > 0 ? (totalBytesReceived * 8) / (elapsedSec * 1_000_000) : 0;
           onProgress({
             phase: "download",
             currentProgressPct: Math.min(65, 30 + Math.round((totalBytesReceived / 3145728) * 35)),
-            instantaneousSpeedMbps: Number(currentMbps.toFixed(1)),
+            instantaneousSpeedMbps: Number.isFinite(currentMbps) ? Number(currentMbps.toFixed(1)) : 0.0,
           });
         }
       }
@@ -143,13 +146,17 @@ export class SpeedBenchmarkRunner {
     }
 
     const dlDurationSec = Math.max(0.1, (performance.now() - dlStart) / 1000);
-    const downloadMbps = Number(((totalBytesReceived * 8) / (dlDurationSec * 1_000_000)).toFixed(1));
+    const rawDownloadMbps = dlDurationSec > 0 ? (totalBytesReceived * 8) / (dlDurationSec * 1_000_000) : 0;
+    const downloadMbps = Number.isFinite(rawDownloadMbps) && rawDownloadMbps > 0
+      ? Number(rawDownloadMbps.toFixed(1))
+      : 0.0;
 
     // 3. Upload Throughput Phase (Send 1.5MB blob payload)
-    onProgress({ phase: "upload", currentProgressPct: 70 });
+    onProgress({ phase: "upload", currentProgressPct: 70, instantaneousSpeedMbps: 0.0 });
     const ulStart = performance.now();
     const uploadPayload = new Uint8Array(1572864); // 1.5MB
 
+    let uploadSuccess = false;
     try {
       await fetch("/api/telemetry/speedtest/upload", {
         method: "POST",
@@ -157,13 +164,20 @@ export class SpeedBenchmarkRunner {
         headers: { "Content-Type": "application/octet-stream" },
         signal,
       });
+      uploadSuccess = true;
       onProgress({ phase: "upload", currentProgressPct: 95 });
     } catch (err: any) {
       if (signal.aborted) throw err;
+      uploadSuccess = false;
     }
 
     const ulDurationSec = Math.max(0.1, (performance.now() - ulStart) / 1000);
-    const uploadMbps = Number(((uploadPayload.length * 8) / (ulDurationSec * 1_000_000)).toFixed(1));
+    const rawUploadMbps = uploadSuccess && ulDurationSec > 0
+      ? (uploadPayload.length * 8) / (ulDurationSec * 1_000_000)
+      : 0;
+    const uploadMbps = Number.isFinite(rawUploadMbps) && rawUploadMbps > 0
+      ? Number(rawUploadMbps.toFixed(1))
+      : 0.0;
 
     // 4. Calculate Stability Score
     const jitterPenalty = Math.min(30, jitter * 2);
@@ -173,8 +187,8 @@ export class SpeedBenchmarkRunner {
     const tier = classifyNetworkTier(downloadMbps, uploadMbps, avgLatency, jitter);
 
     const metrics: BenchmarkMetrics = {
-      downloadMbps: Math.max(1, downloadMbps),
-      uploadMbps: Math.max(1, uploadMbps),
+      downloadMbps,
+      uploadMbps,
       latencyMs: avgLatency,
       jitterMs: jitter,
       packetLossPct: 0.0,
@@ -183,7 +197,7 @@ export class SpeedBenchmarkRunner {
       timestamp: new Date().toISOString(),
     };
 
-    onProgress({ phase: "complete", currentProgressPct: 100 });
+    onProgress({ phase: "complete", currentProgressPct: 100, instantaneousSpeedMbps: uploadMbps });
     return metrics;
   }
 }
