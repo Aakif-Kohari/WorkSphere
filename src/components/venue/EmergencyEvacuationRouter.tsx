@@ -27,19 +27,36 @@ interface EmergencyEvacuationRouterProps {
   venueId?: string;
   venueName?: string;
   userSeatNumber?: string;
+  userCoordinates?: { x: number; y: number } | null;
 }
 
 export default function EmergencyEvacuationRouter({
   venueId = "venue-sf-01",
   venueName = "Mission Focus Coworking & Cafe",
-  userSeatNumber = "Desk A-14 (2nd Floor West)",
+  userSeatNumber: initialSeatNumber = "Desk A-14 (2nd Floor West)",
+  userCoordinates: initialCoordinates = null,
 }: EmergencyEvacuationRouterProps) {
   const [emergencyType, setEmergencyType] = useState<EmergencyType>("FIRE_ALARM");
+  const [userSeatNumber, setUserSeatNumber] = useState<string>(initialSeatNumber);
+  const [userCoordinates, setUserCoordinates] = useState<{ x: number; y: number } | null>(
+    initialCoordinates
+  );
+  const [geolocationDenied, setGeolocationDenied] = useState<boolean>(false);
   const [plan, setPlan] = useState<EvacuationPlan | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [currentStep, setCurrentStep] = useState(0);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [currentStep, setCurrentStep] = useState<number>(0);
 
-  const fetchEvacuationPlan = async (type: EmergencyType) => {
+  const fetchEvacuationPlan = async (
+    type: EmergencyType,
+    coords?: { x: number; y: number } | null
+  ) => {
+    const targetCoords = coords !== undefined ? coords : userCoordinates;
+    if (!targetCoords) {
+      console.warn("Cannot calculate evacuation route: User coordinates evaluate to null or undefined.");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch("/api/venue/evacuation", {
@@ -49,6 +66,7 @@ export default function EmergencyEvacuationRouter({
           venueId,
           userSeatNumber,
           emergencyType: type,
+          currentCoordinates: targetCoords,
         }),
       });
       const data = await res.json();
@@ -64,8 +82,37 @@ export default function EmergencyEvacuationRouter({
   };
 
   useEffect(() => {
-    fetchEvacuationPlan(emergencyType);
-  }, [emergencyType, venueId]);
+    if (initialCoordinates) {
+      setUserCoordinates(initialCoordinates);
+      fetchEvacuationPlan(emergencyType, initialCoordinates);
+      return;
+    }
+
+    if (typeof window !== "undefined" && "geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const coords = {
+            x: Math.round((pos.coords.longitude + 180) % 100),
+            y: Math.round((pos.coords.latitude + 90) % 100),
+          };
+          setUserCoordinates(coords);
+          setGeolocationDenied(false);
+          fetchEvacuationPlan(emergencyType, coords);
+        },
+        (err) => {
+          console.warn("Geolocation access delayed or denied:", err.message);
+          setGeolocationDenied(true);
+          setUserCoordinates(null);
+          setLoading(false);
+        },
+        { timeout: 5000 }
+      );
+    } else {
+      setGeolocationDenied(true);
+      setUserCoordinates(null);
+      setLoading(false);
+    }
+  }, [initialCoordinates, venueId]);
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-6">
@@ -90,7 +137,12 @@ export default function EmergencyEvacuationRouter({
             {(["FIRE_ALARM", "EARTHQUAKE", "POWER_OUTAGE"] as EmergencyType[]).map((type) => (
               <button
                 key={type}
-                onClick={() => setEmergencyType(type)}
+                onClick={() => {
+                  setEmergencyType(type);
+                  if (userCoordinates) {
+                    fetchEvacuationPlan(type, userCoordinates);
+                  }
+                }}
                 className={`px-3 py-1.5 rounded-xl font-bold transition text-xs ${
                   emergencyType === type
                     ? "bg-rose-600 text-white shadow-lg shadow-rose-600/30"
@@ -104,10 +156,88 @@ export default function EmergencyEvacuationRouter({
         </div>
       </div>
 
+      {/* Calculate Route & Geolocation Status Bar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-3xl bg-slate-900/80 border border-slate-800 backdrop-blur-md shadow-lg">
+        <div className="flex items-center gap-3">
+          <MapPin className="w-5 h-5 text-rose-400 shrink-0" />
+          <div className="space-y-0.5">
+            <div className="text-xs font-bold text-white flex items-center gap-2">
+              <span>Location Status:</span>
+              {userCoordinates ? (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
+                  Coordinates Verified ({userCoordinates.x}, {userCoordinates.y})
+                </span>
+              ) : (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">
+                  Coordinates Missing
+                </span>
+              )}
+            </div>
+            {!userCoordinates && (
+              <p className="text-[11px] text-slate-400">
+                Grant location access or pick a starting desk below to enable evacuation route calculation.
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          {!userCoordinates && (
+            <select
+              aria-label="Select Starting Desk Location"
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "desk-a14") {
+                  setUserSeatNumber("Desk A-14 (2nd Floor West)");
+                  setUserCoordinates({ x: 25, y: 20 });
+                } else if (val === "desk-b08") {
+                  setUserSeatNumber("Desk B-08 (1st Floor East)");
+                  setUserCoordinates({ x: 10, y: 30 });
+                } else if (val === "desk-c02") {
+                  setUserSeatNumber("Desk C-02 (Ground Floor)");
+                  setUserCoordinates({ x: 40, y: 15 });
+                }
+              }}
+              className="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 font-mono focus:outline-none focus:ring-1 focus:ring-rose-500"
+              defaultValue=""
+            >
+              <option value="" disabled>Select Starting Desk...</option>
+              <option value="desk-a14">Desk A-14 (2nd Floor West)</option>
+              <option value="desk-b08">Desk B-08 (1st Floor East)</option>
+              <option value="desk-c02">Desk C-02 (Ground Floor)</option>
+            </select>
+          )}
+
+          <button
+            type="button"
+            onClick={() => fetchEvacuationPlan(emergencyType, userCoordinates)}
+            disabled={!userCoordinates || loading}
+            data-testid="calculate-evacuation-route-btn"
+            title={
+              !userCoordinates
+                ? "Location services required or select a starting desk to calculate route"
+                : "Calculate shortest evacuation route"
+            }
+            className="px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all bg-emerald-600 hover:bg-emerald-500 text-white disabled:bg-slate-800 disabled:text-slate-500 disabled:border disabled:border-slate-700/60 disabled:cursor-not-allowed shadow-lg shadow-emerald-900/20"
+          >
+            <Compass className="w-4 h-4" />
+            Find Nearest Exit
+          </button>
+        </div>
+      </div>
+
       {loading ? (
         <div className="p-12 rounded-3xl bg-slate-900/40 border border-slate-800 flex flex-col items-center justify-center gap-3 text-slate-400">
           <RefreshCw className="w-6 h-6 animate-spin text-rose-400" />
           <p className="text-sm">Calculating unobstructed egress path and safety resource bearings...</p>
+        </div>
+      ) : !userCoordinates ? (
+        <div className="p-8 rounded-3xl bg-amber-950/20 border border-amber-500/30 flex flex-col items-center justify-center text-center gap-3">
+          <AlertTriangle className="w-8 h-8 text-amber-400 animate-bounce" />
+          <h2 className="text-base font-bold text-white">Geolocation Access Required</h2>
+          <p className="text-xs text-amber-200/80 max-w-lg">
+            User coordinates are currently missing. Please enable browser location permissions or choose your starting desk from the dropdown above to compute the nearest evacuation route.
+          </p>
         </div>
       ) : plan ? (
         <div className="space-y-6">
