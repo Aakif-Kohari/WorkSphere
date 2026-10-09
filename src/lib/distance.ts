@@ -182,7 +182,12 @@ export function filterVenuesByRadius<T extends LocationCoordinates>(
   userLocation: { lat: number; lng: number } | null | undefined,
   maxDistanceKm: number,
 ): T[] {
-  if (!maxDistanceKm || maxDistanceKm <= 0 || !userLocation) {
+  if (
+    !maxDistanceKm ||
+    maxDistanceKm <= 0 ||
+    !userLocation ||
+    !isValidCoordinate(userLocation.lat, userLocation.lng)
+  ) {
     return venues;
   }
 
