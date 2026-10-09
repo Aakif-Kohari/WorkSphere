@@ -56,6 +56,7 @@ import { ChatMessageSkeleton } from "@/components/ui/skeleton";
 import { ReadAloudButton } from "./ReadAloudButton";
 import { RecentlyViewedVenues } from "@/components/venues/RecentlyViewedVenues";
 import { getVenueCoverTransitionName } from "@/lib/viewTransitions";
+import { getVenueHoursStatus } from "@/lib/venueHours";
 import {
   VenueGrid,
   LayoutBoundary,
@@ -299,41 +300,23 @@ export function VenueChatCard({
             <div className="flex items-center gap-2 shrink-0">
               {venue.openingHours &&
                 (() => {
-                  const match = venue.openingHours.match(
-                    /(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/,
-                  );
-                  if (!match) return null;
-                  const now = new Date();
-                  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-                  const [openH, openM] = match[1].split(":").map(Number);
-                  const [closeH, closeM] = match[2].split(":").map(Number);
-                  const openMinutes = openH * 60 + openM;
-                  const closeMinutes = closeH * 60 + closeM;
-                  let isOpen = false;
-                  if (closeMinutes < openMinutes) {
-                    isOpen =
-                      currentMinutes >= openMinutes ||
-                      currentMinutes <= closeMinutes;
-                  } else {
-                    isOpen =
-                      currentMinutes >= openMinutes &&
-                      currentMinutes < closeMinutes;
-                  }
+                  const status = getVenueHoursStatus(venue.openingHours);
+                  if (!status.isAvailable || !status.badgeText) return null;
+                  const isOpen = status.isOpen || status.is24Hours;
                   return (
                     <div
                       className={`flex items-center gap-1 px-1.5 py-0.5 rounded border ${
                         isOpen
-                          ? "bg-green-500/10 border-green-500/20"
-                          : "bg-red-500/10 border-red-500/20"
+                          ? "bg-green-500/10 border-green-500/20 text-green-600"
+                          : "bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400"
                       }`}
+                      title={status.badgeText}
                     >
                       <Clock
-                        className={`w-3 h-3 ${isOpen ? "text-green-600" : "text-red-600"}`}
+                        className={`w-3 h-3 ${isOpen ? "text-green-600" : "text-amber-600"}`}
                       />
-                      <span
-                        className={`text-[9px] font-bold uppercase ${isOpen ? "text-green-600" : "text-red-600"}`}
-                      >
-                        {isOpen ? "Open Now" : "Closed"}
+                      <span className="text-[9px] font-bold uppercase">
+                        {status.badgeText}
                       </span>
                     </div>
                   );
@@ -537,42 +520,23 @@ export function VenueChatCard({
               <div className="flex flex-wrap items-center gap-2 mt-2">
                 {venue.openingHours &&
                   (() => {
-                    const match = venue.openingHours.match(
-                      /(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/,
-                    );
-                    if (!match) return null;
-                    const now = new Date();
-                    const currentMinutes =
-                      now.getHours() * 60 + now.getMinutes();
-                    const [openH, openM] = match[1].split(":").map(Number);
-                    const [closeH, closeM] = match[2].split(":").map(Number);
-                    const openMinutes = openH * 60 + openM;
-                    const closeMinutes = closeH * 60 + closeM;
-                    let isOpen = false;
-                    if (closeMinutes < openMinutes) {
-                      isOpen =
-                        currentMinutes >= openMinutes ||
-                        currentMinutes <= closeMinutes;
-                    } else {
-                      isOpen =
-                        currentMinutes >= openMinutes &&
-                        currentMinutes < closeMinutes;
-                    }
+                    const status = getVenueHoursStatus(venue.openingHours);
+                    if (!status.isAvailable || !status.badgeText) return null;
+                    const isOpen = status.isOpen || status.is24Hours;
                     return (
                       <div
                         className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${
                           isOpen
-                            ? "bg-green-500/10 border-green-500/20"
-                            : "bg-red-500/10 border-red-500/20"
+                            ? "bg-green-500/10 border-green-500/20 text-green-600"
+                            : "bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400"
                         }`}
+                        title={status.badgeText}
                       >
                         <Clock
-                          className={`w-3 h-3 ${isOpen ? "text-green-600" : "text-red-600"}`}
+                          className={`w-3 h-3 ${isOpen ? "text-green-600" : "text-amber-600"}`}
                         />
-                        <span
-                          className={`text-[10px] font-bold uppercase ${isOpen ? "text-green-600" : "text-red-600"}`}
-                        >
-                          {isOpen ? "Open Now" : "Closed"}
+                        <span className="text-[10px] font-bold uppercase">
+                          {status.badgeText}
                         </span>
                       </div>
                     );

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Clock, Sparkles, Wifi, Zap, VolumeX, PhoneCall, Armchair, Headphones, Dog } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { NextOpeningTimeBadge } from "@/components/venue/NextOpeningTimeBadge";
 
 export interface VenueAccordionProps {
   amenities?: string[];
@@ -94,16 +95,19 @@ export function VenueAccordion({
           onClick={() => setIsOpeningHoursOpen((prev) => !prev)}
           className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         >
-          <div className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-amber-500" />
-            <span className="text-xs font-black uppercase tracking-widest text-zinc-700 dark:text-zinc-300">
-              Opening Hours
-            </span>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-amber-500" />
+              <span className="text-xs font-black uppercase tracking-widest text-zinc-700 dark:text-zinc-300">
+                Opening Hours
+              </span>
+            </div>
+            {openingHours && <NextOpeningTimeBadge hours={openingHours} />}
           </div>
           {isOpeningHoursOpen ? (
-            <ChevronUp className="w-4 h-4 text-zinc-500" />
+            <ChevronUp className="w-4 h-4 text-zinc-500 shrink-0 ml-2" />
           ) : (
-            <ChevronDown className="w-4 h-4 text-zinc-500" />
+            <ChevronDown className="w-4 h-4 text-zinc-500 shrink-0 ml-2" />
           )}
         </button>
 
@@ -115,8 +119,10 @@ export function VenueAccordion({
             className="px-5 pb-5 pt-1 border-t border-zinc-100 dark:border-zinc-800/60"
           >
             {openingHours ? (
-              <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800/80 text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                <p className="whitespace-pre-line">{openingHours}</p>
+              <div className="space-y-2.5">
+                <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800/80 text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                  <p className="whitespace-pre-line">{openingHours}</p>
+                </div>
               </div>
             ) : (
               <p className="text-sm text-zinc-500 dark:text-zinc-400 italic">

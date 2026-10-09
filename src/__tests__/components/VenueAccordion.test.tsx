@@ -58,4 +58,16 @@ describe("VenueAccordion Component", () => {
     expect(screen.getByRole("region", { name: /opening hours/i })).toBeInTheDocument();
     expect(screen.getByText(/Mon - Fri: 08:00 - 20:00/i)).toBeInTheDocument();
   });
+
+  it("renders next opening time badge alongside opening hours trigger when openingHours is provided", () => {
+    render(
+      <VenueAccordion
+        amenities={mockAmenities}
+        openingHours="08:00 - 20:00"
+      />
+    );
+
+    const badge = screen.getByTestId("next-opening-time-badge");
+    expect(badge).toBeInTheDocument();
+  });
 });
