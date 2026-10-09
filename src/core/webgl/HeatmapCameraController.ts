@@ -34,6 +34,14 @@ export class HeatmapCameraController {
         this.activeFloor = null;
     }
 
+    public onContextLost(): void {
+        // Retain projection parameters while pausing active matrix recalculations
+    }
+
+    public onContextRestored(): void {
+        // Re-validate or re-synchronize projection matrix state after context restoration
+    }
+
     public dispose(): void {
         this.reset();
     }

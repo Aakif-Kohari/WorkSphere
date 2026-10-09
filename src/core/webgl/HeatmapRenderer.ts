@@ -14,10 +14,12 @@ export interface HeatmapDataPoint {
 }
 
 export class HeatmapRenderer {
+    private canvas: HTMLCanvasElement;
     private gl: WebGLRenderingContext | null = null;
     private program: WebGLProgram | null = null;
     private positionBuffer: WebGLBuffer | null = null;
     private valueBuffer: WebGLBuffer | null = null;
+    private isContextLost: boolean = false;
 
     // Floorplan texture and framebuffer pooling to prevent GPU memory leak on rapid floor changes
     private currentFloorId: string | null = null;
@@ -36,13 +38,51 @@ export class HeatmapRenderer {
     private aPositionLocation: number = 0;
     private aValueLocation: number = 0;
 
+    // Event listener references for cleanup
+    private handleContextLostBound: (e: Event) => void;
+    private handleContextRestoredBound: (e: Event) => void;
+
     constructor(canvas: HTMLCanvasElement) {
-        this.gl = canvas.getContext('webgl', { alpha: true, antialias: true });
+        this.canvas = canvas;
+        this.handleContextLostBound = this.handleContextLost.bind(this);
+        this.handleContextRestoredBound = this.handleContextRestored.bind(this);
+
+        this.canvas.addEventListener('webglcontextlost', this.handleContextLostBound, false);
+        this.canvas.addEventListener('webglcontextrestored', this.handleContextRestoredBound, false);
+
+        this.initGL();
+    }
+
+    private initGL(): void {
+        this.gl = this.canvas.getContext('webgl', { alpha: true, antialias: true });
         if (!this.gl) {
             throw new Error('WebGL not supported');
         }
         this.initShaders();
         this.initBuffers();
+    }
+
+    private handleContextLost(event: Event): void {
+        event.preventDefault(); // Required by WebGL specification to allow restoration
+        this.isContextLost = true;
+
+        // Drop invalid GPU handles from previous context
+        this.program = null;
+        this.positionBuffer = null;
+        this.valueBuffer = null;
+        this.floorTextures.clear();
+        this.floorFramebuffers.clear();
+        this.texturePool = [];
+        this.framebufferPool = [];
+    }
+
+    private handleContextRestored(): void {
+        this.isContextLost = false;
+        try {
+            this.initGL();
+        } catch (err) {
+            console.error('Failed to rebuild WebGL context on context restore:', err);
+        }
     }
 
     private initShaders(): void {
@@ -100,7 +140,7 @@ export class HeatmapRenderer {
     }
 
     public render(dataPoints: HeatmapDataPoint[], mapBoundsMin: [number, number], mapBoundsMax: [number, number], projectionMatrix: Float32Array): void {
-        if (!this.gl || !this.program || !this.positionBuffer || !this.valueBuffer) return;
+        if (this.isContextLost || !this.gl || !this.program || !this.positionBuffer || !this.valueBuffer) return;
 
         this.gl.clearColor(0.0, 0.0, 0.0, 0.0);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
@@ -300,6 +340,9 @@ export class HeatmapRenderer {
     }
 
     public destroy(): void {
+        this.canvas.removeEventListener('webglcontextlost', this.handleContextLostBound);
+        this.canvas.removeEventListener('webglcontextrestored', this.handleContextRestoredBound);
+
         this.clearFloorPlans();
 
         if (this.gl) {
