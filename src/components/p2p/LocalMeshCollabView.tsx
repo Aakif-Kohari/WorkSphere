@@ -77,9 +77,13 @@ const INITIAL_PEERS: MeshPeerNode[] = [
   },
 ];
 
-export default function LocalMeshCollabView() {
+export interface LocalMeshCollabViewProps {
+  initialPeers?: MeshPeerNode[];
+}
+
+export default function LocalMeshCollabView({ initialPeers }: LocalMeshCollabViewProps = {}) {
   const [wanStatus, setWanStatus] = useState<LocalMeshTopology["wanStatus"]>("healthy_online");
-  const [peers, setPeers] = useState<MeshPeerNode[]>(INITIAL_PEERS);
+  const [peers, setPeers] = useState<MeshPeerNode[]>(initialPeers ?? INITIAL_PEERS);
   const [activeTab, setActiveTab] = useState<"topology" | "notes" | "files">("topology");
 
   // CRDT Document State
@@ -130,7 +134,7 @@ export default function LocalMeshCollabView() {
     }, 1200);
   };
 
-  const resilience = MeshCollabEngine.calculateMeshResilience(peers, wanStatus);
+  const resilience = MeshCollabEngine.calculateMeshResilience(peers ?? [], wanStatus);
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6 text-slate-100">
@@ -204,8 +208,23 @@ export default function LocalMeshCollabView() {
           <div className="flex items-center gap-1.5 text-slate-300">
             <Server className="w-4 h-4 text-violet-400" /> Subnet: <span className="font-mono text-white">192.168.1.0/24</span>
           </div>
-          <div className="flex items-center gap-1.5 text-slate-300">
-            <Activity className="w-4 h-4 text-cyan-400" /> Connected Peers: <span className="font-mono text-white">{peers.length} Nodes</span>
+          <div
+            className="flex items-center gap-1.5 text-slate-300"
+            role="status"
+            aria-live="polite"
+            aria-label="Connected peers indicator"
+          >
+            <Activity
+              className={`w-4 h-4 ${
+                (peers?.length ?? 0) > 0 ? "text-cyan-400" : "text-amber-400 animate-pulse"
+              }`}
+            />
+            <span>Connected Peers:</span>
+            <span className="font-mono text-white">
+              {(peers?.length ?? 0) > 0
+                ? `${peers.length} Nodes`
+                : "0 Peers Connected - Searching..."}
+            </span>
           </div>
           <div className="flex items-center gap-1.5 text-slate-300">
             <Zap className="w-4 h-4 text-yellow-400" /> Avg Mesh Latency: <span className="font-mono text-emerald-400 font-bold">~4.8 ms</span>
@@ -226,12 +245,25 @@ export default function LocalMeshCollabView() {
           {/* Peer Nodes Cards */}
           <div className="lg:col-span-2 space-y-4">
             <div className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-              <span>Discovered Local Subnet Peers ({peers.length})</span>
+              <span>Discovered Local Subnet Peers ({peers?.length ?? 0})</span>
               <span className="text-slate-500 text-[11px]">mDNS & WebRTC DataChannels Active</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {peers.map((peer) => (
+            {(!peers || peers.length === 0) ? (
+              <div
+                className="p-8 bg-slate-900/60 rounded-2xl border border-dashed border-slate-800 text-center space-y-2"
+                role="status"
+                aria-live="polite"
+              >
+                <Radio className="w-8 h-8 text-amber-400/60 mx-auto animate-pulse" />
+                <p className="text-sm font-semibold text-slate-300">0 Peers Connected - Searching...</p>
+                <p className="text-xs text-slate-500">
+                  Scanning 192.168.1.0/24 local subnet for nearby WorkSphere nodes via mDNS broadcast.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {peers.map((peer) => (
                 <div
                   key={peer.peerId}
                   className="p-5 bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-800 hover:border-violet-500/40 transition-all flex flex-col justify-between space-y-3"
