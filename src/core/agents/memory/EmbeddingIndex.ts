@@ -13,17 +13,106 @@ export interface VectorDocument {
 
 export class EmbeddingIndex {
   private documents: Map<string, VectorDocument>;
+  private textIndex: Map<string, string>; // normalizedKey -> canonicalDocId
+  private idAliases: Map<string, string>; // aliasId -> canonicalDocId
+  private locks: Set<string>;
 
   constructor() {
     this.documents = new Map();
+    this.textIndex = new Map();
+    this.idAliases = new Map();
+    this.locks = new Set();
   }
 
-  public addDocument(doc: VectorDocument): void {
+  private getDocKey(doc: VectorDocument): string {
+    const entityName = (doc.metadata?.entityName || doc.metadata?.name || doc.metadata?.label) as string | undefined;
+    if (entityName && typeof entityName === 'string' && entityName.trim().length > 0) {
+      return `entity:${entityName.trim().toLowerCase()}`;
+    }
+    return `text:${doc.text.trim().toLowerCase()}`;
+  }
+
+  public resolveDocId(id: string): string {
+    return this.idAliases.get(id) ?? id;
+  }
+
+  /**
+   * Acquires an idempotent insertion lock for an entity or text key.
+   */
+  public async acquireLock(key: string, timeoutMs = 5000): Promise<() => void> {
+    const start = Date.now();
+    while (this.locks.has(key)) {
+      if (Date.now() - start > timeoutMs) {
+        throw new Error(`Embedding index lock timeout for key: ${key}`);
+      }
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    this.locks.add(key);
+    return () => {
+      this.locks.delete(key);
+    };
+  }
+
+  /**
+   * Executes an asynchronous task protected by an insertion lock.
+   */
+  public async withLock<T>(key: string, task: () => Promise<T> | T): Promise<T> {
+    const unlock = await this.acquireLock(key);
+    try {
+      return await task();
+    } finally {
+      unlock();
+    }
+  }
+
+  public isLocked(key: string): boolean {
+    return this.locks.has(key);
+  }
+
+  public addDocument(doc: VectorDocument): VectorDocument {
+    const resolvedId = this.resolveDocId(doc.id);
+    const key = this.getDocKey(doc);
+    const canonicalId =
+      this.textIndex.get(key) ??
+      (this.documents.has(resolvedId) ? resolvedId : undefined);
+
+    if (canonicalId && this.documents.has(canonicalId)) {
+      const existing = this.documents.get(canonicalId)!;
+      const updated: VectorDocument = {
+        ...existing,
+        ...doc,
+        id: canonicalId,
+        metadata: {
+          ...existing.metadata,
+          ...doc.metadata,
+        },
+      };
+      this.documents.set(canonicalId, updated);
+      if (doc.id !== canonicalId) {
+        this.idAliases.set(doc.id, canonicalId);
+      }
+      return updated;
+    }
+
     this.documents.set(doc.id, doc);
+    this.textIndex.set(key, doc.id);
+    return doc;
+  }
+
+  public getDocument(id: string): VectorDocument | undefined {
+    const resolvedId = this.resolveDocId(id);
+    return this.documents.get(resolvedId);
   }
 
   public removeDocument(id: string): void {
-    this.documents.delete(id);
+    const resolvedId = this.resolveDocId(id);
+    const doc = this.documents.get(resolvedId);
+    if (doc) {
+      const key = this.getDocKey(doc);
+      this.textIndex.delete(key);
+    }
+    this.documents.delete(resolvedId);
+    this.idAliases.delete(id);
   }
 
   /**

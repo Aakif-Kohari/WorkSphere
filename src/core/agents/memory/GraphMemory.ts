@@ -38,6 +38,9 @@ const DEFAULT_MAX_REFERENCES_FOR_PRUNING = 1;
 export class GraphMemory {
   private nodes: Map<string, GraphNode>;
   private edges: Map<string, GraphEdge[]>; // Adjacency list: sourceId -> edges
+  private entityIndex: Map<string, string>; // entityKey -> canonicalNodeId
+  private idAliases: Map<string, string>; // aliasId -> canonicalNodeId
+  private locks: Set<string>;
   private readonly decayTimeConstantMs: number;
   private readonly pruneThreshold: number;
   private readonly maxReferencesForPruning: number;
@@ -64,6 +67,9 @@ export class GraphMemory {
 
     this.nodes = new Map();
     this.edges = new Map();
+    this.entityIndex = new Map();
+    this.idAliases = new Map();
+    this.locks = new Set();
     this.decayTimeConstantMs = decayTimeConstantMs;
     this.pruneThreshold = pruneThreshold;
     this.maxReferencesForPruning = maxReferencesForPruning;
@@ -74,31 +80,120 @@ export class GraphMemory {
     }
   }
 
-  public addNode(node: GraphNode): void {
-    const now = Date.now();
-    const existingNode = this.nodes.get(node.id);
-    this.nodes.set(node.id, {
-      ...node,
-      createdAt: existingNode?.createdAt ?? node.createdAt ?? now,
-      lastReinforcedAt: now
-    });
-    if (!this.edges.has(node.id)) {
-      this.edges.set(node.id, []);
+  public resolveNodeId(id: string): string {
+    return this.idAliases.get(id) ?? id;
+  }
+
+  public getEntityKey(node: GraphNode): string {
+    const name =
+      (node.properties?.name ||
+        node.properties?.label ||
+        node.properties?.entityName ||
+        node.properties?.title) as string | undefined;
+
+    if (name && typeof name === 'string' && name.trim().length > 0) {
+      return `${node.type}:${name.trim().toLowerCase()}`;
+    }
+    return `${node.type}:${node.id.trim().toLowerCase()}`;
+  }
+
+  /**
+   * Acquires an idempotent insertion lock for an entity key.
+   */
+  public async acquireLock(key: string, timeoutMs = 5000): Promise<() => void> {
+    const start = Date.now();
+    while (this.locks.has(key)) {
+      if (Date.now() - start > timeoutMs) {
+        throw new Error(`Insertion lock timeout for key: ${key}`);
+      }
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    this.locks.add(key);
+    return () => {
+      this.locks.delete(key);
+    };
+  }
+
+  /**
+   * Executes an asynchronous task protected by an insertion lock.
+   */
+  public async withLock<T>(key: string, task: () => Promise<T> | T): Promise<T> {
+    const unlock = await this.acquireLock(key);
+    try {
+      return await task();
+    } finally {
+      unlock();
     }
   }
 
+  public isLocked(key: string): boolean {
+    return this.locks.has(key);
+  }
+
+  public addNode(node: GraphNode): GraphNode {
+    const now = Date.now();
+    const resolvedId = this.resolveNodeId(node.id);
+    const entityKey = this.getEntityKey(node);
+
+    // Look up canonical node by entity key or resolved ID
+    const canonicalId =
+      this.entityIndex.get(entityKey) ??
+      (this.nodes.has(resolvedId) ? resolvedId : undefined);
+
+    if (canonicalId && this.nodes.has(canonicalId)) {
+      const existing = this.nodes.get(canonicalId)!;
+      const updatedNode: GraphNode = {
+        ...existing,
+        ...node,
+        id: canonicalId, // Maintain canonical ID
+        properties: {
+          ...existing.properties,
+          ...node.properties,
+        },
+        createdAt: existing.createdAt ?? node.createdAt ?? now,
+        lastReinforcedAt: now,
+      };
+
+      this.nodes.set(canonicalId, updatedNode);
+      if (node.id !== canonicalId) {
+        this.idAliases.set(node.id, canonicalId);
+      }
+      if (!this.edges.has(canonicalId)) {
+        this.edges.set(canonicalId, []);
+      }
+      return updatedNode;
+    }
+
+    // New node insertion
+    const newNode: GraphNode = {
+      ...node,
+      createdAt: node.createdAt ?? now,
+      lastReinforcedAt: now,
+    };
+
+    this.nodes.set(node.id, newNode);
+    this.entityIndex.set(entityKey, node.id);
+    if (!this.edges.has(node.id)) {
+      this.edges.set(node.id, []);
+    }
+    return newNode;
+  }
+
   public addEdge(edge: GraphEdge): void {
-    if (!this.nodes.has(edge.sourceId) || !this.nodes.has(edge.targetId)) {
+    const sourceId = this.resolveNodeId(edge.sourceId);
+    const targetId = this.resolveNodeId(edge.targetId);
+
+    if (!this.nodes.has(sourceId) || !this.nodes.has(targetId)) {
       throw new Error('Both source and target nodes must exist before adding an edge.');
     }
     
     const now = Date.now();
-    for (const nodeId of [edge.sourceId, edge.targetId]) {
+    for (const nodeId of [sourceId, targetId]) {
       const node = this.nodes.get(nodeId)!;
       this.nodes.set(nodeId, { ...node, lastReinforcedAt: now });
     }
 
-    this.upsertEdge({ ...edge, createdAt: now });
+    this.upsertEdge({ ...edge, sourceId, targetId, createdAt: now });
   }
 
   private upsertEdge(edge: GraphEdge): void {
@@ -124,24 +219,26 @@ export class GraphMemory {
   }
 
   public getNode(id: string): GraphNode | undefined {
-    return this.nodes.get(id);
+    return this.nodes.get(this.resolveNodeId(id));
   }
 
   public getNodeRelevance(id: string, now = Date.now()): number {
-    const node = this.nodes.get(id);
+    const resolvedId = this.resolveNodeId(id);
+    const node = this.nodes.get(resolvedId);
     return node
       ? this.decayMultiplier(node.lastReinforcedAt ?? node.createdAt, now)
       : 0;
   }
 
   public getConnectedNodes(sourceId: string, relationship?: string): GraphNode[] {
-    const sourceEdges = this.edges.get(sourceId) || [];
+    const resolvedSourceId = this.resolveNodeId(sourceId);
+    const sourceEdges = this.edges.get(resolvedSourceId) || [];
     const filteredEdges = relationship 
       ? sourceEdges.filter(e => e.relationship === relationship)
       : sourceEdges;
 
     return filteredEdges
-      .map(e => this.nodes.get(e.targetId))
+      .map(e => this.nodes.get(this.resolveNodeId(e.targetId)))
       .filter((node): node is GraphNode => node !== undefined);
   }
 
@@ -194,6 +291,10 @@ export class GraphMemory {
     }
 
     for (const nodeId of staleNodeIds) {
+      const node = this.nodes.get(nodeId);
+      if (node) {
+        this.entityIndex.delete(this.getEntityKey(node));
+      }
       this.nodes.delete(nodeId);
       this.edges.delete(nodeId);
     }
@@ -215,19 +316,14 @@ export class GraphMemory {
   public importGraph(data: { nodes: GraphNode[]; edges: GraphEdge[] }): void {
     this.nodes.clear();
     this.edges.clear();
+    this.entityIndex.clear();
+    this.idAliases.clear();
     
     data.nodes.forEach(node => {
-      this.nodes.set(node.id, {
-        ...node,
-        lastReinforcedAt: node.lastReinforcedAt ?? node.createdAt
-      });
-      this.edges.set(node.id, []);
+      this.addNode(node);
     });
     data.edges.forEach(edge => {
-      if (!this.nodes.has(edge.sourceId) || !this.nodes.has(edge.targetId)) {
-        throw new Error('Both source and target nodes must exist before adding an edge.');
-      }
-      this.upsertEdge({ ...edge });
+      this.addEdge(edge);
     });
   }
 }
