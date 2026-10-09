@@ -1,4 +1,240 @@
 /**
+ * TransitSolver.ts
+ * Solves the Time-Window Constrained Traveling Salesperson Problem (TSPTW)
+ * for multi-venue itinerary optimization using Branch-and-Bound traversal.
+ */
+
+import { ItineraryGraph, VenueNode, TransitEdge } from './ItineraryGraph';
+import { TimeWindowConstraint } from './TimeWindowConstraint';
+
+export interface ItinerarySolution {
+  sequence: string[]; // Ordered list of venue IDs
+  totalDurationMinutes: number; // Transit + Dwell + Wait times
+  totalTransitTimeMinutes: number;
+  totalDwellTimeMinutes: number;
+  totalWaitTimeMinutes: number;
+  startTime: Date;
+  endTime: Date;
+  schedule: Array<{
+    venueId: string;
+    venueName: string;
+    arrivalTime: Date;
+    departureTime: Date;
+    waitTimeMinutes: number;
+  }>;
+}
+
+export interface TransitSolverOptions {
+  maxDepth?: number;
+  maxExecutionTimeMs?: number;
+  pruneTimeWindowViolations?: boolean;
+}
+
+export class TransitSolver {
+  private graph: ItineraryGraph;
+  private timeConstraint: TimeWindowConstraint;
+
+  constructor(graph: ItineraryGraph, timeConstraint: TimeWindowConstraint) {
+    this.graph = graph;
+    this.timeConstraint = timeConstraint;
+  }
+
+  /**
+   * Solves the TSPTW to find the optimal visitation order minimizing total trip duration.
+   */
+  public solve(
+    startVenueId: string,
+    targetVenueIds: string[],
+    startTime: Date,
+    options: TransitSolverOptions = {}
+  ): ItinerarySolution | null {
+    const maxExecutionTimeMs = options.maxExecutionTimeMs ?? 5000;
+    const startTimestamp = Date.now();
+
+    const startNode = this.graph.getNode(startVenueId);
+    if (!startNode) {
+      throw new Error(`Start venue node '${startVenueId}' not found in graph.`);
+    }
+
+    const unvisited = new Set(targetVenueIds.filter((id) => id !== startVenueId));
+    let bestSolution: ItinerarySolution | null = null;
+    let bestCost = Infinity;
+
+    // Search state for Branch-and-Bound recursion
+    const initialScheduleItem = {
+      venueId: startVenueId,
+      venueName: startNode.name,
+      arrivalTime: startTime,
+      departureTime: new Date(
+        startTime.getTime() + startNode.averageDwellTimeMinutes * 60000
+      ),
+      waitTimeMinutes: 0,
+    };
+
+    const search = (
+      currentVenueId: string,
+      currentTime: Date,
+      visited: string[],
+      currentSchedule: typeof initialScheduleItem[],
+      accumulatedTransitTime: number,
+      accumulatedDwellTime: number,
+      accumulatedWaitTime: number,
+      remainingTargets: Set<string>
+    ) => {
+      // Check execution time safety limit
+      if (Date.now() - startTimestamp > maxExecutionTimeMs) {
+        return;
+      }
+
+      // Base case: All target venues visited
+      if (remainingTargets.size === 0) {
+        const totalDuration =
+          accumulatedTransitTime + accumulatedDwellTime + accumulatedWaitTime;
+
+        if (totalDuration < bestCost) {
+          bestCost = totalDuration;
+          bestSolution = {
+            sequence: [...visited],
+            totalDurationMinutes: totalDuration,
+            totalTransitTimeMinutes: accumulatedTransitTime,
+            totalDwellTimeMinutes: accumulatedDwellTime,
+            totalWaitTimeMinutes: accumulatedWaitTime,
+            startTime,
+            endTime: currentTime,
+            schedule: [...currentSchedule],
+          };
+        }
+        return;
+      }
+
+      // Bounding & Pruning: Compute lower bound for remaining unvisited nodes
+      const lowerBound =
+        accumulatedTransitTime +
+        accumulatedDwellTime +
+        accumulatedWaitTime +
+        this.computeLowerBound(currentVenueId, remainingTargets);
+
+      if (lowerBound >= bestCost) {
+        return; // PRUNE: Lower bound exceeds best solution cost found so far
+      }
+
+      // Branching: Sort unvisited candidates by heuristic (shortest transit time / time window urgency)
+      const candidates = Array.from(remainingTargets).sort((a, b) => {
+        const edgeA = this.graph.getEdge(currentVenueId, a);
+        const edgeB = this.graph.getEdge(currentVenueId, b);
+        const tA = edgeA ? edgeA.transitTimeMinutes : Infinity;
+        const tB = edgeB ? edgeB.transitTimeMinutes : Infinity;
+        return tA - tB;
+      });
+
+      for (const nextVenueId of candidates) {
+        const edge = this.graph.getEdge(currentVenueId, nextVenueId);
+        if (!edge) continue; // No direct edge exists
+
+        const nextNode = this.graph.getNode(nextVenueId);
+        if (!nextNode) continue;
+
+        const transitTime = edge.transitTimeMinutes;
+        const arrivalTimestamp = new Date(
+          currentTime.getTime() + transitTime * 60000
+        );
+
+        // Time Window Validation & Wait Time Computation
+        let effectiveArrival = arrivalTimestamp;
+        let waitTime = 0;
+
+        if (!this.timeConstraint.isVenueOpenAt(nextVenueId, arrivalTimestamp)) {
+          // Attempt to find next opening window
+          const nextOpen = this.timeConstraint.getNextOpeningTime(
+            nextVenueId,
+            arrivalTimestamp
+          );
+
+          if (!nextOpen) {
+            continue; // PRUNE: Venue is closed and no future open window exists in horizon
+          }
+
+          waitTime = Math.round(
+            (nextOpen.getTime() - arrivalTimestamp.getTime()) / 60000
+          );
+          effectiveArrival = nextOpen;
+        }
+
+        const departureTime = new Date(
+          effectiveArrival.getTime() + nextNode.averageDwellTimeMinutes * 60000
+        );
+
+        const newRemaining = new Set(remainingTargets);
+        newRemaining.delete(nextVenueId);
+
+        search(
+          nextVenueId,
+          departureTime,
+          [...visited, nextVenueId],
+          [
+            ...currentSchedule,
+            {
+              venueId: nextVenueId,
+              venueName: nextNode.name,
+              arrivalTime: effectiveArrival,
+              departureTime,
+              waitTimeMinutes: waitTime,
+            },
+          ],
+          accumulatedTransitTime + transitTime,
+          accumulatedDwellTime + nextNode.averageDwellTimeMinutes,
+          accumulatedWaitTime + waitTime,
+          newRemaining
+        );
+      }
+    };
+
+    search(
+      startVenueId,
+      initialScheduleItem.departureTime,
+      [startVenueId],
+      [initialScheduleItem],
+      0,
+      startNode.averageDwellTimeMinutes,
+      0,
+      unvisited
+    );
+
+    return bestSolution;
+  }
+
+  /**
+   * Computes lower bound for remaining unvisited nodes using minimum outgoing edge weights.
+   */
+  private computeLowerBound(
+    currentVenueId: string,
+    unvisitedNodes: Set<string>
+  ): number {
+    let bound = 0;
+    const nodes = [currentVenueId, ...Array.from(unvisitedNodes)];
+
+    for (const fromId of nodes) {
+      const fromNode = this.graph.getNode(fromId);
+      if (fromNode) {
+        bound += fromNode.averageDwellTimeMinutes;
+      }
+
+      let minTransit = Infinity;
+      for (const toId of unvisitedNodes) {
+        if (fromId === toId) continue;
+        const edge = this.graph.getEdge(fromId, toId);
+        if (edge && edge.transitTimeMinutes < minTransit) {
+          minTransit = edge.transitTimeMinutes;
+        }
+      }
+      if (minTransit !== Infinity) {
+        bound += minTransit;
+      }
+    }
+
+    return bound;
+  }
+}
  * TimeWindowConstraint.ts
  * Implements the time-window validation to prevent routing to closed venues.
  * Parses opening hours and validates if a proposed arrival time falls within operational bounds.
