@@ -7,8 +7,16 @@ const resolve4Async = promisify(dns.resolve4);
 const resolve6Async = promisify(dns.resolve6);
 
 export function isPrivateIPv4(ip: string): boolean {
-  const parts = ip.split(".").map(Number);
-  if (parts.length !== 4 || parts.some(isNaN) || parts.some((p) => p < 0 || p > 255)) {
+  const rawParts = ip.split(".");
+  if (
+    rawParts.length !== 4 ||
+    rawParts.some((p) => /^0[0-9]+/.test(p.trim()))
+  ) {
+    return true; // Treat invalid or ambiguous octal notation as unsafe
+  }
+
+  const parts = rawParts.map(Number);
+  if (parts.some(isNaN) || parts.some((p) => p < 0 || p > 255)) {
     return true; // Treat invalid as unsafe
   }
 
