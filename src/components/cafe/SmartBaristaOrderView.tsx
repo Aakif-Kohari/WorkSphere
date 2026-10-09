@@ -115,7 +115,7 @@ export default function SmartBaristaOrderView() {
 
   // Add to cart
   const addToCart = () => {
-    if (!customizingItem) return;
+    if (!customizingItem || quantity <= 0) return;
     const customizations = Object.entries(selectedOptions).map(([groupId, selectedOptionIds]) => ({
       groupId,
       selectedOptionIds,
@@ -130,6 +130,17 @@ export default function SmartBaristaOrderView() {
     setCart((prev) => [...prev, orderItem]);
     setCustomizingItem(null);
   };
+
+  const updateCartItemQuantity = (index: number, newQty: number) => {
+    if (newQty <= 0) {
+      setCart((prev) => prev.filter((_, i) => i !== index));
+    } else {
+      setCart((prev) =>
+        prev.map((item, i) => (i === index ? { ...item, quantity: newQty } : item))
+      );
+    }
+  };
+
 
   // Submit mobile pre-order
   const submitOrder = async () => {
@@ -447,8 +458,29 @@ export default function SmartBaristaOrderView() {
                         {cartItem.customizations.flatMap((c) => c.optionNames).join(", ") || "Standard"}
                       </div>
                     </div>
-                    <div className="font-mono font-bold text-amber-300">
-                      ${cartItem.itemTotalPrice.toFixed(2)}
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-0.5 border border-slate-700">
+                        <button
+                          onClick={() => updateCartItemQuantity(idx, cartItem.quantity - 1)}
+                          className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white"
+                          title="Decrease quantity"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="font-mono px-1 font-bold text-white text-xs">
+                          {cartItem.quantity}
+                        </span>
+                        <button
+                          onClick={() => updateCartItemQuantity(idx, cartItem.quantity + 1)}
+                          className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white"
+                          title="Increase quantity"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <div className="font-mono font-bold text-amber-300 min-w-[50px] text-right">
+                        ${cartItem.itemTotalPrice.toFixed(2)}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -485,8 +517,18 @@ export default function SmartBaristaOrderView() {
 
                 <button
                   onClick={submitOrder}
-                  disabled={isSubmitting}
-                  className="w-full py-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-sm rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                  disabled={
+                    isSubmitting ||
+                    cart.length === 0 ||
+                    cart.reduce((sum, i) => sum + i.quantity, 0) === 0
+                  }
+                  className={`w-full py-3 font-bold text-sm rounded-xl transition-all shadow-md flex items-center justify-center gap-2 ${
+                    isSubmitting ||
+                    cart.length === 0 ||
+                    cart.reduce((sum, i) => sum + i.quantity, 0) === 0
+                      ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
+                      : "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white"
+                  }`}
                 >
                   {isSubmitting ? (
                     "Sending to Barista..."
@@ -561,8 +603,9 @@ export default function SmartBaristaOrderView() {
                 <span className="text-xs text-slate-400 font-semibold">Quantity</span>
                 <div className="flex items-center gap-3 bg-slate-800 p-1 rounded-xl border border-slate-700">
                   <button
-                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                    onClick={() => setQuantity(Math.max(0, quantity - 1))}
                     className="p-1 rounded-lg hover:bg-slate-700 text-slate-300"
+                    title="Decrease quantity"
                   >
                     <Minus className="w-4 h-4" />
                   </button>
@@ -570,6 +613,7 @@ export default function SmartBaristaOrderView() {
                   <button
                     onClick={() => setQuantity(quantity + 1)}
                     className="p-1 rounded-lg hover:bg-slate-700 text-slate-300"
+                    title="Increase quantity"
                   >
                     <Plus className="w-4 h-4" />
                   </button>
@@ -584,9 +628,14 @@ export default function SmartBaristaOrderView() {
               </div>
               <button
                 onClick={addToCart}
-                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl transition-all shadow"
+                disabled={quantity <= 0}
+                className={`px-5 py-2.5 font-bold text-xs rounded-xl transition-all shadow ${
+                  quantity <= 0
+                    ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
+                    : "bg-amber-600 hover:bg-amber-500 text-white"
+                }`}
               >
-                Add to Cart
+                {quantity <= 0 ? "Select Quantity" : "Add to Cart"}
               </button>
             </div>
           </div>
@@ -595,3 +644,4 @@ export default function SmartBaristaOrderView() {
     </div>
   );
 }
+
