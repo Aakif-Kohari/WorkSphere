@@ -67,7 +67,9 @@ class PredictorEngine {
             if (data.length >= 48) { // Require at least 2 days of data for meaningful seasonality
                 try {
                     const forecast = hw.fitAndForecast(data, this.FORECAST_HORIZON);
-                    results[venueId] = forecast.predictions;
+                    results[venueId] = forecast.predictions.map((p) =>
+                        Number.isFinite(p) ? Math.max(0, Math.min(100, Math.round(p * 10) / 10)) : 0
+                    );
                 } catch (error) {
                     console.error(`Forecast failed for venue ${venueId}:`, error);
                 }
@@ -91,7 +93,10 @@ class PredictorEngine {
 
         const hw = new HoltWinters({ alpha: 0.3, beta: 0.1, gamma: 0.4, seasonLength: 24 });
         try {
-            return hw.fitAndForecast(data, this.FORECAST_HORIZON).predictions;
+            const forecast = hw.fitAndForecast(data, this.FORECAST_HORIZON);
+            return forecast.predictions.map((p) =>
+                Number.isFinite(p) ? Math.max(0, Math.min(100, Math.round(p * 10) / 10)) : 0
+            );
         } catch {
             return null;
         }

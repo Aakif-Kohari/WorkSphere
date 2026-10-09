@@ -9,6 +9,7 @@ export interface HoltWintersParams {
     beta: number;  // Trend smoothing (0-1)
     gamma: number; // Seasonality smoothing (0-1)
     seasonLength: number; // Number of periods in a season (e.g., 24 for hourly daily data)
+    seasonalType?: 'multiplicative' | 'additive';
 }
 
 export interface ForecastResult {
@@ -17,6 +18,8 @@ export interface ForecastResult {
     finalTrend: number;
     finalSeasonals: number[];
 }
+
+const EPSILON = 1e-6;
 
 export class HoltWinters {
     private params: HoltWintersParams;
@@ -38,38 +41,63 @@ export class HoltWinters {
             throw new Error('Insufficient data for seasonality detection. Need at least 2 full seasons.');
         }
 
+        // Detect if the historical series is largely zero-valued to choose additive fallback
+        const zeroCount = data.filter((v) => v === 0).length;
+        const isPredominantlyZero = zeroCount / n > 0.5;
+        const seasonalType =
+            this.params.seasonalType ?? (isPredominantlyZero ? 'additive' : 'multiplicative');
+
         // Initialize level, trend, and seasonal components
         let level = this.calculateInitialLevel(data, seasonLength);
         let trend = this.calculateInitialTrend(data, seasonLength);
-        const seasonals = this.calculateInitialSeasonals(data, seasonLength, level, trend);
+        const seasonals = this.calculateInitialSeasonals(
+            data,
+            seasonLength,
+            level,
+            trend,
+            seasonalType
+        );
 
         // Smoothing phase
         for (let t = seasonLength; t < n; t++) {
             const prevLevel = level;
             const seasonalIndex = t % seasonLength;
 
-            // Update level
-            level = alpha * (data[t] / seasonals[seasonalIndex]) + (1 - alpha) * (prevLevel + trend);
+            if (seasonalType === 'additive') {
+                // Additive formulation
+                level = alpha * (data[t] - seasonals[seasonalIndex]) + (1 - alpha) * (prevLevel + trend);
+                trend = beta * (level - prevLevel) + (1 - beta) * trend;
+                seasonals[seasonalIndex] =
+                    gamma * (data[t] - level) + (1 - gamma) * seasonals[seasonalIndex];
+            } else {
+                // Multiplicative formulation with EPSILON smoothing against zero divisors
+                const safeSeasonal = Math.abs(seasonals[seasonalIndex]) < EPSILON ? EPSILON : seasonals[seasonalIndex];
+                level = alpha * (data[t] / safeSeasonal) + (1 - alpha) * (prevLevel + trend);
+                trend = beta * (level - prevLevel) + (1 - beta) * trend;
 
-            // Update trend
-            trend = beta * (level - prevLevel) + (1 - beta) * trend;
-
-            // Update seasonal component
-            seasonals[seasonalIndex] = gamma * (data[t] / level) + (1 - gamma) * seasonals[seasonalIndex];
+                const safeLevel = Math.abs(level) < EPSILON ? EPSILON : level;
+                seasonals[seasonalIndex] =
+                    gamma * (data[t] / safeLevel) + (1 - gamma) * seasonals[seasonalIndex];
+            }
         }
 
         // Forecasting phase
         const predictions: number[] = [];
         for (let h = 1; h <= forecastHorizon; h++) {
             const seasonalIndex = (n + h - 1) % seasonLength;
-            const forecast = (level + h * trend) * seasonals[seasonalIndex];
+            const rawForecast =
+                seasonalType === 'additive'
+                    ? level + h * trend + seasonals[seasonalIndex]
+                    : (level + h * trend) * seasonals[seasonalIndex];
+
+            const forecast = Number.isFinite(rawForecast) ? rawForecast : 0;
             predictions.push(Math.max(0, Math.min(100, forecast))); // Clamp to 0-100% occupancy
         }
 
         return {
             predictions,
-            finalLevel: level,
-            finalTrend: trend,
+            finalLevel: Number.isFinite(level) ? level : 0,
+            finalTrend: Number.isFinite(trend) ? trend : 0,
             finalSeasonals: [...seasonals]
         };
     }
@@ -92,10 +120,22 @@ export class HoltWinters {
         return (sum1 - sum2) / (seasonLength * seasonLength);
     }
 
-    private calculateInitialSeasonals(data: number[], seasonLength: number, initialLevel: number, initialTrend: number): number[] {
+    private calculateInitialSeasonals(
+        data: number[],
+        seasonLength: number,
+        initialLevel: number,
+        initialTrend: number,
+        seasonalType: 'multiplicative' | 'additive'
+    ): number[] {
         const seasonals = new Array(seasonLength).fill(0);
         for (let i = 0; i < seasonLength; i++) {
-            seasonals[i] = data[i] / (initialLevel + (i + 1) * initialTrend);
+            const baseline = initialLevel + (i + 1) * initialTrend;
+            if (seasonalType === 'additive') {
+                seasonals[i] = data[i] - baseline;
+            } else {
+                const safeBaseline = Math.abs(baseline) < EPSILON ? EPSILON : baseline;
+                seasonals[i] = data[i] / safeBaseline;
+            }
         }
         return seasonals;
     }
