@@ -31,6 +31,7 @@ const venueWifiStore = new Map<string, VenueWifiConfig>();
  * Special characters \ , ; : " must be preceded by \.
  */
 export function escapeWifiQrString(str: string): string {
+  if (typeof str !== "string") return "";
   return str.replace(/([\\;,:"\\])/g, "\\$1");
 }
 
@@ -48,7 +49,7 @@ export function buildWifiQrString(config: {
   if (type !== "nopass" && !config.password) {
     type = "nopass";
   }
-  const escapedSsid = escapeWifiQrString(config.ssid);
+  const escapedSsid = escapeWifiQrString(config.ssid || "");
   const escapedPass = config.password ? escapeWifiQrString(config.password) : "";
   const hiddenFlag = config.hidden ? "true" : "false";
 
@@ -72,7 +73,7 @@ export function getVenueWifiConfig(venueId: string, venueName: string, defaultSp
   if (existing) return existing;
 
   // Clean venue name to generate clean standard SSID
-  const sanitizedName = venueName.replace(/[^a-zA-Z0-9]/g, "").slice(0, 18);
+  const sanitizedName = (venueName || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 18);
   const defaultSsid = `${sanitizedName || "Venue"}_Guest`;
   const defaultPassword = `${sanitizedName.toLowerCase()}work2026`;
 
