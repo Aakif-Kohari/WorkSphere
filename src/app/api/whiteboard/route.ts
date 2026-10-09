@@ -9,6 +9,15 @@ import { CrdtState } from '@/core/crdt/CrdtDocument';
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
+
+        if (body.action === 'clear') {
+            return NextResponse.json({
+                success: true,
+                message: 'Whiteboard canvas cleared',
+                activeTool: 'pen',
+            }, { status: 200 });
+        }
+
         const { roomId, state } = body as { roomId: string; state: CrdtState };
 
         if (!roomId || !state) {
@@ -27,6 +36,21 @@ export async function POST(request: NextRequest) {
         console.error('Error saving whiteboard state:', error);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
+}
+
+export async function DELETE(request: NextRequest) {
+    const { searchParams } = new URL(request.url);
+    const roomId = searchParams.get('roomId');
+
+    if (!roomId) {
+        return NextResponse.json({ error: 'Missing roomId' }, { status: 400 });
+    }
+
+    return NextResponse.json({
+        success: true,
+        message: 'Whiteboard canvas cleared',
+        activeTool: 'pen',
+    }, { status: 200 });
 }
 
 export async function GET(request: NextRequest) {

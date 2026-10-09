@@ -45,6 +45,12 @@ export default class WhiteboardRoom implements Party.Server {
                     type: 'INIT_STATE',
                     payload: this.document.getState()
                 }));
+            } else if (parsed.type === 'CLEAR_CANVAS' || parsed.type === 'CLEAR_BOARD') {
+                this.document = new CrdtDocument(`server-${this.roomId}`);
+                this.room.broadcast(JSON.stringify({
+                    type: 'CANVAS_CLEARED',
+                    activeTool: 'pen'
+                }));
             }
         } catch (error) {
             console.error('Error processing whiteboard message:', error);

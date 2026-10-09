@@ -814,6 +814,7 @@ export function useCanvasWhiteboard(
 
   const clearCanvas = useCallback(() => {
     touchActivity();
+    setTool("pen");
     const shapes = shapesRef.current;
     const doc = docRef.current;
     const now = Date.now();
@@ -852,7 +853,7 @@ export function useCanvasWhiteboard(
       localRedoStackRef.current = [];
       updateUndoState();
     }
-  }, [localUserId, touchActivity, updateUndoState]);
+  }, [localUserId, touchActivity, updateUndoState, setTool]);
 
   const updateCursor = useCallback(
     (x: number, y: number) => {

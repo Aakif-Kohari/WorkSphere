@@ -59,6 +59,11 @@ export function CanvasWhiteboard({ canvasId }: CanvasWhiteboardProps) {
     [updateShape],
   );
 
+  const handleClear = useCallback(() => {
+    clearCanvas();
+    setTool("pen");
+  }, [clearCanvas, setTool]);
+
   return (
     <div className="relative flex flex-col gap-3">
       <div className="flex justify-center">
@@ -75,7 +80,7 @@ export function CanvasWhiteboard({ canvasId }: CanvasWhiteboardProps) {
           onStrokeWidthChange={setStrokeWidth}
           onUndo={undo}
           onRedo={redo}
-          onClear={clearCanvas}
+          onClear={handleClear}
         />
       </div>
 

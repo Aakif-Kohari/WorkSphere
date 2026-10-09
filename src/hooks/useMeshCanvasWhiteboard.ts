@@ -657,6 +657,7 @@ export function useMeshCanvasWhiteboard(
 
   const clearCanvas = useCallback(() => {
     touchActivity();
+    setTool("pen");
     const shapes = shapesRef.current;
     const doc = docRef.current;
     if (!shapes || !doc || shapes.length === 0) return;
@@ -676,7 +677,7 @@ export function useMeshCanvasWhiteboard(
         map.set("clock", delClock);
       }
     }, localUserId);
-  }, [localUserId, touchActivity]);
+  }, [localUserId, touchActivity, setTool]);
 
   const updateCursor = useCallback(
     (x: number, y: number) => {
