@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  PRESET_COLORS,
+  WHITEBOARD_COLOR_SWATCHES,
   type ToolType,
   type WhiteboardParticipant,
 } from "@/hooks/useCanvasWhiteboard";
@@ -90,18 +90,44 @@ export function CanvasToolbar({
 
       <div className="mx-1 h-6 w-px bg-zinc-700" />
 
-      {PRESET_COLORS.map((c) => (
-        <button
-          key={c}
-          type="button"
-          title={c}
-          onClick={() => onColorChange(c)}
-          className={`h-5 w-5 rounded-full border-2 transition-transform ${
-            color === c ? "scale-125 border-white" : "border-transparent"
-          }`}
-          style={{ backgroundColor: c }}
-        />
-      ))}
+      <div
+        className="flex items-center gap-1.5"
+        role="radiogroup"
+        aria-label="Color palette"
+        data-testid="color-palette-picker"
+      >
+        {WHITEBOARD_COLOR_SWATCHES.map((swatch) => {
+          const isActive = color.toLowerCase() === swatch.hex.toLowerCase();
+          return (
+            <button
+              key={swatch.hex}
+              type="button"
+              role="radio"
+              aria-checked={isActive}
+              aria-label={`Select ${swatch.name} color`}
+              title={`${swatch.name} (${swatch.hex})`}
+              onClick={() => onColorChange(swatch.hex)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onColorChange(swatch.hex);
+                }
+              }}
+              data-testid={`color-swatch-${swatch.name.toLowerCase()}`}
+              className={`relative h-6 w-6 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-zinc-900 ${
+                isActive
+                  ? "scale-110 border-2 border-white ring-2 ring-blue-500 ring-offset-1 ring-offset-zinc-900"
+                  : "border border-zinc-700 hover:scale-105 hover:border-zinc-500"
+              }`}
+              style={{ backgroundColor: swatch.hex }}
+            >
+              {isActive && (
+                <span className="absolute inset-0 m-auto h-1.5 w-1.5 rounded-full bg-white shadow-sm" />
+              )}
+            </button>
+          );
+        })}
+      </div>
 
       <div className="mx-1 h-6 w-px bg-zinc-700" />
 

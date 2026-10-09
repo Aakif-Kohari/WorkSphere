@@ -86,18 +86,23 @@ export const HEARTBEAT_INTERVAL_MS = 5000;
  */
 export const THROTTLE_INTERVAL_MS = 16;
 
-export const PRESET_COLORS = [
-  "#ffffff",
-  "#f43f5e",
-  "#f97316",
-  "#eab308",
-  "#22c55e",
-  "#14b8a6",
-  "#06b6d4",
-  "#3b82f6",
-  "#a855f7",
-  "#ec4899",
+export interface ColorSwatch {
+  name: string;
+  hex: string;
+}
+
+export const WHITEBOARD_COLOR_SWATCHES: readonly ColorSwatch[] = [
+  { name: "Black", hex: "#000000" },
+  { name: "Indigo", hex: "#6366f1" },
+  { name: "Blue", hex: "#3b82f6" },
+  { name: "Emerald", hex: "#10b981" },
+  { name: "Amber", hex: "#f59e0b" },
+  { name: "Rose", hex: "#f43f5e" },
+  { name: "Purple", hex: "#a855f7" },
+  { name: "Orange", hex: "#f97316" },
 ] as const;
+
+export const PRESET_COLORS = WHITEBOARD_COLOR_SWATCHES.map((s) => s.hex);
 
 export const WHITEBOARD_COLORS = PRESET_COLORS;
 
@@ -171,7 +176,7 @@ export function useCanvasWhiteboard(
   const [canRedo, setCanRedo] = useState(false);
 
   const [tool, setTool] = useState<ToolType>("pen");
-  const [color, setColor] = useState("#ffffff");
+  const [color, setColor] = useState("#000000");
   const [strokeWidth, setStrokeWidth] = useState(3);
 
   const localUserId = options?.userId ?? "anonymous";
