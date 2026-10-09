@@ -93,25 +93,10 @@ export function cancellationWindowHoursRemaining(
 /**
  * Functional bridge helper: parseBookingStart
  */
-export function parseBookingStart(date: string, time: string): Date | null {
-  if (!isValidBookingDate(date)) return null;
-  const normalized = normalizeBookingTime(time);
-  if (!normalized) return null;
-
-  const [year, month, day] = date.split("-").map(Number);
-  const [hour, minute] = normalized.split(":").map(Number);
-
-  const bookingStart = new Date(year, month - 1, day, hour, minute, 0, 0);
-
-  if (
-    bookingStart.getFullYear() !== year ||
-    bookingStart.getMonth() !== month - 1 ||
-    bookingStart.getDate() !== day ||
-    bookingStart.getHours() !== hour ||
-    bookingStart.getMinutes() !== minute
-  ) {
-    return null;
-  }
-
-  return bookingStart;
+export function parseBookingStart(
+  date: string,
+  time: string,
+  timeZone: string = "UTC",
+): Date | null {
+  return parseBookingDateTime(date, time, timeZone);
 }
