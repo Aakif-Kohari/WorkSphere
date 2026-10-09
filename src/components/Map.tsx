@@ -1979,6 +1979,7 @@ const Map = ({
                       </span>
                     </div>
                     <button
+                      aria-label={`Remove ${venue.name} from routing queue`}
                       onClick={() => {
                         const updated = routingQueue.filter(
                           (_, i) => i !== idx,
