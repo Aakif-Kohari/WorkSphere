@@ -44,12 +44,16 @@ export interface SolanaPayParams {
   memo?: string;
 }
 
+export const SOLANA_PAY_DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes blockhash TTL
+
 export interface SolanaPayStatusResponse {
   reference: string;
   status: "PENDING" | "PROCESSING" | "CONFIRMED" | "FAILED" | "EXPIRED";
   signature?: string;
   slot?: number;
   timestamp?: string;
+  createdAt?: number;
+  message?: string;
   error?: string;
 }
 
@@ -98,9 +102,74 @@ export function getSolanaExplorerUrl(signature: string, cluster?: string): strin
 }
 
 /**
- * Builds a link to view a confirmed transaction on Solscan.
+ * Checks if a Solana Pay transaction reference has exceeded its timeout TTL.
  */
-export function getSolscanUrl(signature: string, cluster?: string): string {
-  const clusterParam = cluster ? `?cluster=${encodeURIComponent(cluster)}` : "";
-  return `https://solscan.io/tx/${encodeURIComponent(signature)}${clusterParam}`;
+export function isSolanaPaymentExpired(
+  createdAt: number,
+  timeoutMs = SOLANA_PAY_DEFAULT_TIMEOUT_MS,
+  now = Date.now()
+): boolean {
+  return now - createdAt >= timeoutMs;
+}
+
+/**
+ * Polls payment status from the status API, cleanly returning an EXPIRED status
+ * when the transaction timeout / blockhash TTL is exceeded or when simulation errors occur.
+ */
+export async function pollPaymentStatus(
+  reference: string,
+  options: {
+    statusApiUrl?: string;
+    timeoutMs?: number;
+    startTime?: number;
+  } = {}
+): Promise<SolanaPayStatusResponse> {
+  const startTime = options.startTime ?? Date.now();
+  const timeoutMs = options.timeoutMs ?? SOLANA_PAY_DEFAULT_TIMEOUT_MS;
+  const baseUrl = options.statusApiUrl ?? "/api/payments/solana/status";
+
+  // Check client-side expiration upfront
+  if (Date.now() - startTime >= timeoutMs) {
+    return {
+      reference,
+      status: "EXPIRED",
+      message: "Transaction expired. Please generate a new QR code.",
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  try {
+    const res = await fetch(`${baseUrl}?reference=${encodeURIComponent(reference)}`);
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      return {
+        reference,
+        status: "FAILED",
+        error: errBody.error || `HTTP error ${res.status}`,
+        timestamp: new Date().toISOString(),
+      };
+    }
+    const data: SolanaPayStatusResponse = await res.json();
+    return data;
+  } catch (err: any) {
+    const errorMessage = err?.message || String(err);
+    if (
+      errorMessage.toLowerCase().includes("timeout") ||
+      errorMessage.toLowerCase().includes("simulation failed") ||
+      Date.now() - startTime >= timeoutMs
+    ) {
+      return {
+        reference,
+        status: "EXPIRED",
+        message: "Transaction expired. Please generate a new QR code.",
+        timestamp: new Date().toISOString(),
+      };
+    }
+    return {
+      reference,
+      status: "FAILED",
+      error: errorMessage,
+      timestamp: new Date().toISOString(),
+    };
+  }
 }
