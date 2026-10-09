@@ -4,6 +4,12 @@
  * Accounts for level, trend, and seasonality to predict future desk occupancy.
  */
 
+import {
+    EventCorrelationMatrix,
+    CorrelatedEvent,
+    ExternalFactors
+} from './EventCorrelationMatrix';
+
 export interface HistoricalDataPoint {
     timestamp: number;
     demand: number;
@@ -14,12 +20,70 @@ export class DemandCurvePredictor {
     private beta: number;  // Trend smoothing
     private gamma: number; // Seasonality smoothing
     private seasonLength: number;
+    private minMultiplier: number;
+    private maxMultiplier: number;
 
-    constructor(alpha: number = 0.3, beta: number = 0.1, gamma: number = 0.1, seasonLength: number = 24) {
+    constructor(
+        alpha: number = 0.3,
+        beta: number = 0.1,
+        gamma: number = 0.1,
+        seasonLength: number = 24,
+        minMultiplier: number = 0.5,
+        maxMultiplier: number = 3.0
+    ) {
         this.alpha = alpha;
         this.beta = beta;
         this.gamma = gamma;
         this.seasonLength = seasonLength;
+        this.minMultiplier = minMultiplier;
+        this.maxMultiplier = maxMultiplier;
+    }
+
+    /**
+     * Evaluates correlated event multipliers with cycle detection (visited set)
+     * and safe bounds clamping to prevent RangeError: Maximum call stack size exceeded.
+     */
+    public evaluateEventCorrelations(
+        eventId: string,
+        events: Record<string, CorrelatedEvent> | Map<string, CorrelatedEvent>,
+        visited: Set<string> = new Set()
+    ): number {
+        if (visited.has(eventId)) {
+            // Cycle detected: prevent recursive evaluation loop
+            return 1.0;
+        }
+
+        const event = events instanceof Map ? events.get(eventId) : events[eventId];
+        if (!event) return 1.0;
+
+        visited.add(eventId);
+
+        let multiplier = event.multiplier ?? 1.0;
+
+        if (Array.isArray(event.correlatedEvents)) {
+            for (const targetId of event.correlatedEvents) {
+                if (!visited.has(targetId)) {
+                    multiplier *= this.evaluateEventCorrelations(targetId, events, visited);
+                }
+            }
+        }
+
+        // Clamp cumulative multiplier to safe operational bounds
+        return Math.max(this.minMultiplier, Math.min(this.maxMultiplier, multiplier));
+    }
+
+    /**
+     * Forecasts demand and adjusts for correlated external events with cycle detection.
+     */
+    public forecastWithCorrelatedEvents(
+        data: HistoricalDataPoint[],
+        periodsToForecast: number,
+        factors: ExternalFactors,
+        events: CorrelatedEvent[] = [],
+        correlationMatrix: EventCorrelationMatrix = new EventCorrelationMatrix(this.minMultiplier, this.maxMultiplier)
+    ): number[] {
+        const baseForecast = this.forecast(data, periodsToForecast);
+        return correlationMatrix.adjustDemandForecast(baseForecast, factors, events);
     }
 
     public forecast(data: HistoricalDataPoint[], periodsToForecast: number): number[] {
