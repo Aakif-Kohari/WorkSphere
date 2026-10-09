@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ThumbsUp } from "lucide-react";
 import { useToast } from "@/components/ui/Toast";
 
@@ -24,6 +24,11 @@ export function ReviewVoteButton({
   const [isPending, setIsPending] = useState(false);
   const { toast } = useToast();
 
+  useEffect(() => {
+    setUpvotes(initialUpvotes);
+    setHasUpvoted(initialHasUpvoted);
+  }, [reviewId, initialUpvotes, initialHasUpvoted]);
+
   const handleToggleVote = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -36,7 +41,7 @@ export function ReviewVoteButton({
 
     // 1. Optimistic UI update: Immediate local state change & pending disable
     const nextHasUpvoted = !prevHasUpvoted;
-    const nextUpvotes = prevUpvotes + (nextHasUpvoted ? 1 : -1);
+    const nextUpvotes = Math.max(0, prevUpvotes + (nextHasUpvoted ? 1 : -1));
 
     setHasUpvoted(nextHasUpvoted);
     setUpvotes(nextUpvotes);
@@ -59,7 +64,7 @@ export function ReviewVoteButton({
 
       const data = await res.json();
       // Sync with server authoritative state if returned
-      const finalUpvotes = typeof data.upvotes === "number" ? data.upvotes : nextUpvotes;
+      const finalUpvotes = typeof data.upvotes === "number" ? Math.max(0, data.upvotes) : nextUpvotes;
       const finalHasUpvoted = typeof data.hasUpvoted === "boolean" ? data.hasUpvoted : nextHasUpvoted;
 
       setUpvotes(finalUpvotes);

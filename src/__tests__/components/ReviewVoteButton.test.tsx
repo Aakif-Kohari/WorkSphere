@@ -89,4 +89,47 @@ describe("ReviewVoteButton (#3933)", () => {
       expect(mockToast).toHaveBeenCalledWith("Network connection error", "error");
     });
   });
+
+  it("updates state when initialUpvotes or initialHasUpvoted props change on rerender", () => {
+    const { rerender } = render(
+      <ReviewVoteButton
+        reviewId="review-789"
+        initialUpvotes={3}
+        initialHasUpvoted={false}
+      />
+    );
+
+    expect(screen.getByText("3")).toBeInTheDocument();
+
+    rerender(
+      <ReviewVoteButton
+        reviewId="review-789"
+        initialUpvotes={7}
+        initialHasUpvoted={true}
+      />
+    );
+
+    expect(screen.getByText("7")).toBeInTheDocument();
+  });
+
+  it("clamps optimistic upvote count to 0 when toggled off from 0", () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ success: true, upvotes: 0, hasUpvoted: false }),
+    });
+
+    render(
+      <ReviewVoteButton
+        reviewId="review-zero"
+        initialUpvotes={0}
+        initialHasUpvoted={true}
+      />
+    );
+
+    const button = screen.getByTestId("review-vote-button-review-zero");
+    fireEvent.click(button);
+
+    expect(screen.getByText("0")).toBeInTheDocument();
+  });
 });
+
