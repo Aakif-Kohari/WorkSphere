@@ -54,6 +54,7 @@ export function isSvgContent(content: string | Buffer): boolean {
  * for inspection of attribute values.
  */
 function normalizeAttributeValue(val: string): string {
+  if (typeof val !== "string" || !val) return "";
   return val
     .replace(/\0/g, "")
     .replace(/&#x([0-9a-fA-F]+);?/g, (_, hex) =>
@@ -83,6 +84,7 @@ function isDangerousUri(val: string): boolean {
  * Sanitizes CSS style strings by stripping dangerous expressions, urls, and imports.
  */
 export function sanitizeCss(css: string): string {
+  if (typeof css !== "string" || !css) return "";
   return css
     .replace(/expression\s*\([^)]*\)/gi, "")
     .replace(
