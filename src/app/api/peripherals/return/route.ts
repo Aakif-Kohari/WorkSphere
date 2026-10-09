@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   calculateRentalCompletion,
+  peripheralLockManager,
   type PeripheralRental,
 } from "@/lib/peripherals/peripheralEngine";
 
@@ -20,6 +21,7 @@ export async function POST(req: NextRequest) {
     }
 
     const completion = calculateRentalCompletion(rental as PeripheralRental);
+    peripheralLockManager.completeRental(rental.rentalId);
 
     return NextResponse.json({
       success: true,

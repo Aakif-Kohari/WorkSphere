@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   generateLockerPin,
+  peripheralLockManager,
   type PeripheralRental,
 } from "@/lib/peripherals/peripheralEngine";
 
@@ -26,6 +27,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing itemId" }, { status: 400 });
     }
 
+    // Atomic lock acquisition to prevent concurrent double-checkout race conditions
+    const lockAcquired = peripheralLockManager.tryAcquireLock(itemId, userId);
+    if (!lockAcquired) {
+      return NextResponse.json(
+        {
+          error: "This hardware item is currently undergoing checkout or is already rented.",
+          code: "PERIPHERAL_ALREADY_RESERVED",
+        },
+        { status: 409 }
+      );
+    }
+
     const unlockPin = generateLockerPin(itemId, userId);
     const rentalId = `RENT-${Date.now().toString().slice(-6)}-BAY${lockerBayNumber}`;
 
@@ -42,6 +55,9 @@ export async function POST(req: NextRequest) {
       status: "ACTIVE",
     };
 
+    // Register active rental
+    peripheralLockManager.registerRental(rental);
+
     return NextResponse.json({
       success: true,
       message: `Locker Bay #${lockerBayNumber} Unlocked!`,
@@ -56,3 +72,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
