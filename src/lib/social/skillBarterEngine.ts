@@ -90,3 +90,36 @@ export function findComplementaryBarters(
 
   return matches;
 }
+
+export interface BarterHourBalance {
+  earnedMinutes: number;
+  spentMinutes: number;
+  netBalanceMinutes: number;
+  netBalanceHours: number;
+  canRedeemSession: (durationMinutes: number) => boolean;
+}
+
+/**
+ * Calculates a nomad's peer skill barter hour balance.
+ * Guards against negative balances and non-finite inputs.
+ */
+export function calculateBarterHourBalance(
+  earnedMinutes: number,
+  spentMinutes: number
+): BarterHourBalance {
+  const safeEarned = Math.max(0, Number.isFinite(earnedMinutes) ? earnedMinutes : 0);
+  const safeSpent = Math.max(0, Number.isFinite(spentMinutes) ? spentMinutes : 0);
+
+  const netBalanceMinutes = Math.max(0, safeEarned - safeSpent);
+  const netBalanceHours = Math.max(0, Number((netBalanceMinutes / 60).toFixed(1)));
+
+  return {
+    earnedMinutes: safeEarned,
+    spentMinutes: safeSpent,
+    netBalanceMinutes,
+    netBalanceHours,
+    canRedeemSession: (durationMinutes: number) =>
+      netBalanceMinutes >= Math.max(0, Number.isFinite(durationMinutes) ? durationMinutes : 0),
+  };
+}
+

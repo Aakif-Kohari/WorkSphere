@@ -20,10 +20,11 @@ import {
   Award,
   Coffee,
 } from "lucide-react";
-import type {
-  SkillListing,
-  SkillCategory,
-  BarterMatchResult,
+import {
+  calculateBarterHourBalance,
+  type SkillListing,
+  type SkillCategory,
+  type BarterMatchResult,
 } from "@/lib/social/skillBarterEngine";
 
 interface NomadSkillBarterBoardProps {
@@ -42,6 +43,11 @@ export default function NomadSkillBarterBoard({
   const [showPostModal, setShowPostModal] = useState(false);
   const [matchSuccessMsg, setMatchSuccessMsg] = useState<string | null>(null);
 
+  // TimeBank Barter Hours
+  const [earnedMinutes, setEarnedMinutes] = useState(120);
+  const [spentMinutes, setSpentMinutes] = useState(45);
+  const hourBalance = calculateBarterHourBalance(earnedMinutes, spentMinutes);
+
   // Form states
   const [offeringSkill, setOfferingSkill] = useState("");
   const [offeringCategory, setOfferingCategory] = useState<SkillCategory>("CODE_DEV");
@@ -50,6 +56,7 @@ export default function NomadSkillBarterBoard({
   const [duration, setDuration] = useState<15 | 30 | 45>(30);
   const [meetupSpot, setMeetupSpot] = useState("Lounge Coffee Table");
   const [posting, setPosting] = useState(false);
+
 
   const fetchListings = async () => {
     setLoading(true);
@@ -119,6 +126,7 @@ export default function NomadSkillBarterBoard({
       });
       const data = await res.json();
       if (data.success) {
+        setSpentMinutes((prev) => prev + (listing.durationMinutes || 15));
         setMatchSuccessMsg(`Barter Proposal sent to ${listing.userName}! Meet at ${listing.meetupSpot}.`);
         setTimeout(() => setMatchSuccessMsg(null), 5000);
       }
@@ -151,8 +159,13 @@ export default function NomadSkillBarterBoard({
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/30 p-6 md:p-8 backdrop-blur-xl shadow-2xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-semibold uppercase tracking-wider">
-              <ArrowRightLeft className="w-3.5 h-3.5" /> Peer Knowledge Exchange
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-semibold uppercase tracking-wider">
+                <ArrowRightLeft className="w-3.5 h-3.5" /> Peer Knowledge Exchange
+              </div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-mono font-bold">
+                <Clock className="w-3.5 h-3.5" /> {hourBalance.netBalanceHours.toFixed(1)}h Credit Balance
+              </div>
             </div>
             <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
               On-Site Nomad Skill Barter Board
