@@ -133,7 +133,9 @@ export function getOpeningHoursStatus(
       const openMin = openH * 60 + openM;
       const closeMin = closeH * 60 + closeM;
 
-      if (closeMin < openMin) {
+      if (openMin === closeMin && openMin === 0) {
+        isOpen = true;
+      } else if (closeMin < openMin) {
         isOpen = currentMinutes >= openMin || currentMinutes < closeMin;
       } else {
         isOpen = currentMinutes >= openMin && currentMinutes < closeMin;
