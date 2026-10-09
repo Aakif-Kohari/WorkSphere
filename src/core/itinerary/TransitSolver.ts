@@ -4,7 +4,7 @@
  * for multi-venue itinerary optimization using Branch-and-Bound traversal.
  */
 
-import { ItineraryGraph } from "./ItineraryGraph";
+import { ItineraryGraph, PriorityQueue } from "./ItineraryGraph";
 import { TimeWindowConstraint } from "./TimeWindowConstraint";
 import type { TransitEdge } from "./ItineraryGraph";
 
@@ -137,25 +137,33 @@ export class TransitSolver {
         return;
       }
 
-      // Bounding & Pruning: Compute lower bound for remaining unvisited nodes
+      // Bounding & Pruning: Compute admissible lower bound for remaining unvisited nodes
+      const remainingLowerBound = this.computeLowerBound(currentVenueId, remainingTargets);
       const lowerBound =
         accumulatedTransitTime +
         accumulatedDwellTime +
         accumulatedWaitTime +
-        this.computeLowerBound(currentVenueId, remainingTargets);
+        remainingLowerBound;
 
-      if (objective === "time" && lowerBound >= bestCost) {
-        return; // PRUNE: Lower bound exceeds best solution cost found so far
+      // PRUNE strictly when lowerBound > bestCost to avoid premature pruning of equal-cost routes
+      if (objective === "time" && lowerBound > bestCost) {
+        return; // PRUNE: Lower bound strictly exceeds best solution cost found so far
       }
 
-      // Branching: Sort unvisited candidates by heuristic (shortest transit time / time window urgency)
-      const candidates = Array.from(remainingTargets).sort((a, b) => {
-        const edgeA = this.graph.getEdge(currentVenueId, a);
-        const edgeB = this.graph.getEdge(currentVenueId, b);
-        const tA = edgeA ? edgeA.transitTimeMinutes : Infinity;
-        const tB = edgeB ? edgeB.transitTimeMinutes : Infinity;
-        return tA - tB;
-      });
+      // Branching: Sort unvisited candidates deterministically using a tie-breaking priority queue
+      // Priority criteria: 1) Transit time, 2) Node ID lexicographical order as deterministic tie-breaker
+      const pq = new PriorityQueue<string>();
+      for (const targetId of remainingTargets) {
+        const edge = this.graph.getEdge(currentVenueId, targetId);
+        const transit = edge ? edge.transitTimeMinutes : Infinity;
+        pq.enqueue(targetId, transit, targetId);
+      }
+
+      const candidates: string[] = [];
+      while (!pq.isEmpty()) {
+        const nextId = pq.dequeue();
+        if (nextId) candidates.push(nextId);
+      }
 
       for (const nextVenueId of candidates) {
         const edge = this.graph.getEdge(currentVenueId, nextVenueId);

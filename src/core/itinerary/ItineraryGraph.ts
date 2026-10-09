@@ -34,6 +34,58 @@ export interface TransitEdge {
     cost?: number;
 }
 
+export interface PriorityQueueItem<T> {
+    element: T;
+    priority: number;
+    tieBreaker?: string | number;
+}
+
+/**
+ * Deterministic Min-Priority Queue for branch-and-bound search.
+ * Breaks ties predictably using tieBreaker or element identification.
+ */
+export class PriorityQueue<T> {
+    private items: PriorityQueueItem<T>[] = [];
+
+    public enqueue(element: T, priority: number, tieBreaker: string | number = ''): void {
+        const item: PriorityQueueItem<T> = { element, priority, tieBreaker };
+        let added = false;
+        for (let i = 0; i < this.items.length; i++) {
+            if (
+                item.priority < this.items[i].priority ||
+                (item.priority === this.items[i].priority && String(item.tieBreaker) < String(this.items[i].tieBreaker))
+            ) {
+                this.items.splice(i, 0, item);
+                added = true;
+                break;
+            }
+        }
+        if (!added) {
+            this.items.push(item);
+        }
+    }
+
+    public dequeue(): T | undefined {
+        return this.items.shift()?.element;
+    }
+
+    public peek(): PriorityQueueItem<T> | undefined {
+        return this.items[0];
+    }
+
+    public isEmpty(): boolean {
+        return this.items.length === 0;
+    }
+
+    public size(): number {
+        return this.items.length;
+    }
+
+    public clear(): void {
+        this.items = [];
+    }
+}
+
 export class ItineraryGraph {
     private nodes: Map<string, VenueNode>;
     private edges: Map<string, TransitEdge>;
