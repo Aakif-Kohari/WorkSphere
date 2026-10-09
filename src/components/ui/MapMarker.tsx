@@ -42,9 +42,9 @@ export const AccessibleMarker = memo(
   }: AccessibleMarkerProps) {
     console.count(`Rendered marker: ${name}`);
     const markerRef = useRef<LeafletMarker | null>(null);
-    const popupEscapeHandlerRef = useRef<((event: KeyboardEvent) => void) | null>(
-      null,
-    );
+    const popupEscapeHandlerRef = useRef<
+      ((event: KeyboardEvent) => void) | null
+    >(null);
 
     // Formats a WCAG 2.1 AA descriptive accessibility label
     const buildAriaLabel = useCallback(() => {
@@ -146,20 +146,21 @@ export const AccessibleMarker = memo(
         document.removeEventListener("keydown", popupEscapeHandlerRef.current);
         popupEscapeHandlerRef.current = null;
       }
-      markerRef.current?.getElement()?.focus();
-    }, []);
-  const marker = markerRef.current;
-  const element = marker?.getElement();
+      const marker = markerRef.current;
+      const element = marker?.getElement();
 
-  if (element?.isConnected) {
-    element.focus();
-  }
-}, []);
+      if (element?.isConnected) {
+        element.focus();
+      }
+    }, []);
 
     useEffect(
       () => () => {
         if (popupEscapeHandlerRef.current) {
-          document.removeEventListener("keydown", popupEscapeHandlerRef.current);
+          document.removeEventListener(
+            "keydown",
+            popupEscapeHandlerRef.current,
+          );
         }
       },
       [],
@@ -176,16 +177,16 @@ export const AccessibleMarker = memo(
     }, [position]);
 
     useEffect(() => {
-  const marker = markerRef.current;
-  if (!marker || !icon) return;
+      const marker = markerRef.current;
+      if (!marker || !icon) return;
 
-  marker.setIcon(icon);
+      marker.setIcon(icon);
 
-  const el = marker.getElement();
-  if (el) {
-    applyAccessibilityAttributes(el);
-  }
-}, [icon, applyAccessibilityAttributes]);
+      const el = marker.getElement();
+      if (el) {
+        applyAccessibilityAttributes(el);
+      }
+    }, [icon, applyAccessibilityAttributes]);
 
     return (
       <Marker
