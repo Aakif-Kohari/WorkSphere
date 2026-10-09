@@ -4,12 +4,25 @@
  * Parses opening hours and validates if a proposed arrival time falls within operational bounds.
  */
 
-import { VenueNode } from './ItineraryGraph';
+import { VenueNode, ItineraryGraph, MobilityMode, DEFAULT_TRANSIT_SPEEDS_KMH } from './ItineraryGraph';
 
 export interface TimeWindow {
     startMinutes: number; // Minutes from midnight
     endMinutes: number;   // Minutes from midnight
     daysOfWeek: number[]; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+}
+
+export interface MeetingSlot {
+    venue: VenueNode;
+    startTime: Date | string;
+    endTime: Date | string;
+}
+
+export interface TimeWindowValidationResult {
+    isValid: boolean;
+    requiredTransitBufferMinutes: number;
+    availableGapMinutes: number;
+    error?: string;
 }
 
 export class TimeWindowConstraint {
@@ -96,5 +109,101 @@ export class TimeWindowConstraint {
             checkDate.setHours(0, 0, 0, 0);
         }
         return null;
+    }
+
+    /**
+     * Calculates the minimum transit buffer in minutes between two venues
+     * based on distance (or optional graph) and selected mobility mode.
+     */
+    public calculateTransitBufferMinutes(
+        fromVenue: VenueNode,
+        toVenue: VenueNode,
+        mode: MobilityMode = 'walking',
+        graph?: ItineraryGraph
+    ): number {
+        if (fromVenue.id === toVenue.id) return 0;
+
+        if (graph) {
+            return graph.getRequiredTransitBufferMinutes(fromVenue.id, toVenue.id, mode);
+        }
+
+        // Haversine distance in meters
+        const R = 6371e3;
+        const rad = Math.PI / 180;
+        const lat1 = fromVenue.latitude * rad;
+        const lat2 = toVenue.latitude * rad;
+        const dLat = (toVenue.latitude - fromVenue.latitude) * rad;
+        const dLon = (toVenue.longitude - fromVenue.longitude) * rad;
+
+        const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distanceMeters = Math.round(R * c);
+
+        const speedKmh = DEFAULT_TRANSIT_SPEEDS_KMH[mode] || DEFAULT_TRANSIT_SPEEDS_KMH.walking;
+        const speedMpm = (speedKmh * 1000) / 60; // meters per minute
+
+        return Math.ceil(distanceMeters / speedMpm);
+    }
+
+    /**
+     * Validates if a transition between two consecutive meeting time windows is feasible
+     * by enforcing a minimum transit buffer based on distance and mobility mode.
+     */
+    public validateConsecutiveSlots(
+        previousSlot: MeetingSlot,
+        nextSlot: MeetingSlot,
+        mode: MobilityMode = 'walking',
+        graph?: ItineraryGraph
+    ): TimeWindowValidationResult {
+        const prevEnd = previousSlot.endTime instanceof Date ? previousSlot.endTime : new Date(previousSlot.endTime);
+        const nextStart = nextSlot.startTime instanceof Date ? nextSlot.startTime : new Date(nextSlot.startTime);
+
+        const availableGapMinutes = (nextStart.getTime() - prevEnd.getTime()) / 60000;
+        const requiredTransitMinutes = this.calculateTransitBufferMinutes(
+            previousSlot.venue,
+            nextSlot.venue,
+            mode,
+            graph
+        );
+
+        if (availableGapMinutes < requiredTransitMinutes) {
+            return {
+                isValid: false,
+                requiredTransitBufferMinutes: requiredTransitMinutes,
+                availableGapMinutes: Math.round(availableGapMinutes * 10) / 10,
+                error: `Insufficient transit allowance between '${previousSlot.venue.name}' and '${nextSlot.venue.name}'. Required: ${requiredTransitMinutes} mins via ${mode}, available: ${Math.round(availableGapMinutes * 10) / 10} mins.`
+            };
+        }
+
+        return {
+            isValid: true,
+            requiredTransitBufferMinutes: requiredTransitMinutes,
+            availableGapMinutes: Math.round(availableGapMinutes * 10) / 10
+        };
+    }
+
+    /**
+     * Validates a sequence of meeting slots to guarantee that every transition satisfies
+     * the required minimum transit buffer without overlapping time windows.
+     */
+    public validateItinerarySlots(
+        slots: MeetingSlot[],
+        mode: MobilityMode = 'walking',
+        graph?: ItineraryGraph
+    ): TimeWindowValidationResult {
+        if (!slots || slots.length < 2) {
+            return { isValid: true, requiredTransitBufferMinutes: 0, availableGapMinutes: 0 };
+        }
+
+        for (let i = 0; i < slots.length - 1; i++) {
+            const validation = this.validateConsecutiveSlots(slots[i], slots[i + 1], mode, graph);
+            if (!validation.isValid) {
+                return validation;
+            }
+        }
+
+        return { isValid: true, requiredTransitBufferMinutes: 0, availableGapMinutes: 0 };
     }
 }

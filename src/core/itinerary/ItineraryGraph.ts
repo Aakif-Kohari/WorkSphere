@@ -14,12 +14,22 @@ export interface VenueNode {
     timezone: string;
 }
 
+export type MobilityMode = 'walking' | 'cycling' | 'train' | 'rideshare' | 'driving';
+
+export const DEFAULT_TRANSIT_SPEEDS_KMH: Record<MobilityMode, number> = {
+    walking: 4.5,
+    cycling: 15,
+    train: 40,
+    rideshare: 30,
+    driving: 35,
+};
+
 export interface TransitEdge {
     fromVenueId: string;
     toVenueId: string;
     transitTimeMinutes: number;
     distanceMeters: number;
-    mode: 'walking' | 'cycling' | 'train' | 'rideshare' | 'driving';
+    mode: MobilityMode;
     co2GramsPerKm?: number;
     cost?: number;
 }
@@ -90,6 +100,51 @@ export class ItineraryGraph {
             }
         }
         return totalDwell;
+    }
+
+    public calculateDistanceMeters(fromVenueId: string, toVenueId: string): number {
+        const edge = this.getEdge(fromVenueId, toVenueId);
+        if (edge && edge.distanceMeters !== undefined) {
+            return edge.distanceMeters;
+        }
+        const fromNode = this.getNode(fromVenueId);
+        const toNode = this.getNode(toVenueId);
+        if (!fromNode || !toNode) {
+            return 0;
+        }
+        // Great-circle distance using Haversine formula
+        const R = 6371e3; // Earth radius in meters
+        const rad = Math.PI / 180;
+        const lat1 = fromNode.latitude * rad;
+        const lat2 = toNode.latitude * rad;
+        const dLat = (toNode.latitude - fromNode.latitude) * rad;
+        const dLon = (toNode.longitude - fromNode.longitude) * rad;
+
+        const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return Math.round(R * c);
+    }
+
+    public getRequiredTransitBufferMinutes(
+        fromVenueId: string,
+        toVenueId: string,
+        mode: MobilityMode = 'walking'
+    ): number {
+        if (fromVenueId === toVenueId) return 0;
+
+        const edge = this.getEdge(fromVenueId, toVenueId);
+        if (edge && edge.transitTimeMinutes > 0) {
+            return edge.transitTimeMinutes;
+        }
+
+        const distanceMeters = edge?.distanceMeters ?? this.calculateDistanceMeters(fromVenueId, toVenueId);
+        const speedKmh = DEFAULT_TRANSIT_SPEEDS_KMH[mode] || DEFAULT_TRANSIT_SPEEDS_KMH.walking;
+        const speedMpm = (speedKmh * 1000) / 60; // meters per minute
+
+        const calculatedMinutes = distanceMeters / speedMpm;
+        return Math.ceil(calculatedMinutes);
     }
 
     public clear(): void {
