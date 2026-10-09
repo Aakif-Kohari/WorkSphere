@@ -36,4 +36,31 @@ describe("BookmarkVenueButton accessibility", () => {
       screen.getByRole("button", { name: "Remove Harbor Cafe from saved" }),
     ).toHaveAttribute("aria-pressed", "true");
   });
+
+  it("updates state when initialIsFavorited prop changes on rerender", () => {
+    const { rerender } = render(
+      <BookmarkVenueButton
+        venueId="venue-1"
+        venueName="Harbor Cafe"
+        initialIsFavorited={false}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Bookmark Harbor Cafe" }),
+    ).toHaveAttribute("aria-pressed", "false");
+
+    rerender(
+      <BookmarkVenueButton
+        venueId="venue-1"
+        venueName="Harbor Cafe"
+        initialIsFavorited={true}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Remove Harbor Cafe from saved" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
 });
+

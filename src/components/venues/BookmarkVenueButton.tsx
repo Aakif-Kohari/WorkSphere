@@ -50,10 +50,11 @@ export function BookmarkVenueButton({
 
   // Sync with local storage on mount & listen to external/cross-tab updates
   useEffect(() => {
-    // Read current local state
-    const current = isVenueFavoritedLocally(venueId);
-    if (typeof initialIsFavorited !== "boolean") {
-      setIsFavorited(current);
+    // Read current local state or sync updated prop
+    if (typeof initialIsFavorited === "boolean") {
+      setIsFavorited(initialIsFavorited);
+    } else {
+      setIsFavorited(isVenueFavoritedLocally(venueId));
     }
 
     // Subscribe to multi-tab and multi-component state synchronization
