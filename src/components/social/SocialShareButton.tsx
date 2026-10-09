@@ -6,6 +6,8 @@ import { useToast } from "@/components/ui/Toast";
 
 export interface SocialShareButtonProps {
   url?: string;
+  title?: string;
+  text?: string;
   className?: string;
   label?: string;
   copiedLabel?: string;
@@ -53,6 +55,8 @@ export async function copyShareableLinkToClipboard(text: string): Promise<boolea
 
 export function SocialShareButton({
   url,
+  title,
+  text,
   className = "",
   label = "Share Session",
   copiedLabel = "Copied!",
@@ -78,6 +82,33 @@ export function SocialShareButton({
     const targetUrl =
       url || (typeof window !== "undefined" ? window.location.href : "");
 
+    // 1. Try Native Web Share API (Mobile / supported devices)
+    if (
+      typeof navigator !== "undefined" &&
+      typeof navigator.share === "function"
+    ) {
+      try {
+        const shareData: ShareData = {
+          title: title || "WorkSphere Focus Session",
+          text: text || "Join my collaborative session on WorkSphere!",
+          url: targetUrl,
+        };
+
+        if (typeof navigator.canShare !== "function" || navigator.canShare(shareData)) {
+          await navigator.share(shareData);
+          onCopy?.(targetUrl);
+          return;
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") {
+          // User intentionally cancelled / dismissed the native share sheet
+          return;
+        }
+        // If native share fails with another error, fall through to clipboard copy
+      }
+    }
+
+    // 2. Fallback to clipboard copy
     const success = await copyShareableLinkToClipboard(targetUrl);
 
     if (success) {
@@ -94,7 +125,7 @@ export function SocialShareButton({
     } else {
       toast("Unable to copy session link", "error");
     }
-  }, [url, toast, onCopy]);
+  }, [url, title, text, toast, onCopy]);
 
   return (
     <div className="relative inline-flex items-center group">

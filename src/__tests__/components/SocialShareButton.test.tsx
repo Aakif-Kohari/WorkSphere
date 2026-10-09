@@ -166,4 +166,130 @@ describe("SocialShareButton component (#3467)", () => {
       expect(tooltip).toHaveTextContent("Link ready!");
     });
   });
+
+  describe("Native Web Share API on mobile / supported devices", () => {
+    const originalShare = navigator.share;
+    const originalCanShare = navigator.canShare;
+    const mockShare = jest.fn();
+
+    beforeEach(() => {
+      mockShare.mockResolvedValue(undefined);
+      Object.defineProperty(navigator, "share", {
+        value: mockShare,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(navigator, "share", {
+        value: originalShare,
+        writable: true,
+        configurable: true,
+      });
+      Object.defineProperty(navigator, "canShare", {
+        value: originalCanShare,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    it("invokes navigator.share with default metadata when available", async () => {
+      const onCopy = jest.fn();
+      render(<SocialShareButton onCopy={onCopy} />);
+
+      const button = screen.getByTestId("share-session-button");
+      await act(async () => {
+        fireEvent.click(button);
+      });
+
+      expect(mockShare).toHaveBeenCalledWith({
+        title: "WorkSphere Focus Session",
+        text: "Join my collaborative session on WorkSphere!",
+        url: window.location.href,
+      });
+      expect(onCopy).toHaveBeenCalledWith(window.location.href);
+      expect(mockWriteText).not.toHaveBeenCalled();
+    });
+
+    it("invokes navigator.share with custom title, text, and url", async () => {
+      render(
+        <SocialShareButton
+          url="https://worksphere.com/sessions/deep-work"
+          title="Custom Session Title"
+          text="Join my deep work sprint!"
+        />,
+      );
+
+      const button = screen.getByTestId("share-session-button");
+      await act(async () => {
+        fireEvent.click(button);
+      });
+
+      expect(mockShare).toHaveBeenCalledWith({
+        title: "Custom Session Title",
+        text: "Join my deep work sprint!",
+        url: "https://worksphere.com/sessions/deep-work",
+      });
+    });
+
+    it("handles user cancellation (AbortError) without triggering fallback copy or error toast", async () => {
+      const abortError = new Error("Share cancelled");
+      abortError.name = "AbortError";
+      mockShare.mockRejectedValue(abortError);
+
+      render(<SocialShareButton />);
+
+      const button = screen.getByTestId("share-session-button");
+      await act(async () => {
+        fireEvent.click(button);
+      });
+
+      expect(mockShare).toHaveBeenCalled();
+      expect(mockWriteText).not.toHaveBeenCalled();
+      expect(mockToast).not.toHaveBeenCalled();
+    });
+
+    it("falls back to clipboard copy when navigator.share throws a non-abort error", async () => {
+      const shareError = new Error("Permission denied");
+      shareError.name = "NotAllowedError";
+      mockShare.mockRejectedValue(shareError);
+
+      render(<SocialShareButton />);
+
+      const button = screen.getByTestId("share-session-button");
+      await act(async () => {
+        fireEvent.click(button);
+      });
+
+      expect(mockShare).toHaveBeenCalled();
+      expect(mockWriteText).toHaveBeenCalledWith(window.location.href);
+      expect(mockToast).toHaveBeenCalledWith(
+        "Session link copied to clipboard! 📋",
+        "success",
+      );
+    });
+
+    it("falls back to clipboard copy when navigator.canShare returns false", async () => {
+      Object.defineProperty(navigator, "canShare", {
+        value: jest.fn().mockReturnValue(false),
+        writable: true,
+        configurable: true,
+      });
+
+      render(<SocialShareButton />);
+
+      const button = screen.getByTestId("share-session-button");
+      await act(async () => {
+        fireEvent.click(button);
+      });
+
+      expect(mockShare).not.toHaveBeenCalled();
+      expect(mockWriteText).toHaveBeenCalledWith(window.location.href);
+      expect(mockToast).toHaveBeenCalledWith(
+        "Session link copied to clipboard! 📋",
+        "success",
+      );
+    });
+  });
 });
