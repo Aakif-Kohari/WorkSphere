@@ -114,6 +114,7 @@ export function matchRateTier(pathname: string): RateTier | null {
 
 /**
  * Resolves client IP from request or headers.
+ * Prioritizes direct proxy headers (X-Real-IP, CF-Connecting-IP) before X-Forwarded-For to prevent IP spoofing, falling back to loopback.
  */
 export function getClientIp(reqOrHeaders: Request | Headers): string {
   const headers =
@@ -127,16 +128,22 @@ export function getClientIp(reqOrHeaders: Request | Headers): string {
     return (reqOrHeaders as any).ip.trim();
   }
 
-  const forwarded = headers.get("x-forwarded-for");
-  if (forwarded) {
-    const firstIp = forwarded.split(",")[0].trim();
-    if (firstIp) return firstIp;
-  }
-
   const realIp = headers.get("x-real-ip");
   if (realIp) {
     const trimmed = realIp.trim();
     if (trimmed) return trimmed;
+  }
+
+  const cfConnectingIp = headers.get("cf-connecting-ip");
+  if (cfConnectingIp) {
+    const trimmed = cfConnectingIp.trim();
+    if (trimmed) return trimmed;
+  }
+
+  const forwarded = headers.get("x-forwarded-for");
+  if (forwarded) {
+    const firstIp = forwarded.split(",")[0].trim();
+    if (firstIp) return firstIp;
   }
 
   return "127.0.0.1";
