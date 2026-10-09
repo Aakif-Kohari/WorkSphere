@@ -2,6 +2,8 @@ import {
   analyzeSentiment,
   scoreComment,
   summarizeReviewSentiment,
+  classifyReviewSentiment,
+  filterReviewsBySentiment,
   type SentimentReview,
 } from "@/lib/reviewSentiment";
 
@@ -180,3 +182,27 @@ describe("summarizeReviewSentiment", () => {
     expect(summary?.label).toBe("positive");
   });
 });
+
+describe("classifyReviewSentiment & filterReviewsBySentiment (#5062)", () => {
+  it("classifies reviews as positive, neutral, or critical", () => {
+    expect(classifyReviewSentiment(positiveReview)).toBe("positive");
+    expect(classifyReviewSentiment(negativeReview)).toBe("critical");
+    expect(classifyReviewSentiment({ comment: "The desk is wooden." })).toBe("neutral");
+  });
+
+  it("filters reviews by selected sentiment category", () => {
+    const reviews: SentimentReview[] = [
+      positiveReview,
+      negativeReview,
+      { comment: "Standard office setup" },
+      { comment: "Amazing vibe and excellent coffee" },
+      { comment: "Horrible dirty room and rude staff" },
+    ];
+
+    expect(filterReviewsBySentiment(reviews, "all")).toHaveLength(5);
+    expect(filterReviewsBySentiment(reviews, "positive")).toHaveLength(2);
+    expect(filterReviewsBySentiment(reviews, "critical")).toHaveLength(2);
+    expect(filterReviewsBySentiment(reviews, "neutral")).toHaveLength(1);
+  });
+});
+

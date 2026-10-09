@@ -299,3 +299,50 @@ export function summarizeReviewSentiment(
     highlights: buildHighlights(recent),
   };
 }
+
+export type ReviewSentimentCategory = "positive" | "neutral" | "critical";
+
+/**
+ * Classifies a single review's sentiment into "positive" | "neutral" | "critical".
+ */
+export function classifyReviewSentiment(
+  review: SentimentReview | { comment?: string | null; wifiQuality?: number | null; noiseLevel?: string | null } | null | undefined,
+): ReviewSentimentCategory {
+  if (!review) return "neutral";
+  const score = reviewScore(review as SentimentReview);
+  if (score === null) {
+    const textAnalysis = analyzeSentiment(review.comment);
+    if (textAnalysis.category === "positive") return "positive";
+    if (textAnalysis.category === "negative") return "critical";
+    return "neutral";
+  }
+  if (score >= POSITIVE_THRESHOLD) return "positive";
+  if (score <= NEEDS_IMPROVEMENT_THRESHOLD) return "critical";
+  return "neutral";
+}
+
+/**
+ * Filters a list of reviews according to selected sentiment filter:
+ * "all" | "positive" | "neutral" | "critical"
+ */
+export function filterReviewsBySentiment<T extends SentimentReview>(
+  reviews: T[] | null | undefined,
+  filter: "all" | "positive" | "neutral" | "critical" | string,
+): T[] {
+  if (!reviews || !Array.isArray(reviews)) return [];
+  if (!filter || filter === "all") return reviews;
+
+  const normalized = filter.toLowerCase();
+  return reviews.filter((review) => {
+    const sentiment = classifyReviewSentiment(review);
+    if (
+      normalized === "critical" ||
+      normalized === "negative" ||
+      normalized === "needs_improvement"
+    ) {
+      return sentiment === "critical";
+    }
+    return sentiment === normalized;
+  });
+}
+
