@@ -63,6 +63,19 @@ export function validateSessionInviteToken(
       };
     }
 
+    if (
+      payload.maxParticipants !== undefined &&
+      (typeof payload.maxParticipants !== "number" ||
+        !Number.isInteger(payload.maxParticipants) ||
+        payload.maxParticipants <= 0)
+    ) {
+      return {
+        valid: false,
+        error: "Invalid invite token structure.",
+        statusCode: 400,
+      };
+    }
+
     if (expectedSessionId && payload.sessionId !== expectedSessionId) {
       return {
         valid: false,
@@ -82,7 +95,6 @@ export function validateSessionInviteToken(
 
     if (
       payload.maxParticipants !== undefined &&
-      payload.maxParticipants > 0 &&
       currentParticipantsCount >= payload.maxParticipants
     ) {
       return {
@@ -357,6 +369,15 @@ export async function generateSessionInviteToken(
   maxParticipants?: number,
   secret: string = getInviteSecret(),
 ): Promise<string> {
+  if (
+    maxParticipants !== undefined &&
+    (typeof maxParticipants !== "number" ||
+      !Number.isInteger(maxParticipants) ||
+      maxParticipants <= 0)
+  ) {
+    throw new Error("maxParticipants must be a positive integer.");
+  }
+
   const nonce = generateSecureNonce(16);
   const expiresAt = Date.now() + expiresInHours * 60 * 60 * 1000;
 
