@@ -39,6 +39,47 @@ export interface PassportStamp {
   nullifierHash: string;
   verificationSignature: string;
   svgMarkup: string;
+  venueName?: string;
+  visitDate?: string;
+  countryCode?: string;
+  countryName?: string;
+}
+
+/**
+ * Generates clean standalone vector SVG markup for a passport badge with venue name and visit date.
+ */
+export function generateBadgeSvgMarkup(stamp: PassportStamp): string {
+  const venue = stamp.venueName || "WorkSphere Verified Hub";
+  const visit =
+    stamp.visitDate ||
+    (stamp.issuedAt
+      ? new Date(stamp.issuedAt).toISOString().split("T")[0]
+      : "2026-10-09");
+  const badgeTitle = stamp.countryName
+    ? `${stamp.countryName.toUpperCase()} NOMAD STAMP`
+    : stamp.tierTitle.toUpperCase();
+
+  return `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <linearGradient id="stampBadgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="50%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#10b981" />
+    </linearGradient>
+  </defs>
+  <circle cx="200" cy="200" r="185" fill="#0f172a" stroke="url(#stampBadgeGrad)" stroke-width="8" stroke-dasharray="12,6" />
+  <circle cx="200" cy="200" r="158" fill="none" stroke="#334155" stroke-width="2" />
+  <text x="200" y="75" text-anchor="middle" fill="#38bdf8" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="bold" letter-spacing="3">WORKSPHERE NOMAD PASSPORT</text>
+  <text x="200" y="115" text-anchor="middle" fill="#f8fafc" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="900">${badgeTitle}</text>
+  <text x="200" y="142" text-anchor="middle" fill="#a5f3fc" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="700">📍 ${venue}</text>
+  <text x="200" y="166" text-anchor="middle" fill="#94a3b8" font-family="monospace" font-size="11">VISIT DATE: ${visit} • EPOCH ${stamp.epoch || 2026}</text>
+  <circle cx="200" cy="220" r="30" fill="#1e293b" stroke="#38bdf8" stroke-width="3" />
+  <path d="M190 220 l7 7 l14 -14" fill="none" stroke="#38bdf8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+  <text x="200" y="278" text-anchor="middle" fill="#34d399" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="bold">✓ ZERO-KNOWLEDGE VERIFIED</text>
+  <text x="200" y="306" text-anchor="middle" fill="#64748b" font-family="monospace" font-size="9">NULLIFIER: ${(stamp.nullifierHash || "").slice(0, 20)}...</text>
+  <text x="200" y="328" text-anchor="middle" fill="#38bdf8" font-family="monospace" font-size="10" font-weight="bold">ID: ${stamp.stampId}</text>
+</svg>`.trim();
 }
 
 const PASSPORT_SIGNING_KEY = process.env.ZKP_PASSPORT_KEY || "nomad-zkp-passport-secret-signature-2026";

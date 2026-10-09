@@ -9,14 +9,16 @@ import {
   Download,
   CheckCircle2,
   Cpu,
-  FileCheck,
-  Compass,
-  Zap,
   Globe,
   RefreshCw,
+  X,
+  Eye,
+  MapPin,
+  Calendar,
 } from "lucide-react";
 import {
   generateClientNomadProof,
+  generateBadgeSvgMarkup,
   type NomadProductivityStatement,
   type PassportStamp,
 } from "@/lib/zkp/nomadProof";
@@ -46,55 +48,67 @@ const AVAILABLE_STATEMENTS: NomadProductivityStatement[] = [
   },
 ];
 
+const INITIAL_EARNED_STAMPS: PassportStamp[] = [
+  {
+    stampId: "STAMP-PORTUGAL-LISBOA-2026-PT0928",
+    badgeType: "COUNTRY_PORTUGAL",
+    tierTitle: "Portugal Nomad Residency",
+    countryName: "Portugal",
+    countryCode: "PT",
+    venueName: "Second Home Coworking Lisboa",
+    visitDate: "2026-09-28",
+    epoch: 2026,
+    issuedAt: new Date(Date.now() - 11 * 86400000).toISOString(),
+    nullifierHash: "e4d909c290d0fb1ca068ffaddf22cbd0ffd823ef45a2789123456789abcdef01",
+    verificationSignature: "8f7e2a9b3c4d5e6f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f",
+    svgMarkup: "",
+  },
+  {
+    stampId: "STAMP-JAPAN-TOKYO-2026-JP1002",
+    badgeType: "COUNTRY_JAPAN",
+    tierTitle: "Japan Nomad Residency",
+    countryName: "Japan",
+    countryCode: "JP",
+    venueName: "Blink Community Roppongi",
+    visitDate: "2026-10-02",
+    epoch: 2026,
+    issuedAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+    nullifierHash: "a7b3c9d1234ef9876543210fedcba9876543210fedcba9876543210fedcba987",
+    verificationSignature: "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f8f7e2a9b3c4d5e6f",
+    svgMarkup: "",
+  },
+  {
+    stampId: "STAMP-NOMAD_50_HOURS-2026-A89B4C21",
+    badgeType: "NOMAD_50_HOURS",
+    tierTitle: "50-Hour Focus Veteran",
+    venueName: "SoMa Focus Hub & Roastery",
+    visitDate: "2026-10-04",
+    epoch: 2026,
+    issuedAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+    nullifierHash: "e4d909c290d0fb1ca068ffaddf22cbd0ffd823ef45a2789123456789abcdef01",
+    verificationSignature: "8f7e2a9b3c4d5e6f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f",
+    svgMarkup: "",
+  },
+];
+
 export default function NomadPassportGallery() {
   const [selectedStatement, setSelectedStatement] = useState<NomadProductivityStatement>(
     AVAILABLE_STATEMENTS[0]
   );
   const [generatingProof, setGeneratingProof] = useState(false);
-  const [mintedStamps, setMintedStamps] = useState<PassportStamp[]>([
-    {
-      stampId: "STAMP-NOMAD_50_HOURS-2026-A89B4C21",
-      badgeType: "NOMAD_50_HOURS",
-      tierTitle: "50-Hour Focus Veteran",
-      epoch: 2026,
-      issuedAt: new Date(Date.now() - 5 * 86400000).toISOString(),
-      nullifierHash: "e4d909c290d0fb1ca068ffaddf22cbd0ffd823ef45a2789123456789abcdef01",
-      verificationSignature: "8f7e2a9b3c4d5e6f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f",
-      svgMarkup: `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
-  <defs>
-    <linearGradient id="stampGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#4f46e5" />
-      <stop offset="100%" stop-color="#06b6d4" />
-    </linearGradient>
-  </defs>
-  <circle cx="200" cy="200" r="185" fill="#0f172a" stroke="url(#stampGrad1)" stroke-width="8" stroke-dasharray="12,6" />
-  <circle cx="200" cy="200" r="155" fill="none" stroke="#334155" stroke-width="2" />
-  <text x="200" y="85" text-anchor="middle" fill="#38bdf8" font-family="system-ui, sans-serif" font-size="14" font-weight="bold" letter-spacing="3">WORKSPHERE NOMAD PASSPORT</text>
-  <text x="200" y="145" text-anchor="middle" fill="#f8fafc" font-family="system-ui, sans-serif" font-size="20" font-weight="900">50-HOUR FOCUS VETERAN</text>
-  <text x="200" y="175" text-anchor="middle" fill="#94a3b8" font-family="monospace" font-size="12">EPOCH 2026 • ZERO-KNOWLEDGE VERIFIED</text>
-  <circle cx="200" cy="230" r="32" fill="#1e293b" stroke="#38bdf8" stroke-width="3" />
-  <path d="M190 230 l8 8 l16 -16" fill="none" stroke="#38bdf8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
-  <text x="200" y="295" text-anchor="middle" fill="#64748b" font-family="monospace" font-size="10">NULLIFIER: e4d909c290d0fb1c...</text>
-  <text x="200" y="325" text-anchor="middle" fill="#38bdf8" font-family="monospace" font-size="11" font-weight="bold">ID: STAMP-NOMAD_50_HOURS-2026</text>
-</svg>
-      `.trim(),
-    },
-  ]);
-
-  const [activeStamp, setActiveStamp] = useState<PassportStamp | null>(mintedStamps[0]);
+  const [mintedStamps, setMintedStamps] = useState<PassportStamp[]>(INITIAL_EARNED_STAMPS);
+  const [activeStamp, setActiveStamp] = useState<PassportStamp | null>(INITIAL_EARNED_STAMPS[0]);
+  const [previewModalStamp, setPreviewModalStamp] = useState<PassportStamp | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const handleGenerateAndVerifyProof = async () => {
     setGeneratingProof(true);
     setSuccessMsg(null);
     try {
-      // Simulate user holding 32 streak days and 120 verified work hours
       const identitySecret = "user_nomad_secret_seed_99812";
       const actualStreak = 32;
       const actualHours = 124;
 
-      // 1. Generate client-side ZK proof
       const payload = await generateClientNomadProof(
         identitySecret,
         actualStreak,
@@ -102,7 +116,6 @@ export default function NomadPassportGallery() {
         selectedStatement
       );
 
-      // 2. Submit to verification endpoint
       const res = await fetch("/api/auth/zkp/nomad-proof", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -111,8 +124,13 @@ export default function NomadPassportGallery() {
 
       const data = await res.json();
       if (data.success && data.stamp) {
-        setMintedStamps((prev) => [data.stamp, ...prev]);
-        setActiveStamp(data.stamp);
+        const enrichedStamp: PassportStamp = {
+          ...data.stamp,
+          venueName: "Mission Focus Coworking & Cafe",
+          visitDate: new Date().toISOString().split("T")[0],
+        };
+        setMintedStamps((prev) => [enrichedStamp, ...prev]);
+        setActiveStamp(enrichedStamp);
         setSuccessMsg(`Minted Zero-Knowledge Passport Stamp: ${data.stamp.tierTitle}!`);
       }
     } catch (err: any) {
@@ -122,8 +140,38 @@ export default function NomadPassportGallery() {
     }
   };
 
-  const handleDownloadStamp = (stamp: PassportStamp) => {
-    downloadSVG(stamp.svgMarkup, `${stamp.stampId}.svg`);
+  // Download crisp vector SVG badge containing venue name & visit date
+  const handleDownloadBadgeSvg = (stamp: PassportStamp) => {
+    const svgMarkup = generateBadgeSvgMarkup(stamp);
+    downloadSVG(svgMarkup, `${stamp.stampId}-badge.svg`);
+  };
+
+  // Download high-res PNG badge for personal portfolios
+  const handleDownloadBadgePng = (stamp: PassportStamp) => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    const svgMarkup = generateBadgeSvgMarkup(stamp);
+    const canvas = document.createElement("canvas");
+    const size = 800;
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const blob = new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+      const pngUrl = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = pngUrl;
+      a.download = `${stamp.stampId}-badge.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+    img.src = url;
   };
 
   return (
@@ -139,26 +187,94 @@ export default function NomadPassportGallery() {
               Proof-of-Productivity & Digital Nomad Passport
             </h1>
             <p className="text-xs md:text-sm text-slate-300 max-w-2xl">
-              Cryptographically prove your working streaks and deep focus hours to employers, clients, and nomad communities using Circom ZK-SNARKs without revealing private location histories.
+              Export earned country stamps and verified focus badges as crisp vector SVG or high-res PNG badges with venue names and visit dates for personal portfolios.
             </p>
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
             <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 text-xs space-y-1 font-mono">
-              <span className="text-slate-400 block text-[10px]">Verified Credentials</span>
+              <span className="text-slate-400 block text-[10px]">Earned Country Badges</span>
               <strong className="text-cyan-400 text-base">{mintedStamps.length} Stamps Minted</strong>
             </div>
           </div>
         </div>
 
-        {/* Privacy Highlight Pill */}
         <div className="mt-4 pt-4 border-t border-slate-800/80 flex items-center gap-2 text-xs text-slate-400">
           <Lock className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
           <span>Privacy Guaranteed: Merkle leaf commitments prevent timeline & venue doxxing.</span>
         </div>
       </div>
 
-      {/* Main Grid: Proof Builder & Passport Stamp Visualizer */}
+      {/* Earned Country & Productivity Stamps Shelf */}
+      <div className="rounded-3xl bg-slate-900/80 border border-slate-800 p-6 space-y-4 backdrop-blur-md shadow-lg">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-white flex items-center gap-2">
+            <Globe className="w-4 h-4 text-cyan-400" /> Earned Passport Stamps & Country Badges
+          </h2>
+          <span className="text-xs text-slate-400">Click any badge to preview or download</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          {mintedStamps.map((stamp) => {
+            const isSelected = activeStamp?.stampId === stamp.stampId;
+            const badgeSvg = generateBadgeSvgMarkup(stamp);
+
+            return (
+              <div
+                key={stamp.stampId}
+                onClick={() => {
+                  setActiveStamp(stamp);
+                  setPreviewModalStamp(stamp);
+                }}
+                className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between space-y-3 ${
+                  isSelected
+                    ? "bg-indigo-500/10 border-cyan-400 shadow-md shadow-indigo-950/40"
+                    : "bg-slate-950/60 border-slate-800 hover:border-slate-700"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    dangerouslySetInnerHTML={{ __html: badgeSvg }}
+                    className="w-14 h-14 rounded-full drop-shadow-md shrink-0 flex items-center justify-center"
+                  />
+                  <div className="space-y-1 min-w-0">
+                    <h3 className="text-xs font-bold text-white truncate">
+                      {stamp.countryName ? `${stamp.countryName} Country Stamp` : stamp.tierTitle}
+                    </h3>
+                    {stamp.venueName && (
+                      <p className="text-[11px] text-cyan-300 flex items-center gap-1 truncate">
+                        <MapPin className="w-3 h-3 shrink-0" /> {stamp.venueName}
+                      </p>
+                    )}
+                    <span className="text-[10px] text-slate-400 font-mono block">
+                      Visited: {stamp.visitDate || new Date(stamp.issuedAt).toISOString().split("T")[0]}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
+                  <span className="text-[10px] font-mono text-emerald-400 font-semibold flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> ZK Verified
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveStamp(stamp);
+                      setPreviewModalStamp(stamp);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] font-medium flex items-center gap-1 transition"
+                  >
+                    <Eye className="w-3 h-3" /> Preview
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Main Grid: Proof Builder & Active Stamp Visualizer */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: ZK Proof Minting (7 cols) */}
         <div className="lg:col-span-7 rounded-3xl bg-slate-900/80 border border-slate-800 p-6 space-y-5 backdrop-blur-md shadow-lg">
@@ -234,25 +350,42 @@ export default function NomadPassportGallery() {
         <div className="lg:col-span-5 space-y-4">
           {activeStamp ? (
             <div className="p-6 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-5 backdrop-blur-md shadow-lg flex flex-col items-center">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 self-start">
-                Passport Stamp Attestation
-              </span>
+              <div className="w-full flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
+                  Passport Stamp Attestation
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPreviewModalStamp(activeStamp)}
+                  className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1"
+                >
+                  <Eye className="w-3.5 h-3.5" /> Full Modal
+                </button>
+              </div>
 
               {/* Stamp SVG Container */}
               <div
-                dangerouslySetInnerHTML={{ __html: activeStamp.svgMarkup }}
+                dangerouslySetInnerHTML={{ __html: generateBadgeSvgMarkup(activeStamp) }}
                 className="w-56 h-56 rounded-full drop-shadow-2xl flex items-center justify-center"
               />
 
               {/* Stamp Metadata */}
               <div className="w-full space-y-2 text-xs font-mono pt-2 border-t border-slate-800">
                 <div className="flex justify-between text-slate-400">
-                  <span>Stamp ID:</span>
-                  <span className="text-cyan-300 font-bold">{activeStamp.stampId.slice(0, 22)}...</span>
+                  <span>Venue:</span>
+                  <span className="text-slate-200 font-bold truncate max-w-[180px]">
+                    {activeStamp.venueName || "Verified Hub"}
+                  </span>
                 </div>
                 <div className="flex justify-between text-slate-400">
-                  <span>Issued:</span>
-                  <span className="text-slate-200">{new Date(activeStamp.issuedAt).toLocaleDateString()}</span>
+                  <span>Visit Date:</span>
+                  <span className="text-slate-200">
+                    {activeStamp.visitDate || new Date(activeStamp.issuedAt).toISOString().split("T")[0]}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>Stamp ID:</span>
+                  <span className="text-cyan-300 font-bold">{activeStamp.stampId.slice(0, 20)}...</span>
                 </div>
                 <div className="flex justify-between text-slate-400">
                   <span>Nullifier:</span>
@@ -260,13 +393,32 @@ export default function NomadPassportGallery() {
                 </div>
               </div>
 
-              {/* Download Stamp */}
-              <button
-                onClick={() => handleDownloadStamp(activeStamp)}
-                className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
-              >
-                <Download className="w-3.5 h-3.5 text-cyan-400" /> Export Signed SVG Stamp
-              </button>
+              {/* Action Buttons */}
+              <div className="w-full space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setPreviewModalStamp(activeStamp)}
+                  className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-md shadow-cyan-600/30 flex items-center justify-center gap-1.5 transition"
+                >
+                  <Eye className="w-3.5 h-3.5" /> Preview & Download Badge
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadBadgeSvg(activeStamp)}
+                    className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                  >
+                    <Download className="w-3 h-3 text-cyan-400" /> Save SVG
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadBadgePng(activeStamp)}
+                    className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                  >
+                    <Download className="w-3 h-3 text-emerald-400" /> Save PNG
+                  </button>
+                </div>
+              </div>
             </div>
           ) : (
             <div className="p-12 rounded-3xl bg-slate-900/40 border border-slate-800 text-center text-slate-400 text-xs">
@@ -275,6 +427,108 @@ export default function NomadPassportGallery() {
           )}
         </div>
       </div>
+
+      {/* Stamp Preview Modal with "Download Badge" option */}
+      {previewModalStamp && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="stamp-modal-title"
+          data-testid="stamp-preview-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => setPreviewModalStamp(null)}
+        >
+          <div
+            className="relative w-full max-w-lg rounded-3xl bg-slate-900 border border-slate-700/80 p-6 md:p-8 space-y-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close Button */}
+            <button
+              type="button"
+              onClick={() => setPreviewModalStamp(null)}
+              aria-label="Close modal"
+              className="absolute top-5 right-5 p-2 rounded-full bg-slate-800 text-slate-400 hover:text-white transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Modal Header */}
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400">
+                Passport Stamp Preview
+              </span>
+              <h3 id="stamp-modal-title" className="text-xl font-bold text-white">
+                {previewModalStamp.countryName
+                  ? `${previewModalStamp.countryName} Country Stamp`
+                  : previewModalStamp.tierTitle}
+              </h3>
+              <p className="text-xs text-slate-400">
+                Crisp vector badge with venue name and visit date for personal portfolios.
+              </p>
+            </div>
+
+            {/* Vector SVG Badge Preview */}
+            <div
+              data-testid="modal-badge-svg"
+              dangerouslySetInnerHTML={{ __html: generateBadgeSvgMarkup(previewModalStamp) }}
+              className="w-64 h-64 mx-auto rounded-full drop-shadow-2xl flex items-center justify-center"
+            />
+
+            {/* Badge Metadata Details */}
+            <div className="grid grid-cols-2 gap-3 text-xs bg-slate-950/60 p-4 rounded-2xl border border-slate-800 font-mono">
+              <div className="space-y-0.5">
+                <span className="text-slate-400 block text-[10px] flex items-center gap-1">
+                  <MapPin className="w-3 h-3 text-cyan-400" /> Venue Name
+                </span>
+                <strong className="text-slate-200 truncate block">
+                  {previewModalStamp.venueName || "WorkSphere Verified Hub"}
+                </strong>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-slate-400 block text-[10px] flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-indigo-400" /> Visit Date
+                </span>
+                <strong className="text-slate-200 block">
+                  {previewModalStamp.visitDate ||
+                    new Date(previewModalStamp.issuedAt).toISOString().split("T")[0]}
+                </strong>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-slate-400 block text-[10px]">Stamp ID</span>
+                <span className="text-cyan-400 block truncate">
+                  {previewModalStamp.stampId.slice(0, 18)}...
+                </span>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-slate-400 block text-[10px]">Attestation</span>
+                <span className="text-emerald-400 block flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> ZK Verified
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Action Buttons: "Download Badge" option */}
+            <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => handleDownloadBadgeSvg(previewModalStamp)}
+                data-testid="download-badge-svg-btn"
+                className="w-full sm:flex-1 py-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-lg shadow-cyan-600/30 flex items-center justify-center gap-2 transition"
+              >
+                <Download className="w-4 h-4" /> Download Badge (SVG)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadBadgePng(previewModalStamp)}
+                data-testid="download-badge-png-btn"
+                className="w-full sm:flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-2 transition"
+              >
+                <Download className="w-4 h-4 text-emerald-400" /> Download Badge (PNG)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
