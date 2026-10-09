@@ -60,6 +60,7 @@ export interface GraphNode {
   type: EntityType;
   properties: Record<string, string | number | boolean>;
   createdAt: number;
+  lastReinforcedAt?: number;
 }
 
 export interface GraphEdge {
@@ -85,6 +86,8 @@ erDiagram
 ### 2.2 Adjacency List Structure
 
 `GraphMemory` maintains nodes and directed edges using Javascript `Map` primitives for $O(1)$ node lookups and efficient adjacency list iterations:
+
+Preference edge weights use exponential decay (`e^(-elapsed / time constant)`) with a 30-day default time constant. Adding a node again or recording an edge reinforces the involved entities; imported timestamps are preserved. A daily background pruning pass removes non-user entities below 0.05 relevance when they have at most one reference, and removes their incident edges. The decay interval, pruning schedule, relevance threshold, and reference limit can be configured through `GraphMemoryOptions`; setting `pruneIntervalMs` to `0` disables the timer while retaining manual `pruneStaleEntities()` support.
 
 ```typescript
 export class GraphMemory {
