@@ -23,6 +23,8 @@ export interface AccessibilityWeightedRoute {
 }
 
 export class AccessibleRouter {
+    private static readonly MAX_SAFE_PENALTY_MULTIPLIER = 20.0;
+    private static readonly WHEELCHAIR_MAX_GRADE_THRESHOLD = 8.33; // ADA standard max slope percentage (1:12)
     private elevationMatrix: ElevationMatrix;
     private osmParser: OSMAccessibilityParser;
 
@@ -33,10 +35,22 @@ export class AccessibleRouter {
 
     /**
      * Evaluates a route and applies accessibility penalties to its duration/weight.
+     * Guards against steep wheelchair grade multiplier overflow.
      * @param segments Route segments from OSRM.
      * @param wheelchairMode If true, strictly penalizes non-compliant segments.
      */
     public evaluateRoute(segments: RouteSegment[], wheelchairMode: boolean = true): AccessibilityWeightedRoute {
+        if (!Array.isArray(segments) || segments.length === 0) {
+            return {
+                totalDistance: 0,
+                totalDuration: 0,
+                accessibilityScore: 100,
+                penaltyMultiplier: 1.0,
+                isRecommended: true,
+                segments: []
+            };
+        }
+
         let totalDistance = 0;
         let totalDuration = 0;
         let totalElevationGain = 0;
@@ -46,11 +60,15 @@ export class AccessibleRouter {
         const evaluatedSegments: RouteSegment[] = [];
 
         for (const segment of segments) {
-            totalDistance += segment.distance;
-            totalDuration += segment.duration;
-            totalElevationGain += segment.elevationGain;
+            const segDist = Number.isFinite(segment.distance) ? Math.max(0, segment.distance) : 0;
+            const segDur = Number.isFinite(segment.duration) ? Math.max(0, segment.duration) : 0;
+            const segElev = Number.isFinite(segment.elevationGain) ? segment.elevationGain : 0;
 
-            const features = this.osmParser.parseFeatures(segment.osmTags);
+            totalDistance += segDist;
+            totalDuration += segDur;
+            totalElevationGain += Math.abs(segElev);
+
+            const features = this.osmParser.parseFeatures(segment.osmTags || {});
             const segmentScore = this.osmParser.calculateScore(features);
 
             if (segmentScore < minSegmentScore) {
@@ -66,22 +84,33 @@ export class AccessibleRouter {
                 }
 
                 // Simulate elevation check (in real impl, this uses DEM data per segment)
-                const simulatedGrade = this.elevationMatrix.calculateGrade(segment.elevationGain, segment.distance);
-                if (simulatedGrade > 8.33) {
-                    segmentMultiplier += (simulatedGrade - 8.33) / 5; // Progressive penalty for steepness
+                const simulatedGrade = this.elevationMatrix.calculateGrade(segElev, segDist);
+                if (simulatedGrade > AccessibleRouter.WHEELCHAIR_MAX_GRADE_THRESHOLD) {
+                    // Progressive penalty for steepness, capped to prevent numerical overflow
+                    const excessGrade = simulatedGrade - AccessibleRouter.WHEELCHAIR_MAX_GRADE_THRESHOLD;
+                    const gradePenalty = Math.min(15.0, excessGrade / 5.0);
+                    segmentMultiplier += gradePenalty;
                 }
             }
 
+            // Safely clamp individual segment multiplier
+            segmentMultiplier = Math.min(segmentMultiplier, AccessibleRouter.MAX_SAFE_PENALTY_MULTIPLIER);
             totalPenaltyMultiplier = Math.max(totalPenaltyMultiplier, segmentMultiplier);
             evaluatedSegments.push(segment);
         }
 
-        const adjustedDuration = totalDuration * totalPenaltyMultiplier;
+        // Clamp total penalty multiplier to prevent numerical overflow in downstream Dijkstra weights
+        totalPenaltyMultiplier = Math.min(
+            Number.isFinite(totalPenaltyMultiplier) ? totalPenaltyMultiplier : 1.0,
+            AccessibleRouter.MAX_SAFE_PENALTY_MULTIPLIER
+        );
+
+        const adjustedDuration = Math.round(totalDuration * totalPenaltyMultiplier);
         const isRecommended = minSegmentScore >= 60 && totalPenaltyMultiplier < 1.5;
 
         return {
             totalDistance,
-            totalDuration: adjustedDuration,
+            totalDuration: Number.isFinite(adjustedDuration) ? adjustedDuration : totalDuration,
             accessibilityScore: minSegmentScore,
             penaltyMultiplier: totalPenaltyMultiplier,
             isRecommended,
@@ -89,3 +118,4 @@ export class AccessibleRouter {
         };
     }
 }
+

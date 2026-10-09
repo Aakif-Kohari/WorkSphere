@@ -67,10 +67,17 @@ export class MultiModalDijkstra {
     }
 
     private calculateWeight(edge: GraphEdge): number {
-        const timeCost = (edge.durationSeconds / 60) * this.timeWeight; // in minutes
-        const monetaryCost = edge.cost * this.costWeight;
-        return timeCost + monetaryCost;
+        const durSec = Number.isFinite(edge.durationSeconds) ? Math.max(0, edge.durationSeconds) : 0;
+        const costVal = Number.isFinite(edge.cost) ? Math.max(0, edge.cost) : 0;
+        const timeCost = (durSec / 60) * this.timeWeight; // in minutes
+        const monetaryCost = costVal * this.costWeight;
+        const total = timeCost + monetaryCost;
+        if (!Number.isFinite(total) || total < 0) {
+            return 1e7;
+        }
+        return Math.min(total, 1e7);
     }
+
 
     private reconstructPath(
         previous: Map<string, string | null>,
