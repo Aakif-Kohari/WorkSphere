@@ -47,9 +47,28 @@ void trace_contours(const uint8_t *edge_image, int width, int height,
   if (!edge_image || !out_polygons || !out_polygon_count)
     return;
 
-  uint8_t *visited = (uint8_t *)calloc(width * height, sizeof(uint8_t));
   *out_polygons = NULL;
   *out_polygon_count = 0;
+
+  if (width <= 0 || height <= 0)
+    return;
+
+  // Check if detected edge pixel count is zero
+  int edge_pixels_found = 0;
+  int total_pixels = width * height;
+  for (int i = 0; i < total_pixels; i++) {
+    if (edge_image[i] == 255) {
+      edge_pixels_found++;
+    }
+  }
+
+  if (edge_pixels_found == 0) {
+    return;
+  }
+
+  uint8_t *visited = (uint8_t *)calloc(width * height, sizeof(uint8_t));
+  if (!visited)
+    return;
 
   for (int y = 1; y < height - 1; y++) {
     for (int x = 1; x < width - 1; x++) {

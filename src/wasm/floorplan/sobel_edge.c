@@ -49,6 +49,18 @@ void apply_sobel_edge_detection(const uint8_t *input_image,
   double std_dev = sqrt(variance > 0 ? variance : 0);
   double threshold = mean + (threshold_multiplier * std_dev);
 
+  // Zero out the entire output buffer first
+  for (int i = 0; i < total_pixels; i++) {
+    output_image[i] = 0;
+  }
+
+  // If variance is negligible (monochromatic/flat image), no edges can exist
+  if (variance <= 1e-6) {
+    return;
+  }
+
+  int edge_pixel_count = 0;
+
   for (int y = 1; y < height - 1; y++) {
     for (int x = 1; x < width - 1; x++) {
       int pixel_x = 0;
@@ -67,9 +79,17 @@ void apply_sobel_edge_detection(const uint8_t *input_image,
 
       if (magnitude > threshold) {
         output_image[y * width + x] = 255;
+        edge_pixel_count++;
       } else {
         output_image[y * width + x] = 0;
       }
+    }
+  }
+
+  // If no edges were detected above threshold, ensure buffer is explicitly empty
+  if (edge_pixel_count == 0) {
+    for (int i = 0; i < total_pixels; i++) {
+      output_image[i] = 0;
     }
   }
 }
