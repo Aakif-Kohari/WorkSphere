@@ -9,6 +9,7 @@ export interface SolarCoordinates {
   azimuthDeg: number;   // Compass bearing: 0 = North, 90 = East, 180 = South, 270 = West
   isDaylight: boolean;
   solarNoonTime: string;
+  daylightDurationHours?: number;
 }
 
 export interface WindowFacade {
@@ -98,12 +99,68 @@ export function calculateSolarPosition(
     azimuthDeg = haDeg > 0 ? 360 - azRad * deg : azRad * deg;
   }
 
+  const daylightDurationHours = calculateDaylightDuration(latitude, longitude, date);
+
   return {
     elevationDeg: Number(elevationDeg.toFixed(1)),
     azimuthDeg: Number(azimuthDeg.toFixed(1)),
     isDaylight: elevationDeg > 0,
     solarNoonTime: "12:15 UTC",
+    daylightDurationHours,
   };
+}
+
+/**
+ * Calculates total daylight duration in hours for a given latitude, longitude, and date.
+ * Clamps to a minimum of 0.0 hours (polar night) and a maximum of 24.0 hours (midnight sun)
+ * to prevent negative duration calculations at high latitudes in winter months.
+ */
+export function calculateDaylightDuration(
+  latitude: number,
+  longitude: number,
+  date: Date = new Date()
+): number {
+  const rad = Math.PI / 180;
+  const deg = 180 / Math.PI;
+
+  const startOfYear = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const dayOfYear =
+    Math.floor((date.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+  const gamma = ((2 * Math.PI) / 365) * (dayOfYear - 1 + (date.getUTCHours() - 12) / 24);
+
+  // Solar declination angle in radians
+  const decl =
+    0.006918 -
+    0.399912 * Math.cos(gamma) +
+    0.070257 * Math.sin(gamma) -
+    0.006758 * Math.cos(2 * gamma) +
+    0.000907 * Math.sin(2 * gamma) -
+    0.002697 * Math.cos(3 * gamma) +
+    0.00148 * Math.sin(3 * gamma);
+
+  const latRad = latitude * rad;
+  // Standard atmospheric refraction horizon angle (-0.833 degrees)
+  const h0 = -0.833 * rad;
+
+  const cosOmega =
+    (Math.sin(h0) - Math.sin(latRad) * Math.sin(decl)) /
+    (Math.cos(latRad) * Math.cos(decl) || 1e-6);
+
+  // Polar night: sun does not rise above horizon
+  if (cosOmega >= 1) {
+    return 0.0;
+  }
+  // Midnight sun: sun does not set below horizon
+  if (cosOmega <= -1) {
+    return 24.0;
+  }
+
+  const omega0Rad = Math.acos(Math.max(-1, Math.min(1, cosOmega)));
+  const daylightHours = (2 * omega0Rad * deg) / 15;
+
+  // Strict clamp ensuring non-negative daylight duration
+  return Number(Math.max(0.0, Math.min(24.0, daylightHours)).toFixed(1));
 }
 
 /**

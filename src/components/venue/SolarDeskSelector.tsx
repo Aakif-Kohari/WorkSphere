@@ -117,6 +117,9 @@ export default function SolarDeskSelector({
                 <span className="text-slate-400 block text-[11px]">
                   Elevation: {solarData.solarCoordinates.elevationDeg}°
                 </span>
+                <span className="text-amber-400 block text-[11px]" data-testid="daylight-duration">
+                  {Math.max(0.0, solarData.solarCoordinates.daylightDurationHours ?? 0).toFixed(1)} hrs of daylight
+                </span>
               </div>
             </div>
           )}
