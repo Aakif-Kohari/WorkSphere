@@ -20,6 +20,7 @@ interface MeetHalfwayRequestBody {
   minSeats?: number;
   searchRadiusKm?: number;
   hasOutlets?: boolean;
+  transitPreference?: 'transit' | 'walking' | 'balanced';
 }
 
 export async function POST(req: NextRequest) {
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
       minSeats,
       searchRadiusKm = 25,
       hasOutlets,
+      transitPreference = 'transit',
     } = body;
 
     if (!members || !Array.isArray(members) || members.length === 0) {
@@ -144,7 +146,7 @@ export async function POST(req: NextRequest) {
     const optimization = MeetHalfwayOptimizer.rankVenuesForTeam(
       members,
       candidateVenues,
-      requiredSeats
+      { minRequiredSeats: requiredSeats, transitPreference }
     );
 
     return NextResponse.json({

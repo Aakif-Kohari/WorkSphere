@@ -63,6 +63,7 @@ export default function TeamMeetHalfwayLobby({
   const [minWifiSpeed, setMinWifiSpeed] = useState<number>(50);
   const [hasOutlets, setHasOutlets] = useState<boolean>(true);
   const [minSeats, setMinSeats] = useState<number>(3);
+  const [transitPreference, setTransitPreference] = useState<"transit" | "walking" | "balanced">("transit");
 
   const [loading, setLoading] = useState(false);
   const [centroid, setCentroid] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -89,6 +90,8 @@ export default function TeamMeetHalfwayLobby({
           }));
         } else if (data.type === "lobby_members_sync" && Array.isArray(data.members)) {
           setMembers(data.members);
+        } else if (data.type === "lobby_transit_preference_sync" && data.transitPreference) {
+          setTransitPreference(data.transitPreference);
         }
       } catch (err) {
         console.error("PartySocket parse error:", err);
@@ -110,6 +113,7 @@ export default function TeamMeetHalfwayLobby({
           minWifiSpeed,
           minSeats,
           hasOutlets,
+          transitPreference,
         }),
       });
       const data = await res.json();
@@ -122,7 +126,7 @@ export default function TeamMeetHalfwayLobby({
     } finally {
       setLoading(false);
     }
-  }, [members, category, minWifiSpeed, minSeats, hasOutlets]);
+  }, [members, category, minWifiSpeed, minSeats, hasOutlets, transitPreference]);
 
   useEffect(() => {
     fetchMeetHalfway();
@@ -348,6 +352,81 @@ export default function TeamMeetHalfwayLobby({
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Transit Preference Toggle (Public Transit vs Walking) */}
+            <div className="pt-3 border-t border-slate-800 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 font-semibold flex items-center gap-1.5">
+                  <Compass className="w-3.5 h-3.5 text-blue-400" /> Commute Preference
+                </span>
+                <span className="text-[10px] text-slate-500 font-mono">Team Priority</span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTransitPreference("transit");
+                    socket?.send(
+                      JSON.stringify({
+                        type: "lobby_transit_preference_sync",
+                        transitPreference: "transit",
+                        lobbyId,
+                      })
+                    );
+                  }}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition ${
+                    transitPreference === "transit"
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <Train className="w-3.5 h-3.5" /> Transit
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTransitPreference("walking");
+                    socket?.send(
+                      JSON.stringify({
+                        type: "lobby_transit_preference_sync",
+                        transitPreference: "walking",
+                        lobbyId,
+                      })
+                    );
+                  }}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition ${
+                    transitPreference === "walking"
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <Footprints className="w-3.5 h-3.5" /> Walking
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTransitPreference("balanced");
+                    socket?.send(
+                      JSON.stringify({
+                        type: "lobby_transit_preference_sync",
+                        transitPreference: "balanced",
+                        lobbyId,
+                      })
+                    );
+                  }}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition ${
+                    transitPreference === "balanced"
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> Balanced
+                </button>
+              </div>
             </div>
 
             {/* Filter Criteria */}

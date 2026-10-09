@@ -101,6 +101,11 @@ function getSpeedMetersPerMinute(mode?: string): number {
   }
 }
 
+export interface MeetHalfwayOptions {
+  minRequiredSeats?: number;
+  transitPreference?: 'transit' | 'walking' | 'balanced';
+}
+
 export class MeetHalfwayOptimizer {
   /**
    * Checks if all team members are co-located within a proximity threshold (default 150m).
@@ -267,7 +272,7 @@ export class MeetHalfwayOptimizer {
   public static rankVenuesForTeam(
     members: TeamMemberLocation[],
     venues: CandidateVenue[],
-    minRequiredSeats: number = members.length
+    minRequiredSeatsOrOptions?: number | MeetHalfwayOptions
   ): OptimizationResult {
     if (!Array.isArray(members) || members.length === 0) {
       return {
