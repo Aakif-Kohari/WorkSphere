@@ -212,11 +212,15 @@ export default function WorkHopPassCard({ initialBundle }: WorkHopPassCardProps)
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/30 p-6 md:p-8 shadow-2xl backdrop-blur-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
-                <Ticket className="w-3.5 h-3.5" /> {bundle.tier} Day Pass
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                title={`${bundle.tier} Day Pass`}
+                className="px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 max-w-full"
+              >
+                <Ticket className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{bundle.tier} Day Pass</span>
               </span>
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-xs font-semibold">
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-xs font-semibold whitespace-nowrap">
                 {bundle.discountPercentage}% Bundle Savings
               </span>
             </div>
