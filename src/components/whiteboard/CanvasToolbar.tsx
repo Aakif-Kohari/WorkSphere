@@ -21,6 +21,8 @@ export interface CanvasToolbarProps {
   onRedo: () => void;
   onClear: () => void;
   onOpenShortcuts?: () => void;
+  onExportPNG?: () => void;
+  onExportSVG?: () => void;
 }
 
 const TOOLS: { id: ToolType; label: string; icon: string }[] = [
@@ -63,6 +65,8 @@ export function CanvasToolbar({
   onRedo,
   onClear,
   onOpenShortcuts,
+  onExportPNG,
+  onExportSVG,
 }: CanvasToolbarProps) {
   return (
     <div className="flex items-center gap-2 rounded-lg bg-zinc-900/90 px-3 py-2 shadow-lg backdrop-blur-sm">
@@ -202,6 +206,51 @@ export function CanvasToolbar({
           <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
         </svg>
       </button>
+
+      {onExportPNG && (
+        <button
+          type="button"
+          title="Export as transparent PNG"
+          aria-label="Export as transparent PNG"
+          onClick={onExportPNG}
+          data-testid="export-png-btn"
+          className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <polyline points="21 15 16 10 5 21" />
+          </svg>
+        </button>
+      )}
+
+      {onExportSVG && (
+        <button
+          type="button"
+          title="Export as SVG"
+          aria-label="Export as SVG"
+          onClick={onExportSVG}
+          data-testid="export-svg-btn"
+          className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <polyline points="16 18 22 12 16 6" />
+            <polyline points="8 6 2 12 8 18" />
+          </svg>
+        </button>
+      )}
 
       {onOpenShortcuts && (
         <button

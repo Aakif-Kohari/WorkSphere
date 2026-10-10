@@ -8,6 +8,10 @@ import { DrawingCanvas } from "@/components/whiteboard/DrawingCanvas";
 import { RemoteCursors } from "@/components/whiteboard/RemoteCursors";
 import { StickyNotes } from "@/components/whiteboard/StickyNotes";
 import { KeyboardShortcutModal } from "@/components/whiteboard/KeyboardShortcutModal";
+import {
+  exportCanvasAsPng,
+  exportCanvasAsSvg,
+} from "@/lib/whiteboard/canvasExport";
 
 interface CanvasWhiteboardProps {
   canvasId: string;
@@ -65,6 +69,18 @@ export function CanvasWhiteboard({ canvasId }: CanvasWhiteboardProps) {
     clearCanvas();
     setTool("pen");
   }, [clearCanvas, setTool]);
+
+  const handleExportPNG = useCallback(() => {
+    exportCanvasAsPng(shapeSnapshots, {
+      filename: `whiteboard-${canvasId || "export"}-${Date.now()}.png`,
+    });
+  }, [shapeSnapshots, canvasId]);
+
+  const handleExportSVG = useCallback(() => {
+    exportCanvasAsSvg(shapeSnapshots, {
+      filename: `whiteboard-${canvasId || "export"}-${Date.now()}.svg`,
+    });
+  }, [shapeSnapshots, canvasId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -125,6 +141,8 @@ export function CanvasWhiteboard({ canvasId }: CanvasWhiteboardProps) {
           onRedo={redo}
           onClear={handleClear}
           onOpenShortcuts={() => setIsShortcutModalOpen(true)}
+          onExportPNG={handleExportPNG}
+          onExportSVG={handleExportSVG}
         />
       </div>
 
