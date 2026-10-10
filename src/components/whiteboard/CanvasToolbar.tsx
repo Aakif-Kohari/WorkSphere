@@ -20,6 +20,7 @@ export interface CanvasToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onClear: () => void;
+  onOpenShortcuts?: () => void;
 }
 
 const TOOLS: { id: ToolType; label: string; icon: string }[] = [
@@ -61,6 +62,7 @@ export function CanvasToolbar({
   onUndo,
   onRedo,
   onClear,
+  onOpenShortcuts,
 }: CanvasToolbarProps) {
   return (
     <div className="flex items-center gap-2 rounded-lg bg-zinc-900/90 px-3 py-2 shadow-lg backdrop-blur-sm">
@@ -200,6 +202,29 @@ export function CanvasToolbar({
           <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
         </svg>
       </button>
+
+      {onOpenShortcuts && (
+        <button
+          type="button"
+          title="Keyboard shortcuts (?)"
+          aria-label="Keyboard shortcuts"
+          onClick={onOpenShortcuts}
+          data-testid="whiteboard-shortcuts-btn"
+          className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+        </button>
+      )}
 
       {participants && participants.length > 0 && (
         <>
