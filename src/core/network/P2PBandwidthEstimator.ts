@@ -47,18 +47,26 @@ export class P2PBandwidthEstimator {
 
     public calculateResults(): SpeedTestResult {
         const downloadDurations = this.downloadEndTimes
-            .map((end, i) => end - this.downloadStartTimes[i])
-            .filter(d => d > 0);
+            .map((end, i) => Math.max(0.1, end - this.downloadStartTimes[i]))
+            .filter(d => !isNaN(d) && d > 0);
 
         const uploadDurations = this.uploadEndTimes
-            .map((end, i) => end - this.uploadStartTimes[i])
-            .filter(d => d > 0);
+            .map((end, i) => Math.max(0.1, end - this.uploadStartTimes[i]))
+            .filter(d => !isNaN(d) && d > 0);
 
-        const avgDownloadDuration = this.calculateMedian(downloadDurations);
-        const avgUploadDuration = this.calculateMedian(uploadDurations);
+        const rawAvgDownloadDuration = this.calculateMedian(downloadDurations);
+        const rawAvgUploadDuration = this.calculateMedian(uploadDurations);
 
-        const downloadSpeedMbps = (this.chunkSize * 8) / (avgDownloadDuration * 1000);
-        const uploadSpeedMbps = (this.chunkSize * 8) / (avgUploadDuration * 1000);
+        // Clamp measured latency/duration to a minimum threshold of 0.1 ms to avoid divide-by-zero (#5480)
+        const avgDownloadDuration = Math.max(0.1, rawAvgDownloadDuration);
+        const avgUploadDuration = Math.max(0.1, rawAvgUploadDuration);
+
+        const downloadSpeedMbps = downloadDurations.length > 0
+            ? (this.chunkSize * 8) / (avgDownloadDuration * 1000)
+            : 0;
+        const uploadSpeedMbps = uploadDurations.length > 0
+            ? (this.chunkSize * 8) / (avgUploadDuration * 1000)
+            : 0;
 
         const jitter = this.calculateJitter(downloadDurations);
         const packetLoss = this.calculatePacketLoss(downloadDurations);
