@@ -15,10 +15,13 @@ interface TimezoneClockProps {
  * Updates every second via setInterval. Cleans up on unmount.
  */
 export function TimezoneClock({ timeZone, label }: TimezoneClockProps) {
+  const cleanTz = timeZone?.trim() || "";
+
   const [time, setTime] = useState<string>(() => {
+    if (!cleanTz) return "--:--:-- --";
     try {
       return new Intl.DateTimeFormat("en-US", {
-        timeZone,
+        timeZone: cleanTz,
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
@@ -28,10 +31,12 @@ export function TimezoneClock({ timeZone, label }: TimezoneClockProps) {
       return "--:--:-- --";
     }
   });
+
   const [tzAbbr, setTzAbbr] = useState<string>(() => {
+    if (!cleanTz) return timeZone;
     try {
       const parts = new Intl.DateTimeFormat("en-US", {
-        timeZone,
+        timeZone: cleanTz,
         timeZoneName: "short",
       }).formatToParts(new Date());
       return parts.find((p) => p.type === "timeZoneName")?.value ?? timeZone;
@@ -39,9 +44,11 @@ export function TimezoneClock({ timeZone, label }: TimezoneClockProps) {
       return timeZone;
     }
   });
+
   const [isValid, setIsValid] = useState(() => {
+    if (!cleanTz) return false;
     try {
-      new Intl.DateTimeFormat("en-US", { timeZone });
+      new Intl.DateTimeFormat("en-US", { timeZone: cleanTz });
       return true;
     } catch {
       return false;
@@ -49,13 +56,21 @@ export function TimezoneClock({ timeZone, label }: TimezoneClockProps) {
   });
 
   useEffect(() => {
+    const tzToFormat = timeZone?.trim() || "";
+    if (!tzToFormat) {
+      setIsValid(false);
+      setTime("--:--:-- --");
+      setTzAbbr(timeZone);
+      return;
+    }
+
     const tick = () => {
       try {
         const now = new Date();
 
         // Format the time in the venue's local timezone
         const timeFormatter = new Intl.DateTimeFormat("en-US", {
-          timeZone,
+          timeZone: tzToFormat,
           hour: "2-digit",
           minute: "2-digit",
           second: "2-digit",
@@ -64,14 +79,14 @@ export function TimezoneClock({ timeZone, label }: TimezoneClockProps) {
 
         // Extract the timezone abbreviation (e.g. "EST", "IST")
         const abbrFormatter = new Intl.DateTimeFormat("en-US", {
-          timeZone,
+          timeZone: tzToFormat,
           timeZoneName: "short",
         });
 
         const formattedTime = timeFormatter.format(now);
         const parts = abbrFormatter.formatToParts(now);
         const abbr =
-          parts.find((p) => p.type === "timeZoneName")?.value ?? timeZone;
+          parts.find((p) => p.type === "timeZoneName")?.value ?? tzToFormat;
 
         setTime(formattedTime);
         setTzAbbr(abbr);
@@ -92,12 +107,21 @@ export function TimezoneClock({ timeZone, label }: TimezoneClockProps) {
 
   if (!isValid) {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 font-mono tabular-nums mt-1">
+      <div
+        suppressHydrationWarning
+        className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 font-mono tabular-nums mt-1"
+      >
         <Globe className="w-3 h-3 shrink-0 text-red-400" />
-        <span className="text-zinc-900 dark:text-zinc-100 font-semibold">
+        <span
+          suppressHydrationWarning
+          className="text-zinc-900 dark:text-zinc-100 font-semibold"
+        >
           --:--:-- --
         </span>
-        <span className="text-zinc-400 dark:text-zinc-500">
+        <span
+          suppressHydrationWarning
+          className="text-zinc-400 dark:text-zinc-500"
+        >
           {tzAbbr || timeZone}
         </span>
       </div>
@@ -105,12 +129,23 @@ export function TimezoneClock({ timeZone, label }: TimezoneClockProps) {
   }
 
   return (
-    <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 font-mono tabular-nums mt-1">
+    <div
+      suppressHydrationWarning
+      className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 font-mono tabular-nums mt-1"
+    >
       <Globe className="w-3 h-3 shrink-0 text-blue-400" />
-      <span className="text-zinc-900 dark:text-zinc-100 font-semibold">
+      <span
+        suppressHydrationWarning
+        className="text-zinc-900 dark:text-zinc-100 font-semibold"
+      >
         {time}
       </span>
-      <span className="text-zinc-400 dark:text-zinc-500">{tzAbbr}</span>
+      <span
+        suppressHydrationWarning
+        className="text-zinc-400 dark:text-zinc-500"
+      >
+        {tzAbbr}
+      </span>
       {label && (
         <span className="text-zinc-400 dark:text-zinc-500 ml-0.5">
           · {label}
