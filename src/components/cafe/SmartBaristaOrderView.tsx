@@ -110,12 +110,13 @@ export default function SmartBaristaOrderView() {
         if (opt) price += opt.priceDelta;
       });
     });
-    return price * quantity;
+    return price * Math.max(1, quantity);
   };
 
   // Add to cart
   const addToCart = () => {
-    if (!customizingItem || quantity <= 0) return;
+    if (!customizingItem || quantity < 1) return;
+    const safeQty = Math.max(1, Math.floor(quantity));
     const customizations = Object.entries(selectedOptions).map(([groupId, selectedOptionIds]) => ({
       groupId,
       selectedOptionIds,
@@ -123,7 +124,7 @@ export default function SmartBaristaOrderView() {
 
     const orderItem: OrderItemInput = {
       menuItemId: customizingItem.id,
-      quantity,
+      quantity: safeQty,
       customizations,
     };
 
@@ -603,8 +604,9 @@ export default function SmartBaristaOrderView() {
                 <span className="text-xs text-slate-400 font-semibold">Quantity</span>
                 <div className="flex items-center gap-3 bg-slate-800 p-1 rounded-xl border border-slate-700">
                   <button
-                    onClick={() => setQuantity(Math.max(0, quantity - 1))}
-                    className="p-1 rounded-lg hover:bg-slate-700 text-slate-300"
+                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                    disabled={quantity <= 1}
+                    className="p-1 rounded-lg hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed"
                     title="Decrease quantity"
                   >
                     <Minus className="w-4 h-4" />
@@ -628,14 +630,14 @@ export default function SmartBaristaOrderView() {
               </div>
               <button
                 onClick={addToCart}
-                disabled={quantity <= 0}
+                disabled={quantity < 1}
                 className={`px-5 py-2.5 font-bold text-xs rounded-xl transition-all shadow ${
-                  quantity <= 0
+                  quantity < 1
                     ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
                     : "bg-amber-600 hover:bg-amber-500 text-white"
                 }`}
               >
-                {quantity <= 0 ? "Select Quantity" : "Add to Cart"}
+                {quantity < 1 ? "Select Quantity" : "Add to Cart"}
               </button>
             </div>
           </div>
