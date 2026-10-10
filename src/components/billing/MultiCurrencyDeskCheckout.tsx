@@ -191,6 +191,17 @@ export function MultiCurrencyDeskCheckout({
     txReference,
   ]);
 
+  const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const standardPayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+      if (standardPayTimeoutRef.current) clearTimeout(standardPayTimeoutRef.current);
+    };
+  }, []);
+
   // Expiration countdown timer
   useEffect(() => {
     if (selectedCurrency !== "SOL_USDC" || paymentStatus === "CONFIRMED") return;
@@ -210,7 +221,7 @@ export function MultiCurrencyDeskCheckout({
   }, [selectedCurrency, paymentStatus]);
 
   // Poll transaction status from Solana endpoint
-  const pollStatus = useCallback(async () => {
+  const pollStatus = useCallback(async (signal?: AbortSignal) => {
     if (
       selectedCurrency !== "SOL_USDC" ||
       paymentStatus === "CONFIRMED" ||
@@ -221,10 +232,13 @@ export function MultiCurrencyDeskCheckout({
 
     try {
       const res = await fetch(
-        `/api/payments/solana/status?reference=${encodeURIComponent(txReference)}`
+        `/api/payments/solana/status?reference=${encodeURIComponent(txReference)}`,
+        { signal }
       );
+      if (signal?.aborted) return;
       if (res.ok) {
         const data: SolanaPayStatusResponse = await res.json();
+        if (signal?.aborted) return;
         setPollCount((p) => p + 1);
 
         if (data.status === "CONFIRMED" && data.signature) {
@@ -240,7 +254,10 @@ export function MultiCurrencyDeskCheckout({
           }
         }
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === "AbortError" || signal?.aborted) {
+        return; // Component unmounted or request cancelled cleanly
+      }
       console.warn("[MultiCurrencyDeskCheckout] Status poll error:", err);
     }
   }, [selectedCurrency, paymentStatus, txReference, item.bookingId, item.priceUsd, onBookingConfirmed]);
@@ -248,11 +265,15 @@ export function MultiCurrencyDeskCheckout({
   useEffect(() => {
     if (selectedCurrency !== "SOL_USDC" || paymentStatus !== "POLLING") return;
 
+    const controller = new AbortController();
     const pollInterval = setInterval(() => {
-      pollStatus();
+      pollStatus(controller.signal);
     }, 2500);
 
-    return () => clearInterval(pollInterval);
+    return () => {
+      clearInterval(pollInterval);
+      controller.abort();
+    };
   }, [selectedCurrency, paymentStatus, pollStatus]);
 
   // Simulate payment confirmation (sandbox / testing trigger)
@@ -287,13 +308,15 @@ export function MultiCurrencyDeskCheckout({
     if (!solanaPayUrl) return;
     navigator.clipboard.writeText(solanaPayUrl);
     setCopiedUrl(true);
-    setTimeout(() => setCopiedUrl(false), 2000);
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    copyTimeoutRef.current = setTimeout(() => setCopiedUrl(false), 2000);
   };
 
   const handleStandardPaySubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setIsProcessingStandard(true);
-    setTimeout(() => {
+    if (standardPayTimeoutRef.current) clearTimeout(standardPayTimeoutRef.current);
+    standardPayTimeoutRef.current = setTimeout(() => {
       setIsProcessingStandard(false);
       if (onBookingConfirmed) {
         onBookingConfirmed({

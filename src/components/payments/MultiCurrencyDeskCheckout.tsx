@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Zap,
   Coins,
@@ -40,6 +40,17 @@ export default function MultiCurrencyDeskCheckout() {
     rail: string;
   } | null>(null);
 
+  const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Live session tick
   useEffect(() => {
     if (!session || session.status !== "active") return;
@@ -49,7 +60,7 @@ export default function MultiCurrencyDeskCheckout() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [session]);
+  }, [session?.status, session?.sessionId]);
 
   const startSession = () => {
     const newSession: MicroBillingSession = {
@@ -106,7 +117,10 @@ export default function MultiCurrencyDeskCheckout() {
     if (typeof navigator !== "undefined" && navigator.clipboard) {
       navigator.clipboard.writeText(text);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+      copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000);
     }
   };
 
