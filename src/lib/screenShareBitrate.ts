@@ -103,40 +103,53 @@ export function readNetworkHints(report: RTCStatsReport): {
 export async function adaptVideoBitrate(
   pc: RTCPeerConnection,
 ): Promise<BitrateTier | null> {
-  const senders = pc.getSenders();
+  if (pc.signalingState === "closed" || (pc.connectionState && pc.connectionState === "closed")) {
+    return null;
+  }
+  let senders: RTCRtpSender[] = [];
+  try {
+    senders = pc.getSenders();
+  } catch {
+    return null;
+  }
   const videoSender = senders.find((s) => s.track?.kind === "video");
   const audioSender = senders.find((s) => s.track?.kind === "audio");
 
   if (!videoSender && !audioSender) return null;
 
-  const hints = readNetworkHints(await pc.getStats());
-  const tier = pickBitrateTier(hints);
+  try {
+    const stats = await pc.getStats();
+    const hints = readNetworkHints(stats);
+    const tier = pickBitrateTier(hints);
 
-  if (videoSender) {
-    const params = videoSender.getParameters();
-    if (!params.encodings?.length) {
-      params.encodings = [{}];
+    if (videoSender) {
+      const params = videoSender.getParameters();
+      if (!params.encodings?.length) {
+        params.encodings = [{}];
+      }
+      params.encodings[0].maxBitrate = tier.maxBitrate;
+      try {
+        await videoSender.setParameters(params);
+      } catch {
+        // Some browsers reject mid-flight tweaks; ignore and keep going.
+      }
     }
-    params.encodings[0].maxBitrate = tier.maxBitrate;
-    try {
-      await videoSender.setParameters(params);
-    } catch {
-      // Some browsers reject mid-flight tweaks; ignore and keep going.
+
+    if (audioSender) {
+      const params = audioSender.getParameters();
+      if (!params.encodings?.length) {
+        params.encodings = [{}];
+      }
+      params.encodings[0].maxBitrate = tier.audioMaxBitrate;
+      try {
+        await audioSender.setParameters(params);
+      } catch {
+        // Some browsers reject mid-flight tweaks; ignore and keep going.
+      }
     }
+
+    return tier;
+  } catch {
+    return null;
   }
-
-  if (audioSender) {
-    const params = audioSender.getParameters();
-    if (!params.encodings?.length) {
-      params.encodings = [{}];
-    }
-    params.encodings[0].maxBitrate = tier.audioMaxBitrate;
-    try {
-      await audioSender.setParameters(params);
-    } catch {
-      // Some browsers reject mid-flight tweaks; ignore and keep going.
-    }
-  }
-
-  return tier;
 }

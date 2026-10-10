@@ -76,7 +76,29 @@ export function useScreenShare({ roomId, userId, isHost }: Options) {
     if (!pc) return;
     pc.onicecandidate = null;
     pc.ontrack = null;
-    pc.close();
+    pc.onconnectionstatechange = null;
+    pc.onsignalingstatechange = null;
+    pc.oniceconnectionstatechange = null;
+    try {
+      pc.getSenders?.().forEach((sender) => {
+        try {
+          if (sender.track) {
+            pc.removeTrack(sender);
+          }
+        } catch {
+          // ignore
+        }
+      });
+    } catch {
+      // ignore
+    }
+    try {
+      if (pc.signalingState !== "closed") {
+        pc.close();
+      }
+    } catch {
+      // ignore
+    }
     peersRef.current.delete(peerId);
   }, []);
 
@@ -98,7 +120,12 @@ export function useScreenShare({ roomId, userId, isHost }: Options) {
   const ensurePeer = useCallback(
     (peerId: string, asOfferer: boolean) => {
       let pc = peersRef.current.get(peerId);
-      if (pc) return pc;
+      if (pc && pc.signalingState !== "closed") {
+        return pc;
+      }
+      if (pc) {
+        cleanupPeer(peerId);
+      }
 
       pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
       peersRef.current.set(peerId, pc);
@@ -116,26 +143,40 @@ export function useScreenShare({ roomId, userId, isHost }: Options) {
         setRemoteStream(stream);
       };
 
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+          cleanupPeer(peerId);
+        }
+      };
+
       const local = localStreamRef.current;
       if (local && asOfferer) {
         for (const track of local.getTracks()) {
-          pc.addTrack(track, local);
+          try {
+            pc.addTrack(track, local);
+          } catch {
+            // Track may already be added
+          }
         }
       }
 
       return pc;
     },
-    [sendSignal],
+    [sendSignal, cleanupPeer],
   );
 
   const startBitrateLoop = useCallback(() => {
     if (bitrateTimerRef.current) clearInterval(bitrateTimerRef.current);
     bitrateTimerRef.current = setInterval(() => {
-      for (const pc of peersRef.current.values()) {
-        void adaptVideoBitrate(pc);
+      for (const [peerId, pc] of [...peersRef.current.entries()]) {
+        if (pc.signalingState === "closed" || pc.connectionState === "closed" || pc.connectionState === "failed") {
+          cleanupPeer(peerId);
+          continue;
+        }
+        void adaptVideoBitrate(pc).catch(() => {});
       }
     }, 4000);
-  }, []);
+  }, [cleanupPeer]);
 
   const handleSignal = useCallback(
     async (msg: SignalMessage) => {
@@ -171,6 +212,7 @@ export function useScreenShare({ roomId, userId, isHost }: Options) {
       }
 
       if (msg.kind === "offer" && msg.to === userId) {
+        cleanupPeer(msg.from);
         const pc = ensurePeer(msg.from, false);
         try {
           await pc.setRemoteDescription(msg.sdp!);
@@ -189,7 +231,7 @@ export function useScreenShare({ roomId, userId, isHost }: Options) {
 
       if (msg.kind === "answer" && msg.to === userId) {
         const pc = peersRef.current.get(msg.from);
-        if (!pc) return;
+        if (!pc || pc.signalingState === "closed") return;
         try {
           await pc.setRemoteDescription(msg.sdp!);
         } catch {
@@ -200,7 +242,7 @@ export function useScreenShare({ roomId, userId, isHost }: Options) {
 
       if (msg.kind === "ice" && msg.to === userId && msg.candidate) {
         const pc = peersRef.current.get(msg.from);
-        if (!pc) return;
+        if (!pc || pc.signalingState === "closed") return;
         try {
           await pc.addIceCandidate(msg.candidate);
         } catch {
