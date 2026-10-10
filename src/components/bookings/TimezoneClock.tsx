@@ -8,14 +8,25 @@ interface TimezoneClockProps {
   timeZone: string;
   /** Optional label shown next to the clock (e.g. venue city name) */
   label?: string;
+  /** Optional reference date or booking date to evaluate Daylight Saving Time (DST) */
+  date?: Date | string | number;
 }
 
 /**
  * TimezoneClock — displays a live, localized clock for a given IANA timezone.
+ * Handles Daylight Saving Time (DST) transitions accurately via Intl.DateTimeFormat.
  * Updates every second via setInterval. Cleans up on unmount.
  */
-export function TimezoneClock({ timeZone, label }: TimezoneClockProps) {
+export function TimezoneClock({ timeZone, label, date }: TimezoneClockProps) {
   const cleanTz = timeZone?.trim() || "";
+
+  const getReferenceDate = () => {
+    if (date) {
+      const parsed = new Date(date);
+      if (!isNaN(parsed.getTime())) return parsed;
+    }
+    return new Date();
+  };
 
   const [time, setTime] = useState<string>(() => {
     if (!cleanTz) return "--:--:-- --";
@@ -26,7 +37,7 @@ export function TimezoneClock({ timeZone, label }: TimezoneClockProps) {
         minute: "2-digit",
         second: "2-digit",
         hour12: true,
-      }).format(new Date());
+      }).format(getReferenceDate());
     } catch {
       return "--:--:-- --";
     }
@@ -38,7 +49,7 @@ export function TimezoneClock({ timeZone, label }: TimezoneClockProps) {
       const parts = new Intl.DateTimeFormat("en-US", {
         timeZone: cleanTz,
         timeZoneName: "short",
-      }).formatToParts(new Date());
+      }).formatToParts(getReferenceDate());
       return parts.find((p) => p.type === "timeZoneName")?.value ?? timeZone;
     } catch {
       return timeZone;
@@ -66,7 +77,7 @@ export function TimezoneClock({ timeZone, label }: TimezoneClockProps) {
 
     const tick = () => {
       try {
-        const now = new Date();
+        const now = getReferenceDate();
 
         // Format the time in the venue's local timezone
         const timeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -77,7 +88,7 @@ export function TimezoneClock({ timeZone, label }: TimezoneClockProps) {
           hour12: true,
         });
 
-        // Extract the timezone abbreviation (e.g. "EST", "IST")
+        // Extract the timezone abbreviation (e.g. "EST", "EDT", "IST")
         const abbrFormatter = new Intl.DateTimeFormat("en-US", {
           timeZone: tzToFormat,
           timeZoneName: "short",
@@ -103,7 +114,7 @@ export function TimezoneClock({ timeZone, label }: TimezoneClockProps) {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [timeZone]);
+  }, [timeZone, date]);
 
   if (!isValid) {
     return (
