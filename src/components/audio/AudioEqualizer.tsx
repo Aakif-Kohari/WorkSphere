@@ -225,9 +225,13 @@ export function AudioEqualizer({
 
   // Initialize Audio Context and BiquadFilterNode EQ chain on demand
   const initAudio = useCallback(() => {
-    if (audioContextRef.current) return;
+    if (audioContextRef.current && audioContextRef.current.state !== "closed") return;
+    if (audioContextRef.current && audioContextRef.current.state === "closed") {
+      audioContextRef.current = null;
+    }
     const AudioContextClass =
       window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
     const ctx = new AudioContextClass();
     const masterGain = ctx.createGain();
     const analyser = ctx.createAnalyser();
@@ -577,8 +581,16 @@ export function AudioEqualizer({
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       stopPlayingNodes();
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
+      if (
+        audioContextRef.current &&
+        audioContextRef.current.state !== "closed"
+      ) {
+        try {
+          audioContextRef.current.close().catch(() => {});
+        } catch {
+          // already closed
+        }
+        audioContextRef.current = null;
       }
     };
   }, [stopPlayingNodes]);

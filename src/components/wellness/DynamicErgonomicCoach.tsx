@@ -166,6 +166,13 @@ export default function DynamicErgonomicCoach() {
           osc.stop(ctx.currentTime + idx * 0.15 + 0.28);
         });
       }
+
+      // Schedule clean AudioContext closure after chime decay
+      setTimeout(() => {
+        if (ctx.state !== "closed") {
+          ctx.close().catch(() => {});
+        }
+      }, 1500);
     } catch {
       // Graceful fallback if Web Audio is blocked
     }

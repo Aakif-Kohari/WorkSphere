@@ -271,7 +271,10 @@ export function AmbientSoundPlayer({ noiseLevel }: AmbientSoundPlayerProps) {
   useEffect(() => {
     return () => {
       stopSoundRef.current?.();
-      ctxRef.current?.close().catch(() => {});
+      if (ctxRef.current && ctxRef.current.state !== "closed") {
+        ctxRef.current.close().catch(() => {});
+      }
+      ctxRef.current = null;
     };
   }, []);
 
@@ -318,10 +321,14 @@ export function AmbientSoundPlayer({ noiseLevel }: AmbientSoundPlayerProps) {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const val = Number(e.target.value);
       setVolume(val);
-      if (volumeNodeRef.current) {
+      if (
+        volumeNodeRef.current &&
+        ctxRef.current &&
+        ctxRef.current.state !== "closed"
+      ) {
         volumeNodeRef.current.gain.setTargetAtTime(
           val / 100,
-          ctxRef.current!.currentTime,
+          ctxRef.current.currentTime,
           0.05,
         );
       }
@@ -332,10 +339,14 @@ export function AmbientSoundPlayer({ noiseLevel }: AmbientSoundPlayerProps) {
   const toggleMute = useCallback(() => {
     setIsMuted((prev) => {
       const next = !prev;
-      if (muteNodeRef.current) {
+      if (
+        muteNodeRef.current &&
+        ctxRef.current &&
+        ctxRef.current.state !== "closed"
+      ) {
         muteNodeRef.current.gain.setTargetAtTime(
           next ? 0 : 1,
-          ctxRef.current!.currentTime,
+          ctxRef.current.currentTime,
           0.05,
         );
       }
