@@ -17,6 +17,12 @@ export type OutletHealthStatus =
   | "DEAD_NO_POWER"
   | "LOOSE_PHYSICAL_FAULT";
 
+export type PowerGridStatus =
+  | "ONLINE_MAINS"
+  | "DEGRADED_VOLTAGE"
+  | "GENERATOR_ACTIVE"
+  | "OUTAGE";
+
 export interface DeskPowerNode {
   seatId: string;
   seatNumber: string;
@@ -33,6 +39,9 @@ export interface DeskPowerNode {
 export interface VenuePowerGridSummary {
   venueId: string;
   venueName: string;
+  gridStatus: PowerGridStatus;
+  generatorActive: boolean;
+  batteryBackupMinutesRemaining?: number;
   overallGridHealthScore: number; // 0 to 100
   totalSocketsCount: number;
   workingSocketsCount: number;
@@ -43,13 +52,14 @@ export interface VenuePowerGridSummary {
 }
 
 /**
- * Computes overall power grid health score and fast charging coverage percentage.
+ * Computes overall power grid health score, grid status, and fast charging coverage percentage.
  */
 export function computeVenuePowerGridSummary(
   venueId: string,
   venueName: string,
   nodes: DeskPowerNode[],
-  nominalVoltage = 120
+  nominalVoltage = 120,
+  forcedStatus?: PowerGridStatus
 ): VenuePowerGridSummary {
   const total = nodes.length || 1;
   const working = nodes.filter((n) => n.status === "OPERATIONAL_OPTIMAL").length;
@@ -61,9 +71,25 @@ export function computeVenuePowerGridSummary(
   const overallGridHealthScore = Math.round(reliabilitySum / total);
   const fastChargingCoveragePct = Math.round((fastChargingCount / total) * 100);
 
+  let gridStatus: PowerGridStatus = forcedStatus || "ONLINE_MAINS";
+  if (!forcedStatus) {
+    if (working === 0 && nodes.length > 0) {
+      gridStatus = "OUTAGE";
+    } else if (nodes.some((n) => n.status === "THROTTLED_LOW_WATTAGE") && working < total / 2) {
+      gridStatus = "DEGRADED_VOLTAGE";
+    }
+  }
+
+  const generatorActive = gridStatus === "GENERATOR_ACTIVE";
+  const batteryBackupMinutesRemaining =
+    gridStatus === "OUTAGE" ? 45 : gridStatus === "GENERATOR_ACTIVE" ? 180 : undefined;
+
   return {
     venueId,
     venueName,
+    gridStatus,
+    generatorActive,
+    batteryBackupMinutesRemaining,
     overallGridHealthScore,
     totalSocketsCount: nodes.length,
     workingSocketsCount: working,

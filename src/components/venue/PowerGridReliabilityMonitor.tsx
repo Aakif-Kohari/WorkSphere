@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Zap,
   Plug,
@@ -16,12 +16,18 @@ import {
   Smartphone,
   Tablet,
   Flag,
+  Bell,
+  BellRing,
+  BellOff,
+  Radio,
 } from "lucide-react";
 import type {
   VenuePowerGridSummary,
   DeskPowerNode,
   OutletHealthStatus,
+  PowerGridStatus,
 } from "@/lib/telemetry/powerGridEngine";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 interface PowerGridReliabilityMonitorProps {
   venueId?: string;
@@ -38,10 +44,41 @@ export default function PowerGridReliabilityMonitor({
   const [reportSuccessMsg, setReportSuccessMsg] = useState<string | null>(null);
   const [submittingReport, setSubmittingReport] = useState(false);
 
-  const fetchPowerGrid = async () => {
+  // Power outage push notification subscription state
+  const {
+    isSupported: isPushSupported,
+    isSubscribed: isPushSubscribed,
+    permission: pushPermission,
+    subscribe: subscribePush,
+    unsubscribe: unsubscribePush,
+    isLoading: isPushLoading,
+  } = usePushNotifications();
+
+  const [powerAlertsSubscribed, setPowerAlertsSubscribed] = useState<boolean>(false);
+  const [prevGridStatus, setPrevGridStatus] = useState<PowerGridStatus | null>(null);
+  const [activeAlertBanner, setActiveAlertBanner] = useState<{
+    title: string;
+    description: string;
+    status: PowerGridStatus;
+  } | null>(null);
+
+  // Load saved preference from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(`power_alerts_subscribed_${venueId}`);
+      if (saved === "true") {
+        setPowerAlertsSubscribed(true);
+      }
+    }
+  }, [venueId]);
+
+  const fetchPowerGrid = async (statusOverride?: PowerGridStatus) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/telemetry/outlets?venueId=${venueId}`);
+      const url = statusOverride
+        ? `/api/telemetry/outlets?venueId=${venueId}&gridStatus=${statusOverride}`
+        : `/api/telemetry/outlets?venueId=${venueId}`;
+      const res = await fetch(url);
       const data = await res.json();
       if (data.success) {
         setSummary(data.summary);
@@ -56,6 +93,96 @@ export default function PowerGridReliabilityMonitor({
   useEffect(() => {
     fetchPowerGrid();
   }, [venueId]);
+
+  // Push notification trigger on status transition to OUTAGE or GENERATOR_ACTIVE
+  useEffect(() => {
+    if (!summary) return;
+    const currentStatus = summary.gridStatus;
+
+    if (
+      prevGridStatus &&
+      prevGridStatus !== currentStatus &&
+      (currentStatus === "OUTAGE" || currentStatus === "GENERATOR_ACTIVE") &&
+      powerAlertsSubscribed
+    ) {
+      const isOutage = currentStatus === "OUTAGE";
+      const title = isOutage
+        ? `🔴 Emergency Power Outage: ${summary.venueName}`
+        : `🟠 Emergency Generator Active: ${summary.venueName}`;
+
+      const description = isOutage
+        ? `Mains power disconnected at ${summary.venueName}. Estimated battery backup: ${summary.batteryBackupMinutesRemaining ?? 45} mins.`
+        : `Emergency backup generator switched on at ${summary.venueName}. Outlets operating on fallback circuit.`;
+
+      setActiveAlertBanner({ title, description, status: currentStatus });
+
+      // Trigger Web Push Notification via registered Service Worker
+      if (typeof window !== "undefined") {
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker.ready
+            .then((reg) => {
+              reg.showNotification(title, {
+                body: description,
+                icon: "/favicon.ico",
+                badge: "/favicon.ico",
+                tag: `power-grid-alert-${venueId}`,
+              });
+            })
+            .catch(() => {
+              if ("Notification" in window && Notification.permission === "granted") {
+                new Notification(title, { body: description });
+              }
+            });
+        } else if ("Notification" in window && Notification.permission === "granted") {
+          new Notification(title, { body: description });
+        }
+      }
+    }
+
+    setPrevGridStatus(currentStatus);
+  }, [summary?.gridStatus, powerAlertsSubscribed, prevGridStatus, summary?.venueName, summary?.batteryBackupMinutesRemaining, venueId]);
+
+  const handleTogglePushAlerts = async () => {
+    if (powerAlertsSubscribed) {
+      setPowerAlertsSubscribed(false);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`power_alerts_subscribed_${venueId}`, "false");
+      }
+      setReportSuccessMsg("Unsubscribed from power outage alerts for this venue.");
+      setTimeout(() => setReportSuccessMsg(null), 3000);
+    } else {
+      let granted = false;
+      if (isPushSupported && !isPushSubscribed) {
+        granted = await subscribePush();
+      } else if (typeof window !== "undefined" && "Notification" in window) {
+        const perm = await Notification.requestPermission();
+        granted = perm === "granted";
+      } else {
+        granted = true;
+      }
+
+      setPowerAlertsSubscribed(true);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`power_alerts_subscribed_${venueId}`, "true");
+      }
+      setReportSuccessMsg("Subscribed to automated power outage & emergency generator push alerts!");
+      setTimeout(() => setReportSuccessMsg(null), 4000);
+    }
+  };
+
+  const handleSimulateStatus = (status: PowerGridStatus) => {
+    if (summary) {
+      setSummary({
+        ...summary,
+        gridStatus: status,
+        generatorActive: status === "GENERATOR_ACTIVE",
+        batteryBackupMinutesRemaining:
+          status === "OUTAGE" ? 45 : status === "GENERATOR_ACTIVE" ? 180 : undefined,
+      });
+    } else {
+      fetchPowerGrid(status);
+    }
+  };
 
   const handleReportDeadPlug = async (node: DeskPowerNode, issueType: string) => {
     setSubmittingReport(true);
@@ -105,14 +232,57 @@ export default function PowerGridReliabilityMonitor({
     }
   };
 
+  const getGridStatusBadge = (status: PowerGridStatus) => {
+    switch (status) {
+      case "OUTAGE":
+        return {
+          label: "🔴 Sudden Power Outage (Battery Active)",
+          color: "bg-rose-500/20 border-rose-500/40 text-rose-300 animate-pulse",
+          icon: <AlertTriangle className="w-4 h-4 text-rose-400" />,
+        };
+      case "GENERATOR_ACTIVE":
+        return {
+          label: "🟠 Backup Generator Active",
+          color: "bg-amber-500/20 border-amber-500/40 text-amber-300",
+          icon: <Zap className="w-4 h-4 text-amber-400" />,
+        };
+      case "DEGRADED_VOLTAGE":
+        return {
+          label: "🟡 Voltage Sag / Degraded Line",
+          color: "bg-yellow-500/20 border-yellow-500/40 text-yellow-300",
+          icon: <Activity className="w-4 h-4 text-yellow-400" />,
+        };
+      case "ONLINE_MAINS":
+      default:
+        return {
+          label: "⚡ Utility Mains Online",
+          color: "bg-emerald-500/20 border-emerald-500/40 text-emerald-300",
+          icon: <ShieldCheck className="w-4 h-4 text-emerald-400" />,
+        };
+    }
+  };
+
+  const currentGridBadge = summary ? getGridStatusBadge(summary.gridStatus) : null;
+
   return (
     <div className="w-full max-w-5xl mx-auto space-y-6">
       {/* Top Banner */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-amber-950/30 to-slate-900 border border-amber-500/30 p-6 md:p-8 backdrop-blur-xl shadow-2xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold uppercase tracking-wider">
-              <Zap className="w-3.5 h-3.5" /> Real-Time Power Grid Telemetry
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold uppercase tracking-wider">
+                <Zap className="w-3.5 h-3.5" /> Real-Time Power Grid Telemetry
+              </div>
+              {currentGridBadge && (
+                <div
+                  data-testid="grid-status-badge"
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-bold ${currentGridBadge.color}`}
+                >
+                  {currentGridBadge.icon}
+                  <span>{currentGridBadge.label}</span>
+                </div>
+              )}
             </div>
             <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
               Smart Power Grid & Outlet Voltage Monitor
@@ -122,9 +292,38 @@ export default function PowerGridReliabilityMonitor({
             </p>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            {/* Push Notification Subscription Button */}
             <button
-              onClick={fetchPowerGrid}
+              onClick={handleTogglePushAlerts}
+              disabled={isPushLoading}
+              data-testid="power-outage-subscription-toggle"
+              aria-label={
+                powerAlertsSubscribed
+                  ? "Unsubscribe from power outage alerts"
+                  : "Subscribe to power outage alerts"
+              }
+              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shadow-lg ${
+                powerAlertsSubscribed
+                  ? "bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20"
+                  : "bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 shadow-slate-900/40"
+              }`}
+            >
+              {powerAlertsSubscribed ? (
+                <>
+                  <BellRing className="w-4 h-4 text-slate-950 animate-bounce" />
+                  <span>Outage Alerts Subscribed</span>
+                </>
+              ) : (
+                <>
+                  <Bell className="w-4 h-4 text-amber-400" />
+                  <span>Enable Outage Push Alerts</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={() => fetchPowerGrid()}
               disabled={loading}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-700 transition"
             >
@@ -133,12 +332,68 @@ export default function PowerGridReliabilityMonitor({
           </div>
         </div>
 
+        {/* Live Active Power Alert Notice */}
+        {activeAlertBanner && (
+          <div
+            data-testid="active-power-alert-banner"
+            className={`mt-4 p-4 rounded-2xl border flex items-start justify-between gap-3 ${
+              activeAlertBanner.status === "OUTAGE"
+                ? "bg-rose-950/40 border-rose-500/50 text-rose-200"
+                : "bg-amber-950/40 border-amber-500/50 text-amber-200"
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-xs font-bold text-white">{activeAlertBanner.title}</h4>
+                <p className="text-xs mt-0.5 opacity-90">{activeAlertBanner.description}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setActiveAlertBanner(null)}
+              className="text-xs opacity-60 hover:opacity-100"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {reportSuccessMsg && (
           <div className="mt-4 p-3.5 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-medium flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{reportSuccessMsg}</span>
           </div>
         )}
+
+        {/* Grid Status Simulation Bar for Manual Testing & Verification */}
+        <div className="mt-5 pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <span className="text-slate-400 font-mono text-[11px] flex items-center gap-1.5">
+            <Radio className="w-3.5 h-3.5 text-amber-400" /> Simulate Status Transition:
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleSimulateStatus("ONLINE_MAINS")}
+              data-testid="simulate-mains-btn"
+              className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-mono transition"
+            >
+              Mains Online
+            </button>
+            <button
+              onClick={() => handleSimulateStatus("GENERATOR_ACTIVE")}
+              data-testid="simulate-generator-btn"
+              className="px-2.5 py-1 rounded-lg bg-amber-950/40 border border-amber-600/50 text-amber-300 hover:bg-amber-900/60 text-[11px] font-mono transition"
+            >
+              Generator Active
+            </button>
+            <button
+              onClick={() => handleSimulateStatus("OUTAGE")}
+              data-testid="simulate-outage-btn"
+              className="px-2.5 py-1 rounded-lg bg-rose-950/40 border border-rose-600/50 text-rose-300 hover:bg-rose-900/60 text-[11px] font-mono transition"
+            >
+              Grid Outage
+            </button>
+          </div>
+        </div>
       </div>
 
       {loading ? (

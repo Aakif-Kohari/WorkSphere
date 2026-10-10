@@ -94,7 +94,14 @@ export async function GET(req: NextRequest) {
       },
     ];
 
-    const summary = computeVenuePowerGridSummary(venueId, venueName, mockNodes, 120);
+    const gridStatusParam = searchParams.get("gridStatus") as any;
+    const summary = computeVenuePowerGridSummary(
+      venueId,
+      venueName,
+      mockNodes,
+      120,
+      gridStatusParam || undefined
+    );
 
     return NextResponse.json({
       success: true,
