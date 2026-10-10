@@ -27,6 +27,7 @@ import {
   type PassportStamp,
 } from "@/lib/zkp/nomadProof";
 import { downloadSVG } from "@/lib/qr/svgQr";
+import NomadPassportCoin from "./NomadPassportCoin";
 
 /**
  * Celebratory sound chime synthesized using the Web Audio API upon successful PoAP token / passport stamp minting.
@@ -513,11 +514,7 @@ export default function NomadPassportGallery({
                 </button>
               </div>
 
-              {/* Stamp SVG Container */}
-              <div
-                dangerouslySetInnerHTML={{ __html: generateBadgeSvgMarkup(activeStamp) }}
-                className="w-56 h-56 rounded-full drop-shadow-2xl flex items-center justify-center"
-              />
+              <NomadPassportCoin stamp={activeStamp} />
 
               {/* Stamp Metadata */}
               <div className="w-full space-y-2 text-xs font-mono pt-2 border-t border-slate-800">
@@ -613,16 +610,11 @@ export default function NomadPassportGallery({
                   : previewModalStamp.tierTitle}
               </h3>
               <p className="text-xs text-slate-400">
-                Crisp vector badge with venue name and visit date for personal portfolios.
+                Venue insignia on the obverse, cryptographic attestation on the reverse.
               </p>
             </div>
 
-            {/* Vector SVG Badge Preview */}
-            <div
-              data-testid="modal-badge-svg"
-              dangerouslySetInnerHTML={{ __html: generateBadgeSvgMarkup(previewModalStamp) }}
-              className="w-64 h-64 mx-auto rounded-full drop-shadow-2xl flex items-center justify-center"
-            />
+            <NomadPassportCoin stamp={previewModalStamp} />
 
             {/* Badge Metadata Details */}
             <div className="grid grid-cols-2 gap-3 text-xs bg-slate-950/60 p-4 rounded-2xl border border-slate-800 font-mono">
