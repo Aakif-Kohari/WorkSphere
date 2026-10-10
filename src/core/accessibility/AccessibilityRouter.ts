@@ -13,11 +13,32 @@ export interface MobilityProfile {
     prefersIndoor: boolean;
 }
 
+export const ADA_MIN_CORRIDOR_WIDTH_CM = 91; // 36 inches minimum clear corridor width per ADA standards
+export const ADA_MIN_TURN_CORRIDOR_WIDTH_CM = 100; // Recommended minimum turning clear width
+
+export interface NavigationInstructionCard {
+    stepIndex: number;
+    fromNodeId: string;
+    toNodeId: string;
+    instruction: string;
+    distanceMeters: number;
+    corridorClearanceCm?: number;
+    hasWheelchairTurningWarning: boolean;
+    warningMessage?: string;
+    warningBadge?: {
+        label: string;
+        severity: 'advisory' | 'warning' | 'critical';
+        code: 'NARROW_CORRIDOR' | 'TIGHT_TURNING_RADIUS';
+    };
+}
+
 export interface AccessibleRoute {
     path: string[];
     totalDistanceMeters: number;
     accessibilityScore: number;
     warnings: string[];
+    hasWheelchairTurningWarning?: boolean;
+    instructionCards?: NavigationInstructionCard[];
 }
 
 export class AccessibilityRouter {
@@ -128,11 +149,66 @@ export class AccessibilityRouter {
             curr = previous.get(curr) || null;
         }
 
+        const instructionCards: NavigationInstructionCard[] = [];
+        let routeHasTurningWarning = false;
+
+        for (let i = 0; i < path.length - 1; i++) {
+            const fromNodeId = path[i];
+            const toNodeId = path[i + 1];
+            const edge = this.graph.getEdge(fromNodeId, toNodeId);
+            const distance = edge?.distanceMeters ?? 10;
+            const clearance = edge?.corridorClearanceCm;
+            const isSharpCorner = edge?.isSharpCorner ?? false;
+
+            let hasTurningWarning = false;
+            let warningMessage: string | undefined;
+            let warningBadge: NavigationInstructionCard['warningBadge'];
+
+            if (this.profile.usesWheelchair) {
+                if (clearance !== undefined && clearance < ADA_MIN_CORRIDOR_WIDTH_CM) {
+                    hasTurningWarning = true;
+                    routeHasTurningWarning = true;
+                    warningMessage = `Corridor width (${clearance}cm) is below ADA standard (< 91cm / 36 in). Tight wheelchair clearance.`;
+                    warningBadge = {
+                        label: `Tight Corridor: ${clearance}cm`,
+                        severity: clearance < 80 ? 'critical' : 'warning',
+                        code: 'NARROW_CORRIDOR'
+                    };
+                    allWarnings.add(`Narrow corridor (${clearance}cm < 91cm) on segment ${fromNodeId} to ${toNodeId}`);
+                } else if (isSharpCorner && (clearance === undefined || clearance < ADA_MIN_TURN_CORRIDOR_WIDTH_CM)) {
+                    hasTurningWarning = true;
+                    routeHasTurningWarning = true;
+                    const clearanceText = clearance ? ` (${clearance}cm)` : '';
+                    warningMessage = `Sharp 90-degree corner with limited turning radius${clearanceText}. Exercise caution with wheelchair navigation.`;
+                    warningBadge = {
+                        label: 'Tight Turning Radius',
+                        severity: 'warning',
+                        code: 'TIGHT_TURNING_RADIUS'
+                    };
+                    allWarnings.add(`Sharp corner with tight turning radius on segment ${fromNodeId} to ${toNodeId}`);
+                }
+            }
+
+            instructionCards.push({
+                stepIndex: i,
+                fromNodeId,
+                toNodeId,
+                instruction: `Proceed from ${fromNodeId} to ${toNodeId} (${distance}m)`,
+                distanceMeters: distance,
+                corridorClearanceCm: clearance,
+                hasWheelchairTurningWarning: hasTurningWarning,
+                warningMessage,
+                warningBadge
+            });
+        }
+
         return {
             path,
             totalDistanceMeters: totalDistance,
             accessibilityScore: allWarnings.size === 0 ? 100 : Math.max(0, 100 - (allWarnings.size * 10)),
-            warnings: Array.from(allWarnings)
+            warnings: Array.from(allWarnings),
+            hasWheelchairTurningWarning: routeHasTurningWarning,
+            instructionCards
         };
     }
 }

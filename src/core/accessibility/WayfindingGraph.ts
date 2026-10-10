@@ -22,6 +22,8 @@ export interface AccessibilityEdge {
     maxGradientPercent: number;
     surfaceType: 'smooth' | 'rough' | 'gravel' | 'unknown';
     isIndoor: boolean;
+    corridorClearanceCm?: number;
+    isSharpCorner?: boolean;
 }
 
 export class WayfindingGraph {
@@ -50,6 +52,10 @@ export class WayfindingGraph {
         return Array.from(this.edges.values()).filter(edge => edge.fromId === nodeId);
     }
 
+    public getEdge(fromId: string, toId: string): AccessibilityEdge | undefined {
+        return this.edges.get(`${fromId}->${toId}`);
+    }
+
     public getAllNodes(): AccessibilityNode[] {
         return Array.from(this.nodes.values());
     }
@@ -69,6 +75,9 @@ export class WayfindingGraph {
             } else if (element.type === 'way') {
                 const hasStairs = element.tags?.highway === 'steps' || element.tags?.stairs === 'yes';
                 const gradient = element.tags?.incline ? parseFloat(element.tags.incline) : 0;
+                const widthTag = element.tags?.width || element.tags?.clearance || element.tags?.corridor_width;
+                const corridorClearanceCm = widthTag ? Math.round(parseFloat(widthTag) * (String(widthTag).includes('m') || parseFloat(widthTag) < 10 ? 100 : 1)) : undefined;
+                const isSharpCorner = element.tags?.corner === 'sharp' || element.tags?.turn === '90_degree' || element.tags?.sharp_turn === 'yes';
 
                 for (let i = 0; i < element.nodes.length - 1; i++) {
                     this.addEdge({
@@ -78,7 +87,9 @@ export class WayfindingGraph {
                         hasStairs,
                         maxGradientPercent: Math.abs(gradient),
                         surfaceType: element.tags?.surface || 'unknown',
-                        isIndoor: element.tags?.indoor === 'yes'
+                        isIndoor: element.tags?.indoor === 'yes',
+                        corridorClearanceCm,
+                        isSharpCorner
                     });
                 }
             }
