@@ -197,3 +197,190 @@ export function clampCameraOrientation(
     rollDeg: clampedGamma,
   };
 }
+
+/**
+ * Sensor uncertainty metrics for hybrid outdoor/indoor positioning.
+ */
+export interface PositioningSensorMetrics {
+  /** GPS Horizontal Dilution of Precision (lower is better, e.g. < 1.5 is excellent, > 5.0 is poor) */
+  gpsHdop?: number | null;
+  /** GPS horizontal accuracy estimate in meters (e.g. 3m outdoors, 20m+ indoors) */
+  gpsAccuracyMeters?: number | null;
+  /** Variance of WiFi/BLE beacon RSSI measurements (dBm^2) */
+  wifiRssiVariance?: number | null;
+  /** Number of visible indoor WiFi/BLE beacons */
+  beaconCount?: number;
+}
+
+export type PositioningSourceMode = "GPS_DOMINANT" | "TRANSITIONING" | "WIFI_BEACON_DOMINANT";
+
+export interface SensorCovarianceWeights {
+  gpsVariance: number;
+  wifiVariance: number;
+  mode: PositioningSourceMode;
+  gpsWeight: number; // 0 to 1
+  wifiWeight: number; // 0 to 1
+}
+
+/**
+ * Computes dynamic sensor measurement noise covariance based on sensor uncertainty metrics.
+ * When GPS HDOP degrades (e.g. entering a building) and WiFi RSSI beacons become available,
+ * dynamically increases GPS measurement variance and decreases WiFi beacon variance to eliminate visual drift.
+ */
+export function calculateSensorMeasurementCovariance(
+  metrics: PositioningSensorMetrics
+): SensorCovarianceWeights {
+  const hdop = metrics.gpsHdop ?? (metrics.gpsAccuracyMeters ? metrics.gpsAccuracyMeters / 2.5 : 2.0);
+  const rssiVar = metrics.wifiRssiVariance ?? 4.0;
+  const beacons = metrics.beaconCount ?? 0;
+
+  // Base measurement variances
+  // GPS variance scales quadratically with HDOP: R_gps = base * (HDOP^2)
+  const baseGpsVariance = 1.0;
+  const gpsVariance = Math.max(0.5, baseGpsVariance * Math.pow(Math.max(0.5, hdop), 2));
+
+  // WiFi variance scales with RSSI variance and inversely with beacon density:
+  // R_wifi = base / max(1, beacons) + rssiVariance * 0.25
+  const baseWifiVariance = 2.0;
+  const effectiveBeacons = Math.max(1, beacons);
+  let wifiVariance = beacons > 0 ? (baseWifiVariance / effectiveBeacons) + (rssiVar * 0.25) : 100.0;
+  wifiVariance = Math.max(0.2, Math.min(100.0, wifiVariance));
+
+  // Determine transition mode and fusion weights
+  // Weight inversely proportional to variance: w = (1 / R)
+  const invGps = 1 / gpsVariance;
+  const invWifi = 1 / wifiVariance;
+  const sumInv = invGps + invWifi;
+  const gpsWeight = Number((invGps / sumInv).toFixed(3));
+  const wifiWeight = Number((invWifi / sumInv).toFixed(3));
+
+  let mode: PositioningSourceMode = "TRANSITIONING";
+  if (gpsWeight > 0.75) {
+    mode = "GPS_DOMINANT";
+  } else if (wifiWeight > 0.75) {
+    mode = "WIFI_BEACON_DOMINANT";
+  }
+
+  return {
+    gpsVariance: Number(gpsVariance.toFixed(3)),
+    wifiVariance: Number(wifiVariance.toFixed(3)),
+    mode,
+    gpsWeight,
+    wifiWeight,
+  };
+}
+
+/**
+ * 2D/3D Adaptive Kalman Filter for AR wayfinding that eliminates marker position jumps
+ * during outdoor (GPS) to indoor (WiFi/BLE beacons) transitions.
+ */
+export class AdaptiveWayfindingKalmanFilter {
+  private x: [number, number, number]; // [x, y, z] position
+  private v: [number, number, number]; // [vx, vy, vz] velocity
+  private p: [number, number, number]; // Position error covariance
+  private processNoise: number;
+  private lastTimestampMs: number;
+
+  constructor(
+    initialPosition: Vector3D = { x: 0, y: 0, z: 0 },
+    processNoise: number = 0.05
+  ) {
+    this.x = [initialPosition.x, initialPosition.y, initialPosition.z];
+    this.v = [0, 0, 0];
+    this.p = [1.0, 1.0, 1.0];
+    this.processNoise = processNoise;
+    this.lastTimestampMs = Date.now();
+  }
+
+  /**
+   * Time update (predict step) with velocity damping
+   */
+  predict(timestampMs: number = Date.now()): Vector3D {
+    const dt = Math.max(0.01, Math.min(1.0, (timestampMs - this.lastTimestampMs) / 1000));
+    this.lastTimestampMs = timestampMs;
+
+    const damping = 0.95;
+    for (let i = 0; i < 3; i++) {
+      this.x[i] += this.v[i] * dt;
+      this.v[i] *= damping;
+      this.p[i] += this.processNoise * dt;
+    }
+
+    return this.getPosition();
+  }
+
+  /**
+   * Measurement update with dynamic covariance weighting between GPS and WiFi beacons
+   */
+  update(
+    measurement: {
+      gpsPosition?: Vector3D | null;
+      wifiPosition?: Vector3D | null;
+      metrics?: PositioningSensorMetrics;
+    }
+  ): {
+    filteredPosition: Vector3D;
+    covarianceWeights: SensorCovarianceWeights;
+  } {
+    const metrics = measurement.metrics ?? {};
+    const weights = calculateSensorMeasurementCovariance(metrics);
+
+    // Fuse measurements according to their dynamic weights
+    let targetPos: Vector3D;
+    let effectiveR: number;
+
+    if (measurement.gpsPosition && measurement.wifiPosition) {
+      targetPos = {
+        x: measurement.gpsPosition.x * weights.gpsWeight + measurement.wifiPosition.x * weights.wifiWeight,
+        y: measurement.gpsPosition.y * weights.gpsWeight + measurement.wifiPosition.y * weights.wifiWeight,
+        z: measurement.gpsPosition.z * weights.gpsWeight + measurement.wifiPosition.z * weights.wifiWeight,
+      };
+      effectiveR = 1 / ((1 / weights.gpsVariance) + (1 / weights.wifiVariance));
+    } else if (measurement.wifiPosition) {
+      targetPos = measurement.wifiPosition;
+      effectiveR = weights.wifiVariance;
+    } else if (measurement.gpsPosition) {
+      targetPos = measurement.gpsPosition;
+      effectiveR = weights.gpsVariance;
+    } else {
+      return {
+        filteredPosition: this.getPosition(),
+        covarianceWeights: weights,
+      };
+    }
+
+    const meas = [targetPos.x, targetPos.y, targetPos.z];
+
+    // Kalman update across 3 dimensions
+    for (let i = 0; i < 3; i++) {
+      const innovation = meas[i] - this.x[i];
+      const innovationCovariance = this.p[i] + effectiveR;
+      const kalmanGain = this.p[i] / innovationCovariance;
+
+      this.x[i] += kalmanGain * innovation;
+      this.v[i] += kalmanGain * innovation; // estimate velocity adjustment
+      this.p[i] = (1 - kalmanGain) * this.p[i];
+    }
+
+    return {
+      filteredPosition: this.getPosition(),
+      covarianceWeights: weights,
+    };
+  }
+
+  getPosition(): Vector3D {
+    return {
+      x: Number(this.x[0].toFixed(3)),
+      y: Number(this.x[1].toFixed(3)),
+      z: Number(this.x[2].toFixed(3)),
+    };
+  }
+
+  reset(position: Vector3D = { x: 0, y: 0, z: 0 }): void {
+    this.x = [position.x, position.y, position.z];
+    this.v = [0, 0, 0];
+    this.p = [1.0, 1.0, 1.0];
+    this.lastTimestampMs = Date.now();
+  }
+}
+

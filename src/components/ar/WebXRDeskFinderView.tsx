@@ -19,9 +19,12 @@ import {
 import {
   calculate3DDistance,
   clampCameraOrientation,
+  AdaptiveWayfindingKalmanFilter,
   type ARNavigationPath,
   type ARCameraFallbackMode,
   type Vector3D,
+  type PositioningSensorMetrics,
+  type PositioningSourceMode,
 } from "@/lib/spatial/arWayfindingEngine";
 
 /**
@@ -45,12 +48,14 @@ interface WebXRDeskFinderViewProps {
   venueId?: string;
   venueName?: string;
   targetSeatNumber?: string;
+  initialSensorMetrics?: PositioningSensorMetrics;
 }
 
 export default function WebXRDeskFinderView({
   venueId = "venue-sf-hub",
   venueName = "Mission Bay Coworking Hub",
   targetSeatNumber = "Desk B-08 (Window Pod)",
+  initialSensorMetrics = { gpsHdop: 1.2, gpsAccuracyMeters: 3.5, wifiRssiVariance: 4.0, beaconCount: 3 },
 }: WebXRDeskFinderViewProps) {
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [userPose, setUserPose] = useState<Vector3D>({ x: 0, y: 0, z: 0 });
@@ -62,6 +67,13 @@ export default function WebXRDeskFinderView({
   const [bearingDeg, setBearingDeg] = useState(35); // simulated bearing to target
   const [fallbackMode, setFallbackMode] = useState<ARCameraFallbackMode>("horizon_locked");
   const [isCompassReliable, setIsCompassReliable] = useState<boolean>(true);
+  const [positioningMode, setPositioningMode] = useState<PositioningSourceMode>("GPS_DOMINANT");
+  const [sensorMetrics, setSensorMetrics] = useState<PositioningSensorMetrics>(initialSensorMetrics);
+
+  const kalmanFilterRef = useRef<AdaptiveWayfindingKalmanFilter | null>(null);
+  if (!kalmanFilterRef.current) {
+    kalmanFilterRef.current = new AdaptiveWayfindingKalmanFilter({ x: 0, y: 0, z: 0 });
+  }
 
   // Video feed ref for real camera if permissions granted
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -150,7 +162,21 @@ export default function WebXRDeskFinderView({
       const nextIdx = currentStep + 1;
       setCurrentStep(nextIdx);
       const nextWaypoint = navPath.waypoints[nextIdx];
-      setUserPose(nextWaypoint.position);
+
+      // Update position through adaptive Kalman filter to eliminate GPS/WiFi transition drift
+      if (kalmanFilterRef.current) {
+        kalmanFilterRef.current.predict();
+        const updateResult = kalmanFilterRef.current.update({
+          wifiPosition: nextWaypoint.position,
+          gpsPosition: nextWaypoint.position,
+          metrics: sensorMetrics,
+        });
+        setUserPose(updateResult.filteredPosition);
+        setPositioningMode(updateResult.covarianceWeights.mode);
+      } else {
+        setUserPose(nextWaypoint.position);
+      }
+
       // Reduce distance and adjust angle
       setBearingDeg((prev) => Math.max(0, prev - 15));
     }
@@ -161,6 +187,9 @@ export default function WebXRDeskFinderView({
     setUserPose({ x: 0, y: 0, z: 0 });
     setCameraOffset({ x: 0, y: 0, z: 0 });
     setBearingDeg(35);
+    if (kalmanFilterRef.current) {
+      kalmanFilterRef.current.reset({ x: 0, y: 0, z: 0 });
+    }
   };
 
   const activeWaypoint = navPath?.waypoints[currentStep];
@@ -293,6 +322,12 @@ export default function WebXRDeskFinderView({
                 Horizon Lock
               </span>
             )}
+            <span
+              data-testid="positioning-mode-indicator"
+              className="ml-1 px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-sans font-medium"
+            >
+              {positioningMode === "WIFI_BEACON_DOMINANT" ? "WiFi Beacons" : positioningMode === "GPS_DOMINANT" ? "GPS Fix" : "Sensor Fusion"}
+            </span>
           </div>
 
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-700 text-xs font-mono text-slate-200 backdrop-blur-md">
