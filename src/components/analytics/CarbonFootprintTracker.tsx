@@ -9,19 +9,20 @@ import {
   Train,
   Car,
   FileSpreadsheet,
-  Download,
   CheckCircle2,
   Sparkles,
-  ShieldCheck,
   Award,
   RefreshCw,
   TrendingDown,
   Sun,
   Globe,
+  MapPin,
+  AlertCircle,
 } from "lucide-react";
-import type {
+import {
   CarbonFootprintSummary,
   CommuteMode,
+  safeParseDistance,
 } from "@/lib/sustainability/carbonEngine";
 
 export default function CarbonFootprintTracker() {
@@ -89,6 +90,9 @@ export default function CarbonFootprintTracker() {
     }
   };
 
+  const totalDistance = summary ? safeParseDistance(summary.totalDistanceKm) : 0;
+  const isMissingCommuteDistance = totalDistance === 0;
+
   return (
     <div className="w-full max-w-5xl mx-auto space-y-6">
       {/* Top Banner */}
@@ -119,6 +123,35 @@ export default function CarbonFootprintTracker() {
         </div>
       </div>
 
+      {/* Missing Commute Distance Gentle Prompt */}
+      {isMissingCommuteDistance && !loading && (
+        <div
+          data-testid="missing-commute-distance-prompt"
+          className="p-4 sm:p-5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 backdrop-blur-md"
+        >
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+              <MapPin className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-amber-200">
+                No home location or commute distance recorded
+              </h4>
+              <p className="text-xs text-amber-300/80 mt-0.5">
+                Set your home location and primary transit mode to automatically calculate your carbon savings for workspace check-ins.
+              </p>
+            </div>
+          </div>
+
+          <a
+            href="/settings"
+            className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 transition shrink-0"
+          >
+            Set Transit Mode
+          </a>
+        </div>
+      )}
+
       {loading ? (
         <div className="p-12 rounded-3xl bg-slate-900/40 border border-slate-800 flex flex-col items-center justify-center gap-3 text-slate-400">
           <RefreshCw className="w-6 h-6 animate-spin text-emerald-400" />
@@ -139,7 +172,8 @@ export default function CarbonFootprintTracker() {
                 </span>
               </div>
               <div className="text-3xl font-black text-emerald-400 font-mono">
-                {summary.totalAvoidedKgCo2} <span className="text-sm text-slate-300">kg CO₂</span>
+                {safeParseDistance(summary.totalAvoidedKgCo2).toFixed(2)}{" "}
+                <span className="text-sm text-slate-300">kg CO₂</span>
               </div>
               <p className="text-[11px] text-slate-400">Saved by choosing low-carbon transit & walking</p>
             </div>
@@ -155,7 +189,8 @@ export default function CarbonFootprintTracker() {
                 </span>
               </div>
               <div className="text-3xl font-black text-white font-mono">
-                🌲 {summary.treesEquivalentOffset} <span className="text-sm text-slate-300">Trees</span>
+                🌲 {safeParseDistance(summary.treesEquivalentOffset).toFixed(1)}{" "}
+                <span className="text-sm text-slate-300">Trees</span>
               </div>
               <p className="text-[11px] text-slate-400">Monthly carbon absorption equivalent</p>
             </div>
@@ -171,7 +206,8 @@ export default function CarbonFootprintTracker() {
                 </span>
               </div>
               <div className="text-3xl font-black text-white font-mono">
-                {summary.greenVenuesVisitedCount} <span className="text-sm text-slate-300">Visits</span>
+                {summary.greenVenuesVisitedCount}{" "}
+                <span className="text-sm text-slate-300">Visits</span>
               </div>
               <p className="text-[11px] text-slate-400">Workspaces powered by verified green grids</p>
             </div>
@@ -186,36 +222,43 @@ export default function CarbonFootprintTracker() {
               </h2>
 
               <div className="space-y-3 pt-2">
-                {summary.modeBreakdown.map((item) => (
-                  <div
-                    key={item.mode}
-                    className="p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2"
-                  >
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2 font-semibold text-white">
-                        {getModeIcon(item.mode)}
-                        <span>{item.label}</span>
+                {summary.modeBreakdown.map((item) => {
+                  const safeDist = safeParseDistance(item.distanceKm);
+                  const safeEmissions = safeParseDistance(item.emissionsKgCo2);
+
+                  return (
+                    <div
+                      key={item.mode}
+                      className="p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2"
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2 font-semibold text-white">
+                          {getModeIcon(item.mode)}
+                          <span>{item.label}</span>
+                        </div>
+                        <span className="font-mono text-slate-300">
+                          {safeDist.toFixed(1)} km ({item.percentage}%)
+                        </span>
                       </div>
-                      <span className="font-mono text-slate-300">
-                        {item.distanceKm} km ({item.percentage}%)
-                      </span>
-                    </div>
 
-                    <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400"
-                        style={{ width: `${item.percentage}%` }}
-                      />
-                    </div>
+                      <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400"
+                          style={{ width: `${item.percentage}%` }}
+                        />
+                      </div>
 
-                    <div className="flex justify-between text-[10px] font-mono text-slate-500">
-                      <span>Emissions: {item.emissionsKgCo2} kg CO₂</span>
-                      <span>
-                        {item.mode === "WALKING" || item.mode === "BICYCLING" ? "✨ 100% Zero Emissions" : "Low Impact"}
-                      </span>
+                      <div className="flex justify-between text-[10px] font-mono text-slate-500">
+                        <span>Emissions: {safeEmissions.toFixed(2)} kg CO₂</span>
+                        <span>
+                          {item.mode === "WALKING" || item.mode === "BICYCLING"
+                            ? "✨ 100% Zero Emissions"
+                            : "Low Impact"}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -238,7 +281,9 @@ export default function CarbonFootprintTracker() {
                     <div className="flex items-center justify-between mb-1">
                       <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
                         <CheckCircle2
-                          className={`w-3.5 h-3.5 ${badge.verified ? "text-emerald-400" : "text-slate-600"}`}
+                          className={`w-3.5 h-3.5 ${
+                            badge.verified ? "text-emerald-400" : "text-slate-600"
+                          }`}
                         />
                         {badge.name}
                       </h3>
@@ -246,7 +291,9 @@ export default function CarbonFootprintTracker() {
                         {badge.category}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-400 leading-relaxed">{badge.description}</p>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      {badge.description}
+                    </p>
                   </div>
                 ))}
               </div>

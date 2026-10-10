@@ -59,17 +59,28 @@ export interface CarbonFootprintSummary {
 }
 
 /**
+ * Safely parses a distance value into a non-negative finite number (defaults to 0 if null/undefined/NaN).
+ */
+export function safeParseDistance(distance: number | null | undefined): number {
+  if (typeof distance !== "number" || isNaN(distance) || !isFinite(distance)) {
+    return 0;
+  }
+  return Math.max(0, distance);
+}
+
+/**
  * Calculates emissions and avoided emissions for a commute trip.
  */
 export function calculateCommuteEmissions(
-  distanceKm: number,
+  distanceKm: number | null | undefined,
   mode: CommuteMode
 ): { emissionsGrams: number; avoidedGrams: number } {
+  const safeDist = safeParseDistance(distanceKm);
   const actualFactor = EMISSION_FACTORS_G_PER_KM[mode] ?? 35;
   const baselineFactor = EMISSION_FACTORS_G_PER_KM.GASOLINE_CAR;
 
-  const emissionsGrams = Math.round(distanceKm * actualFactor);
-  const baselineGrams = Math.round(distanceKm * baselineFactor);
+  const emissionsGrams = Math.round(safeDist * actualFactor);
+  const baselineGrams = Math.round(safeDist * baselineFactor);
   const avoidedGrams = Math.max(0, baselineGrams - emissionsGrams);
 
   return { emissionsGrams, avoidedGrams };
@@ -83,7 +94,8 @@ export function generateMonthlyCarbonSummary(
     bookingId: string;
     venueName: string;
     date: string;
-    distanceKm: number;
+    distanceKm?: number | null;
+    commuteDistance?: number | null;
     commuteMode: CommuteMode;
     isGreenCertifiedVenue?: boolean;
   }>,
@@ -104,12 +116,18 @@ export function generateMonthlyCarbonSummary(
   };
 
   const processedRecords: WorkspaceCommuteRecord[] = records.map((r) => {
-    const { emissionsGrams, avoidedGrams } = calculateCommuteEmissions(r.distanceKm, r.commuteMode);
+    const rawDist = r.distanceKm ?? r.commuteDistance ?? 0;
+    const safeDist = safeParseDistance(rawDist);
 
-    totalDistanceKm += r.distanceKm;
+    const { emissionsGrams, avoidedGrams } = calculateCommuteEmissions(
+      safeDist,
+      r.commuteMode
+    );
+
+    totalDistanceKm += safeDist;
     totalEmissionsGrams += emissionsGrams;
     totalAvoidedGrams += avoidedGrams;
-    modeDistanceMap[r.commuteMode] += r.distanceKm;
+    modeDistanceMap[r.commuteMode] += safeDist;
 
     if (r.isGreenCertifiedVenue) greenVenuesCount++;
 
@@ -117,7 +135,7 @@ export function generateMonthlyCarbonSummary(
       bookingId: r.bookingId,
       venueName: r.venueName,
       date: r.date,
-      distanceKm: r.distanceKm,
+      distanceKm: safeDist,
       commuteMode: r.commuteMode,
       emissionsGramsCo2: emissionsGrams,
       avoidedGramsCo2: avoidedGrams,
@@ -125,34 +143,41 @@ export function generateMonthlyCarbonSummary(
     };
   });
 
-  const totalDistance = totalDistanceKm || 1;
+  const totalDistance = totalDistanceKm > 0 ? totalDistanceKm : 1;
   const modeBreakdown = Object.entries(modeDistanceMap).map(([mode, dist]) => {
     const factor = EMISSION_FACTORS_G_PER_KM[mode as CommuteMode];
+    const safeDist = safeParseDistance(dist);
     return {
       mode: mode as CommuteMode,
       label: mode.replace("_", " "),
-      distanceKm: Number(dist.toFixed(1)),
-      emissionsKgCo2: Number(((dist * factor) / 1000).toFixed(2)),
-      percentage: Math.round((dist / totalDistance) * 100),
+      distanceKm: Number(safeDist.toFixed(1)),
+      emissionsKgCo2: Number(((safeDist * factor) / 1000).toFixed(2)),
+      percentage: Math.round((safeDist / totalDistance) * 100),
     };
   });
 
   // 1 mature urban tree absorbs ~21.7 kg CO2 per year (~1.8 kg/month)
-  const treesEquivalentOffset = Number(((totalAvoidedGrams / 1000) / 1.8).toFixed(1));
+  const treesEquivalentOffset = Number(
+    (totalAvoidedGrams / 1000 / 1.8).toFixed(1)
+  );
 
   const ecoBadges: EcoWorkspaceBadge[] = [
     {
       id: "b-zero-emissions",
       name: "Zero-Emission Commuter",
       category: "COMMUTE",
-      description: "Over 70% of monthly workspace commutes completed via Walking or Cycling.",
-      verified: modeDistanceMap.WALKING + modeDistanceMap.BICYCLING >= totalDistance * 0.7,
+      description:
+        "Over 70% of monthly workspace commutes completed via Walking or Cycling.",
+      verified:
+        modeDistanceMap.WALKING + modeDistanceMap.BICYCLING >=
+        totalDistance * 0.7,
     },
     {
       id: "b-solar-patron",
       name: "Solar Workspace Patron",
       category: "ENERGY",
-      description: "Checked into 100% solar and green-grid powered coworking spaces.",
+      description:
+        "Checked into 100% solar and green-grid powered coworking spaces.",
       verified: greenVenuesCount >= 3,
     },
     {
@@ -166,7 +191,7 @@ export function generateMonthlyCarbonSummary(
 
   return {
     periodMonth,
-    totalDistanceKm: Number(totalDistanceKm.toFixed(1)),
+    totalDistanceKm: Number(safeParseDistance(totalDistanceKm).toFixed(1)),
     totalEmissionsKgCo2: Number((totalEmissionsGrams / 1000).toFixed(2)),
     totalAvoidedKgCo2: Number((totalAvoidedGrams / 1000).toFixed(2)),
     treesEquivalentOffset,
@@ -180,7 +205,9 @@ export function generateMonthlyCarbonSummary(
 /**
  * Exports corporate Scope 3 ESG Audit report as CSV.
  */
-export function exportCorporateESGReportCSV(summary: CarbonFootprintSummary): string {
+export function exportCorporateESGReportCSV(
+  summary: CarbonFootprintSummary
+): string {
   const headers = [
     "Booking ID",
     "Workspace Venue",
@@ -192,24 +219,33 @@ export function exportCorporateESGReportCSV(summary: CarbonFootprintSummary): st
     "Green Certified Space",
   ];
 
-  const rows = summary.records.map((r) => [
-    r.bookingId,
-    `"${r.venueName}"`,
-    r.date,
-    r.distanceKm.toFixed(1),
-    r.commuteMode,
-    r.emissionsGramsCo2,
-    r.avoidedGramsCo2,
-    r.isGreenCertifiedVenue ? "YES" : "NO",
-  ]);
+  const rows = summary.records.map((r) => {
+    const safeDist = safeParseDistance(r.distanceKm);
+    return [
+      r.bookingId,
+      `"${r.venueName}"`,
+      r.date,
+      safeDist.toFixed(1),
+      r.commuteMode,
+      r.emissionsGramsCo2,
+      r.avoidedGramsCo2,
+      r.isGreenCertifiedVenue ? "YES" : "NO",
+    ];
+  });
+
+  const safeTotalDist = safeParseDistance(summary.totalDistanceKm);
+  const safeTotalEmissions = safeParseDistance(summary.totalEmissionsKgCo2);
+  const safeTotalAvoided = safeParseDistance(summary.totalAvoidedKgCo2);
 
   const footer = [
     "",
-    `"Total Distance Traveled (km)","${summary.totalDistanceKm}"`,
-    `"Total Net Emissions (kg CO2)","${summary.totalEmissionsKgCo2}"`,
-    `"Total CO2 Avoided vs Solo Driving (kg CO2)","${summary.totalAvoidedKgCo2}"`,
+    `"Total Distance Traveled (km)","${safeTotalDist}"`,
+    `"Total Net Emissions (kg CO2)","${safeTotalEmissions}"`,
+    `"Total CO2 Avoided vs Solo Driving (kg CO2)","${safeTotalAvoided}"`,
     `"Equivalent Trees Planted Offset","${summary.treesEquivalentOffset} Trees"`,
   ];
 
-  return [headers.join(","), ...rows.map((r) => r.join(",")), ...footer].join("\n");
+  return [headers.join(","), ...rows.map((r) => r.join(",")), ...footer].join(
+    "\n"
+  );
 }
