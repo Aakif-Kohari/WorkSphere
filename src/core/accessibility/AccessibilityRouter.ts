@@ -30,6 +30,8 @@ export interface NavigationInstructionCard {
         severity: 'advisory' | 'warning' | 'critical';
         code: 'NARROW_CORRIDOR' | 'TIGHT_TURNING_RADIUS';
     };
+    vibrationPattern?: number[];
+    decisionPoint?: 'left' | 'right' | 'straight' | 'destination' | 'decision_point';
 }
 
 export interface AccessibleRouteSuccess {
@@ -261,6 +263,20 @@ export class AccessibilityRouter {
                 }
             }
 
+            const isLastStep = i === path.length - 2;
+            let decisionPoint: NavigationInstructionCard['decisionPoint'] = 'straight';
+            if (isLastStep) {
+                decisionPoint = 'destination';
+            } else if (edge?.turnDirection === 'left') {
+                decisionPoint = 'left';
+            } else if (edge?.turnDirection === 'right') {
+                decisionPoint = 'right';
+            } else if (isSharpCorner) {
+                decisionPoint = 'decision_point';
+            }
+
+            const vibrationPattern = this.graph.getHapticPatternForTurn(decisionPoint);
+
             instructionCards.push({
                 stepIndex: i,
                 fromNodeId,
@@ -270,7 +286,9 @@ export class AccessibilityRouter {
                 corridorClearanceCm: clearance,
                 hasWheelchairTurningWarning: hasTurningWarning,
                 warningMessage,
-                warningBadge
+                warningBadge,
+                decisionPoint,
+                vibrationPattern
             });
         }
 
