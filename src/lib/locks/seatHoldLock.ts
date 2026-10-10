@@ -350,6 +350,9 @@ export function startSeatLockRenewalHeartbeat(
   stopSeatLockRenewalHeartbeat(venueId, seatId, userId);
 
   const heartbeatFn = async () => {
+    // If heartbeat was cancelled or stopped, abort immediately
+    if (!activeHeartbeats.has(key)) return;
+
     try {
       const result = await renewSeatWebLock(
         venueId,
@@ -359,6 +362,9 @@ export function startSeatLockRenewalHeartbeat(
         ttlSeconds,
       );
 
+      // Re-verify heartbeat was not cancelled during async renewal roundtrip
+      if (!activeHeartbeats.has(key)) return;
+
       if (result.success && result.lock) {
         const entry = activeHeartbeats.get(key);
         if (entry) {
@@ -366,7 +372,7 @@ export function startSeatLockRenewalHeartbeat(
         }
         onRenewSuccess?.(result.lock);
       } else {
-        // Renewal failed - stop the heartbeat and notify callback
+        // Renewal failed - stop the heartbeat before invoking callback
         stopSeatLockRenewalHeartbeat(venueId, seatId, userId);
         onRenewFailed?.(result.reason || "RENEWAL_REJECTED");
       }
