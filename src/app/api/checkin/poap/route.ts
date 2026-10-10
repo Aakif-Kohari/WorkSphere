@@ -26,8 +26,9 @@ export async function POST(request: NextRequest) {
 
         if (!validation.isValid) {
             return NextResponse.json({
-                error: 'Geofence validation failed',
+                error: validation.reason || 'Geofence validation failed',
                 confidence: validation.confidence,
+                isExpired: validation.isExpired ?? false,
                 isVerifying: false
             }, { status: 403 });
         }
