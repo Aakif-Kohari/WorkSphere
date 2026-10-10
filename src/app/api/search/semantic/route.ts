@@ -17,8 +17,14 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Valid query string is required' }, { status: 400 });
         }
 
+        // Sanitize and normalize excessive whitespace before tokenization (#5481)
+        const sanitizedQuery = query.trim().replace(/\s+/g, ' ');
+        if (sanitizedQuery.length === 0) {
+            return NextResponse.json({ error: 'Valid query string is required' }, { status: 400 });
+        }
+
         await unicodeTokenizer.initialize();
-        const tokens = await unicodeTokenizer.tokenize(query);
+        const tokens = await unicodeTokenizer.tokenize(sanitizedQuery);
         const tokenizedQuery = tokens.join(' ');
 
         const apiKey = process.env.GROQ_API_KEY;
