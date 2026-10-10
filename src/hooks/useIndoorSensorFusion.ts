@@ -184,7 +184,7 @@ export function useIndoorSensorFusion(
           if (typeof webkitAccuracy === "number" && webkitAccuracy >= 0) {
             confidence = Math.max(0.01, 1 - Math.min(webkitAccuracy, 60) / 60);
           }
-        } else if (e.alpha !== null && e.alpha !== undefined && Number.isFinite(e.alpha)) {
+        } else if (typeof e.alpha === "number" && Number.isFinite(e.alpha)) {
           heading = ((360 - e.alpha) % 360 + 360) % 360;
         } else {
           // Device without magnetometer returns null alpha; default to stationary 0 heading
