@@ -22,12 +22,13 @@ export async function POST(request: NextRequest) {
         }
 
         const validator = new GeofenceValidator();
-        const validation = validator.validatePresence(sensorData, venueBounds);
+        const validation = await validator.verifyPresenceAsync(sensorData, venueBounds);
 
         if (!validation.isValid) {
             return NextResponse.json({
                 error: 'Geofence validation failed',
-                confidence: validation.confidence
+                confidence: validation.confidence,
+                isVerifying: false
             }, { status: 403 });
         }
 

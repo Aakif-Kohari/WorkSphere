@@ -23,6 +23,20 @@ export interface VenueBounds {
 
 export class GeofenceValidator {
     private readonly EARTH_RADIUS_KM = 6371;
+    private isVerifying: boolean = false;
+
+    public getIsVerifying(): boolean {
+        return this.isVerifying;
+    }
+
+    public async verifyPresenceAsync(sensorData: SensorData, venueBounds: VenueBounds): Promise<{ isValid: boolean; confidence: number }> {
+        this.isVerifying = true;
+        try {
+            return this.validatePresence(sensorData, venueBounds);
+        } finally {
+            this.isVerifying = false;
+        }
+    }
 
     public validatePresence(sensorData: SensorData, venueBounds: VenueBounds): { isValid: boolean; confidence: number } {
         let confidence = 0;
