@@ -15,11 +15,15 @@ import {
   Zap,
   Volume2,
   VolumeX,
+  Volume1,
+  Bell,
+  BellOff,
   ChevronRight,
   UserCheck,
   ShieldAlert,
   ArrowUpRight,
   TrendingUp,
+  Settings2,
 } from "lucide-react";
 import {
   ErgonomicSessionState,
@@ -63,12 +67,59 @@ export default function DynamicErgonomicCoach() {
   const [eyeBreakActive, setEyeBreakActive] = useState(false);
   const [eyeBreakSecondsLeft, setEyeBreakSecondsLeft] = useState(20);
 
+  // Sound Notification settings
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundVolume, setSoundVolume] = useState(0.8);
+  const [showAudioSettings, setShowAudioSettings] = useState(false);
+  const [audioCues, setAudioCues] = useState({
+    postureAlerts: true,
+    eyeBreakReminders: true,
+    sitStandPrompts: true,
+    stretchTimers: true,
+  });
+
   const [lastCheckInResult, setLastCheckInResult] = useState<string | null>(null);
 
-  // Audio chime using Web Audio API
-  const playChime = (type: "bell" | "success" | "alert") => {
-    if (!soundEnabled || typeof window === "undefined") return;
+  // Load sound preferences from localStorage on mount
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const savedMaster = localStorage.getItem("worksphere_ergo_sound_enabled");
+      if (savedMaster !== null) setSoundEnabled(savedMaster === "true");
+      const savedCues = localStorage.getItem("worksphere_ergo_audio_cues");
+      if (savedCues) setAudioCues(JSON.parse(savedCues));
+    } catch {
+      // Ignore localStorage access restrictions
+    }
+  }, []);
+
+  const handleToggleMasterSound = (enabled: boolean) => {
+    setSoundEnabled(enabled);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("worksphere_ergo_sound_enabled", String(enabled));
+      } catch {}
+    }
+    if (enabled) {
+      playChime("bell", true);
+    }
+  };
+
+  const handleToggleCue = (key: keyof typeof audioCues) => {
+    setAudioCues((prev) => {
+      const updated = { ...prev, [key]: !prev[key] };
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("worksphere_ergo_audio_cues", JSON.stringify(updated));
+        } catch {}
+      }
+      return updated;
+    });
+  };
+
+  // Audio chime synthesizer using Web Audio API
+  const playChime = (type: "bell" | "success" | "alert", forcePlay = false) => {
+    if ((!soundEnabled && !forcePlay) || typeof window === "undefined") return;
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
@@ -80,7 +131,7 @@ export default function DynamicErgonomicCoach() {
         osc.type = "sine";
         osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
         osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15); // A5
-        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.setValueAtTime(0.2 * soundVolume, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
         osc.connect(gain);
         gain.connect(ctx.destination);
@@ -93,12 +144,26 @@ export default function DynamicErgonomicCoach() {
           const gain = ctx.createGain();
           osc.type = "triangle";
           osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.08);
-          gain.gain.setValueAtTime(0.15, ctx.currentTime + idx * 0.08);
+          gain.gain.setValueAtTime(0.15 * soundVolume, ctx.currentTime + idx * 0.08);
           gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.08 + 0.4);
           osc.connect(gain);
           gain.connect(ctx.destination);
           osc.start(ctx.currentTime + idx * 0.08);
           osc.stop(ctx.currentTime + idx * 0.08 + 0.45);
+        });
+      } else if (type === "alert") {
+        // Soft dual-pulse alert tone
+        [440, 349.23].forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.15);
+          gain.gain.setValueAtTime(0.18 * soundVolume, ctx.currentTime + idx * 0.15);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.15 + 0.25);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + idx * 0.15);
+          osc.stop(ctx.currentTime + idx * 0.15 + 0.28);
         });
       }
     } catch {
@@ -129,7 +194,7 @@ export default function DynamicErgonomicCoach() {
       if (!eyeBreakActive) {
         setEyeCountdown((prev) => {
           if (prev <= 1) {
-            playChime("bell");
+            if (audioCues.eyeBreakReminders) playChime("bell");
             setEyeBreakActive(true);
             setEyeBreakSecondsLeft(20);
             return 20 * 60;
@@ -140,7 +205,7 @@ export default function DynamicErgonomicCoach() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [eyeBreakActive, soundEnabled]);
+  }, [eyeBreakActive, soundEnabled, audioCues.eyeBreakReminders]);
 
   // Eye break active countdown
   useEffect(() => {
@@ -149,7 +214,7 @@ export default function DynamicErgonomicCoach() {
       timer = setInterval(() => {
         setEyeBreakSecondsLeft((prev) => {
           if (prev <= 1) {
-            playChime("success");
+            if (audioCues.eyeBreakReminders) playChime("success");
             setEyeBreakActive(false);
             setSession((s) => ({ ...s, eyeBreaksCompleted: s.eyeBreaksCompleted + 1 }));
             return 20;
@@ -159,7 +224,7 @@ export default function DynamicErgonomicCoach() {
       }, 1000);
     }
     return () => clearInterval(timer);
-  }, [eyeBreakActive, soundEnabled]);
+  }, [eyeBreakActive, soundEnabled, audioCues.eyeBreakReminders]);
 
   // Guided stretch timer
   useEffect(() => {
@@ -168,7 +233,7 @@ export default function DynamicErgonomicCoach() {
       timer = setInterval(() => {
         setStretchSecondsLeft((prev) => {
           if (prev <= 1) {
-            playChime("success");
+            if (audioCues.stretchTimers) playChime("success");
             setStretchTimerActive(false);
             handleCompleteStretch(selectedStretch.id);
             return selectedStretch.durationSeconds;
@@ -180,7 +245,7 @@ export default function DynamicErgonomicCoach() {
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [stretchTimerActive, selectedStretch, soundEnabled]);
+  }, [stretchTimerActive, selectedStretch, soundEnabled, audioCues.stretchTimers]);
 
   // Cleanup and reset state on unmount/dismissal
   useEffect(() => {
@@ -203,7 +268,9 @@ export default function DynamicErgonomicCoach() {
       setStrainScore(ErgonomicCoachEngine.calculateStrainScore(updated));
       return updated;
     });
-    playChime("bell");
+    if (audioCues.sitStandPrompts) {
+      playChime("bell");
+    }
   };
 
   const handlePostCheckIn = (rating: "aligned" | "slouching" | "stiff") => {
@@ -222,7 +289,13 @@ export default function DynamicErgonomicCoach() {
         ? "Slouch recorded. Reset your chin back & align your earlobes over shoulders."
         : "Muscular stiffness noted. We recommend a quick thoracic twist."
     );
-    playChime("bell");
+    if (audioCues.postureAlerts) {
+      if (rating === "aligned") {
+        playChime("success");
+      } else {
+        playChime("alert");
+      }
+    }
   };
 
   const handleLogWater = (ml: number) => {
@@ -234,7 +307,9 @@ export default function DynamicErgonomicCoach() {
       setStrainScore(ErgonomicCoachEngine.calculateStrainScore(updated));
       return updated;
     });
-    playChime("bell");
+    if (audioCues.postureAlerts) {
+      playChime("bell");
+    }
   };
 
   const handleCompleteStretch = (stretchId: string) => {
@@ -305,17 +380,43 @@ export default function DynamicErgonomicCoach() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          {/* Master Sound Toggle Button with Audio Indicator */}
           <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className={`p-2.5 rounded-xl border transition-all ${
+            onClick={() => handleToggleMasterSound(!soundEnabled)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${
               soundEnabled
-                ? "bg-slate-800 border-slate-700 text-slate-300 hover:text-white"
-                : "bg-rose-950/40 border-rose-800/40 text-rose-400"
+                ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/50 shadow-sm shadow-emerald-900/20"
+                : "bg-rose-950/40 border-rose-800/40 text-rose-400 hover:bg-rose-900/50"
             }`}
-            title={soundEnabled ? "Audio Cues Enabled" : "Audio Muted"}
+            title={soundEnabled ? "Sound notifications enabled — click to mute" : "Sound notifications muted — click to enable"}
+            aria-label={soundEnabled ? "Mute sound notifications" : "Enable sound notifications"}
           >
-            {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+            {soundEnabled ? (
+              <>
+                <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
+                <span>Sound: ON</span>
+              </>
+            ) : (
+              <>
+                <VolumeX className="w-4 h-4 text-rose-400" />
+                <span>Sound: MUTED</span>
+              </>
+            )}
+          </button>
+
+          {/* Sound Preferences Settings Gear */}
+          <button
+            onClick={() => setShowAudioSettings(!showAudioSettings)}
+            className={`p-2 rounded-xl border transition-all ${
+              showAudioSettings
+                ? "bg-slate-700 border-slate-600 text-white"
+                : "bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200"
+            }`}
+            title="Audio Notification Preferences"
+            aria-label="Toggle audio notification preferences"
+          >
+            <Settings2 className="w-4 h-4" />
           </button>
 
           <div className="flex bg-slate-800/80 p-1 rounded-xl border border-slate-700/60">
@@ -335,6 +436,122 @@ export default function DynamicErgonomicCoach() {
           </div>
         </div>
       </div>
+
+      {/* Expandable Audio Settings Panel */}
+      {showAudioSettings && (
+        <div className="p-5 bg-slate-900/95 backdrop-blur-md rounded-2xl border border-slate-700 shadow-xl space-y-4 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2">
+              <Volume1 className="w-5 h-5 text-emerald-400" />
+              <h3 className="text-sm font-bold text-white">
+                Ergonomic Audio & Sound Notification Preferences
+              </h3>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => playChime("bell", true)}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs flex items-center gap-1 border border-slate-700 transition-all"
+                title="Test bell tone"
+              >
+                <Play className="w-3 h-3 text-emerald-400" /> Test Chime
+              </button>
+              <button
+                onClick={() => setShowAudioSettings(false)}
+                className="text-xs text-slate-400 hover:text-slate-200"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Posture Alert Cue */}
+            <label className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/60 border border-slate-700/50 cursor-pointer hover:bg-slate-800/90 transition-all">
+              <input
+                type="checkbox"
+                checked={audioCues.postureAlerts}
+                onChange={() => handleToggleCue("postureAlerts")}
+                className="mt-0.5 rounded border-slate-600 text-emerald-600 focus:ring-emerald-500 bg-slate-700"
+              />
+              <div className="space-y-0.5">
+                <div className="text-xs font-semibold text-white">Posture Feedback Tones</div>
+                <p className="text-[11px] text-slate-400">
+                  Audio alerts on alignment checks and slouch warnings
+                </p>
+              </div>
+            </label>
+
+            {/* 20-20-20 Eye Break Reminders */}
+            <label className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/60 border border-slate-700/50 cursor-pointer hover:bg-slate-800/90 transition-all">
+              <input
+                type="checkbox"
+                checked={audioCues.eyeBreakReminders}
+                onChange={() => handleToggleCue("eyeBreakReminders")}
+                className="mt-0.5 rounded border-slate-600 text-cyan-600 focus:ring-cyan-500 bg-slate-700"
+              />
+              <div className="space-y-0.5">
+                <div className="text-xs font-semibold text-white">20-20-20 Eye Reminders</div>
+                <p className="text-[11px] text-slate-400">
+                  Harmonic chime when it is time to look 20 ft away
+                </p>
+              </div>
+            </label>
+
+            {/* Sit-Stand Switch Prompts */}
+            <label className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/60 border border-slate-700/50 cursor-pointer hover:bg-slate-800/90 transition-all">
+              <input
+                type="checkbox"
+                checked={audioCues.sitStandPrompts}
+                onChange={() => handleToggleCue("sitStandPrompts")}
+                className="mt-0.5 rounded border-slate-600 text-teal-600 focus:ring-teal-500 bg-slate-700"
+              />
+              <div className="space-y-0.5">
+                <div className="text-xs font-semibold text-white">Sit/Stand Mode Prompts</div>
+                <p className="text-[11px] text-slate-400">
+                  Tone cues when changing between seated and standing desk postures
+                </p>
+              </div>
+            </label>
+
+            {/* Micro-Stretch Timers */}
+            <label className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/60 border border-slate-700/50 cursor-pointer hover:bg-slate-800/90 transition-all">
+              <input
+                type="checkbox"
+                checked={audioCues.stretchTimers}
+                onChange={() => handleToggleCue("stretchTimers")}
+                className="mt-0.5 rounded border-slate-600 text-indigo-600 focus:ring-indigo-500 bg-slate-700"
+              />
+              <div className="space-y-0.5">
+                <div className="text-xs font-semibold text-white">Micro-Stretch Timer Tones</div>
+                <p className="text-[11px] text-slate-400">
+                  Success fanfare when completing guided routine timers
+                </p>
+              </div>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-xs text-slate-400">
+            <div className="flex items-center gap-2">
+              <span>Alert Volume:</span>
+              <input
+                type="range"
+                min="0.1"
+                max="1.0"
+                step="0.05"
+                value={soundVolume}
+                onChange={(e) => setSoundVolume(parseFloat(e.target.value))}
+                className="w-24 accent-emerald-500 cursor-pointer"
+              />
+              <span className="font-mono text-slate-300 text-[11px]">
+                {Math.round(soundVolume * 100)}%
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-500">
+              Browser Web Audio API synthesizers (Zero external assets required)
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* 20-20-20 Eye Strain Urgent Banner if Active */}
       {eyeBreakActive && (
@@ -497,7 +714,7 @@ export default function DynamicErgonomicCoach() {
           <div className="space-y-6 lg:col-span-2">
             {/* Quick Posture Self-Assessment */}
             <div className="p-6 bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <UserCheck className="w-5 h-5 text-indigo-400" />
@@ -507,6 +724,31 @@ export default function DynamicErgonomicCoach() {
                     How is your spine alignment and shoulder tension feeling right now?
                   </p>
                 </div>
+                <button
+                  onClick={() => handleToggleCue("postureAlerts")}
+                  className={`self-start sm:self-center flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all ${
+                    soundEnabled && audioCues.postureAlerts
+                      ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/40"
+                      : "bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-300"
+                  }`}
+                  title={
+                    soundEnabled && audioCues.postureAlerts
+                      ? "Posture audio cues active — click to mute"
+                      : "Posture audio cues disabled — click to enable"
+                  }
+                >
+                  {soundEnabled && audioCues.postureAlerts ? (
+                    <>
+                      <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Audio Cues On</span>
+                    </>
+                  ) : (
+                    <>
+                      <VolumeX className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Audio Cues Muted</span>
+                    </>
+                  )}
+                </button>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
