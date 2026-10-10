@@ -126,7 +126,7 @@ export default function SolarDeskSelector({
         </div>
 
         {/* Time of Day Interactive Slider */}
-        <div className="mt-6 pt-6 border-t border-slate-800/80 space-y-3">
+        <div className="mt-6 pt-6 border-t border-slate-800/80 space-y-4">
           <div className="flex items-center justify-between text-xs">
             <span className="font-semibold text-slate-300 flex items-center gap-1.5">
               <Clock className="w-4 h-4 text-amber-400" /> Simulated Time of Day:{" "}
@@ -151,6 +151,70 @@ export default function SolarDeskSelector({
             <span>16:00 (Afternoon)</span>
             <span>20:00 (Dusk)</span>
           </div>
+
+          {/* Live Sun Path Progress Bar Indicator */}
+          {(() => {
+            const sunriseHour = 6;
+            const sunsetHour = 20;
+            const daylightPct = Math.max(
+              0,
+              Math.min(100, Math.round(((selectedHour - sunriseHour) / (sunsetHour - sunriseHour)) * 100))
+            );
+
+            return (
+              <div
+                className="pt-2 p-3.5 rounded-2xl bg-slate-950/70 border border-amber-500/20 space-y-2.5 backdrop-blur-sm"
+                data-testid="sun-path-progress-bar"
+              >
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5 font-semibold text-amber-200">
+                    <Sun className="w-3.5 h-3.5 text-amber-400 animate-spin-slow" /> Sun Path Progress
+                  </span>
+                  <span
+                    className="font-mono text-[11px] font-bold text-amber-400"
+                    data-testid="daylight-percentage"
+                  >
+                    {daylightPct}% Daylight Completed
+                  </span>
+                </div>
+
+                {/* Progress Track & Animated Sun Icon */}
+                <div className="relative w-full h-3 bg-slate-800 rounded-full overflow-visible flex items-center">
+                  {/* Daylight completed fill */}
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-500 via-orange-400 to-amber-300 rounded-full transition-all duration-300 ease-out shadow-sm shadow-amber-500/50"
+                    style={{ width: `${daylightPct}%` }}
+                    data-testid="sun-progress-fill"
+                  />
+
+                  {/* Accurately positioned sun icon on the arc / progress bar */}
+                  <div
+                    className="absolute -top-1 -translate-x-1/2 flex items-center justify-center transition-all duration-300 ease-out pointer-events-none"
+                    style={{ left: `${daylightPct}%` }}
+                    data-testid="sun-progress-icon"
+                  >
+                    <div className="relative">
+                      <span className="absolute -inset-1 rounded-full bg-amber-400/30 blur-sm animate-pulse" />
+                      <Sun className="relative w-5 h-5 text-amber-300 fill-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Milestones: Sunrise, Solar Noon, Sunset */}
+                <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono">
+                  <span className="flex items-center gap-1 text-orange-300">
+                    <Sunrise className="w-3 h-3" /> Sunrise (06:00)
+                  </span>
+                  <span className="flex items-center gap-1 text-amber-300">
+                    <Sun className="w-3 h-3" /> Solar Noon (13:00)
+                  </span>
+                  <span className="flex items-center gap-1 text-rose-300">
+                    <Sunset className="w-3 h-3" /> Sunset (20:00)
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
 
