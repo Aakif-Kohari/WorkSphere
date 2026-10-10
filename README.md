@@ -31,7 +31,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](CONTRIBUTING.md)
-[![Contributors](https://img.shields.io/badge/Contributors-105%20Community%20Rockstars-orange?style=flat-square&logo=github)](https://github.com/SatyamPandey-07/WorkSphere/graphs/contributors)
+[![Contributors](https://img.shields.io/badge/Contributors-106%20Community%20Rockstars-orange?style=flat-square&logo=github)](https://github.com/SatyamPandey-07/WorkSphere/graphs/contributors)
 [![ECSoC 2026](https://img.shields.io/badge/ECSoC-2026-FFA500?style=flat-square)](https://github.com/SatyamPandey-07/WorkSphere)
 [![OSCI 2026](https://img.shields.io/badge/OSCI-2026-blue?style=flat-square)](https://github.com/SatyamPandey-07/WorkSphere)
 [![CI Status](https://img.shields.io/badge/CI-Passing-brightgreen?style=flat-square&logo=githubactions)](https://github.com/SatyamPandey-07/WorkSphere/actions)
@@ -47,7 +47,7 @@
   <a href="#-features"><b>✨ Features</b></a> •
   <a href="#-architecture"><b>🏗️ Architecture</b></a> •
   <a href="#-quickstart"><b>⚡ Quickstart</b></a> •
-  <a href="#-contributors-105-active-rockstars"><b>👥 Contributors (105)</b></a> •
+  <a href="#-contributors-106-active-rockstars"><b>👥 Contributors (106)</b></a> •
   <a href="https://github.com/SatyamPandey-07/WorkSphere/issues"><b>🐛 Report Issue</b></a>
 </p>
 
@@ -70,9 +70,9 @@
 
 ---
 
-### 🚀 Contributors (105 Active Rockstars)
+### 🚀 Contributors (106 Active Rockstars)
 
-A massive thank you to all **105 brilliant contributors and bots** building WorkSphere! 🌟
+A massive thank you to all **106 brilliant contributors and bots** building WorkSphere! 🌟
 
 <table width="100%">
   <tr>
@@ -734,6 +734,12 @@ A massive thank you to all **105 brilliant contributors and bots** building Work
       <a href="https://github.com/Falguni-105">
         <img src="https://avatars.githubusercontent.com/u/194253298?v=4" width="55px;" height="55px;" alt="Falguni-105" style="border-radius: 50%; object-fit: cover;"/><br />
         <sub><b>Falguni-105</b></sub>
+      </a>
+    </td>
+    <td align="center" width="14.28%">
+      <a href="https://github.com/Gabyee17">
+        <img src="https://avatars.githubusercontent.com/u/209272594?v=4" width="55px;" height="55px;" alt="Gabyee17" style="border-radius: 50%; object-fit: cover;"/><br />
+        <sub><b>Gabyee17</b></sub>
       </a>
     </td>
   </tr>
