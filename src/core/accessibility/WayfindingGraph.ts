@@ -56,8 +56,16 @@ export class WayfindingGraph {
         return this.edges.get(`${fromId}->${toId}`);
     }
 
+    public getIncomingEdges(nodeId: string): AccessibilityEdge[] {
+        return Array.from(this.edges.values()).filter(edge => edge.toId === nodeId);
+    }
+
     public getAllNodes(): AccessibilityNode[] {
         return Array.from(this.nodes.values());
+    }
+
+    public isNodeConnected(nodeId: string): boolean {
+        return this.getOutgoingEdges(nodeId).length > 0 || this.getIncomingEdges(nodeId).length > 0;
     }
 
     public parseOSMData(osmElements: any[]): void {

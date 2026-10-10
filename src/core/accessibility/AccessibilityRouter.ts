@@ -32,7 +32,8 @@ export interface NavigationInstructionCard {
     };
 }
 
-export interface AccessibleRoute {
+export interface AccessibleRouteSuccess {
+    success?: true;
     path: string[];
     totalDistanceMeters: number;
     accessibilityScore: number;
@@ -40,6 +41,16 @@ export interface AccessibleRoute {
     hasWheelchairTurningWarning?: boolean;
     instructionCards?: NavigationInstructionCard[];
 }
+
+export interface AccessibleRouteFailure {
+    success: false;
+    reason: 'NO_ACCESSIBLE_PATH_EXISTS';
+    message: string;
+    detourRecommendations?: string[];
+}
+
+export type AccessibleRoute = AccessibleRouteSuccess;
+export type RouteResult = AccessibleRouteSuccess | AccessibleRouteFailure;
 
 export class AccessibilityRouter {
     private graph: WayfindingGraph;
@@ -50,7 +61,19 @@ export class AccessibilityRouter {
         this.profile = profile;
     }
 
-    public findOptimalRoute(startId: string, endId: string): AccessibleRoute | null {
+    public findOptimalRoute(startId: string, endId: string): (AccessibleRouteSuccess & { success: true }) | AccessibleRouteFailure {
+        const startNode = this.graph.getNode(startId);
+        const endNode = this.graph.getNode(endId);
+
+        if (!startNode || !endNode) {
+            return {
+                success: false,
+                reason: 'NO_ACCESSIBLE_PATH_EXISTS',
+                message: `One or both route nodes do not exist in graph (${startId} -> ${endId}).`,
+                detourRecommendations: ['Verify venue room identifiers or request staff assistance.']
+            };
+        }
+
         const distances = new Map<string, number>();
         const previous = new Map<string, string | null>();
         const warnings = new Map<string, string[]>();
@@ -71,7 +94,9 @@ export class AccessibilityRouter {
             const current = pq.shift()!;
             const u = current.nodeId;
 
+            // Stop early if reached end node or remaining nodes are unreachable
             if (u === endId) break;
+            if (current.priority === Infinity) break;
 
             const edges = this.graph.getOutgoingEdges(u);
             for (const edge of edges) {
@@ -97,7 +122,54 @@ export class AccessibilityRouter {
             }
         }
 
-        return this.reconstructRoute(previous, warnings, startId, endId, distances.get(endId)!);
+        const endDistance = distances.get(endId);
+        if (endDistance === undefined || endDistance === Infinity || (previous.get(endId) === null && startId !== endId)) {
+            // Disconnected node or inaccessible route (#5488)
+            const detours = this.generateDetourRecommendations(endId);
+            return {
+                success: false,
+                reason: 'NO_ACCESSIBLE_PATH_EXISTS',
+                message: `No accessible path exists between ${startId} and ${endId}. Target may only be reachable via stairs or steep incline.`,
+                detourRecommendations: detours
+            };
+        }
+
+        const route = this.reconstructRoute(previous, warnings, startId, endId, endDistance);
+        if (!route) {
+            return {
+                success: false,
+                reason: 'NO_ACCESSIBLE_PATH_EXISTS',
+                message: `Unable to trace accessible route to ${endId}.`,
+                detourRecommendations: this.generateDetourRecommendations(endId)
+            };
+        }
+
+        return {
+            success: true,
+            ...route
+        };
+    }
+
+    private generateDetourRecommendations(targetNodeId: string): string[] {
+        const recommendations: string[] = [];
+        const incomingEdges = this.graph.getIncomingEdges(targetNodeId);
+        const hasStairs = incomingEdges.some(e => e.hasStairs);
+        const hasSteepGradient = incomingEdges.some(e => e.maxGradientPercent > this.profile.maxAcceptableGradient);
+
+        if (hasStairs) {
+            recommendations.push('Target location is connected via stairs. Check for an alternative elevator or ramp entrance.');
+        }
+        if (hasSteepGradient) {
+            recommendations.push('Approach contains steep gradients exceeding profile limit. Look for designated ADA pathways.');
+        }
+        if (incomingEdges.length === 0) {
+            recommendations.push('Target room appears isolated on floorplan. Please contact venue reception for accessible escort.');
+        }
+        if (recommendations.length === 0) {
+            recommendations.push('Use venue elevator to the nearest accessible floor and approach via corridor.');
+        }
+
+        return recommendations;
     }
 
     private isEdgeAccessible(edge: AccessibilityEdge): boolean {
