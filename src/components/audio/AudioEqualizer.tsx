@@ -830,7 +830,9 @@ export function AudioEqualizer({
           {EQ_BAND_LABELS.map((label, idx) => (
             <div
               key={label}
+              onDoubleClick={() => handleBandGainChange(idx, 0)}
               className="flex flex-col items-center justify-between gap-1 sm:gap-1.5 min-w-0"
+              title="Double-click to reset to 0 dB"
             >
               <span className="text-[9px] sm:text-[10px] font-mono text-zinc-400 whitespace-nowrap">
                 {label}
@@ -845,6 +847,10 @@ export function AudioEqualizer({
                 onChange={(e) =>
                   handleBandGainChange(idx, parseFloat(e.target.value))
                 }
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  handleBandGainChange(idx, 0);
+                }}
                 className="w-full h-1 bg-zinc-700 accent-indigo-500 rounded-lg cursor-pointer"
               />
               <span className="text-[8px] sm:text-[9px] font-mono text-indigo-400 whitespace-nowrap">
