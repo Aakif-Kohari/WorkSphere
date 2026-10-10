@@ -201,6 +201,13 @@ export function SeatOccupancyHeatmap({
         }, announcementThrottleMs);
       }
     }
+
+    return () => {
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+    };
   }, [effectiveSeats, announcementThrottleMs]);
 
   // Listen for global custom seat status events if dispatched from WebSocket / PartyKit
@@ -218,7 +225,9 @@ export function SeatOccupancyHeatmap({
       window.removeEventListener("worksphere:seat-status-changed", handleSeatEvent);
       if (throttleTimerRef.current) {
         clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
       }
+      pendingAnnouncementsRef.current = [];
     };
   }, []);
 
