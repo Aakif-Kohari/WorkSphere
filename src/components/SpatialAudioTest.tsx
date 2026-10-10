@@ -323,27 +323,38 @@ const SpatialAudioTest = () => {
     }
   };
 
-  // Soundstage mouse dragging interactions
+  // Soundstage mouse dragging interactions with boundary clamping
   const handleSoundstageInteraction = (
     e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>,
   ) => {
     if (!soundstageRef.current) return;
     const rect = soundstageRef.current.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+
     const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
     const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
 
     const xPx = clientX - (rect.left + rect.width / 2);
     const yPx = rect.top + rect.height / 2 - clientY; // standard Y is positive upwards
 
-    const maxRadiusPx = rect.width / 2;
+    const maxRadiusPx = Math.max(1, rect.width / 2);
     const maxRadiusMeters = 8.0; // represent up to 8m distance on map
     const scale = maxRadiusMeters / maxRadiusPx;
 
     const xMeters = xPx * scale;
     const yMeters = yPx * scale;
 
-    setSourceX(parseFloat(xMeters.toFixed(2)));
-    setSourceY(parseFloat(yMeters.toFixed(2)));
+    // Radial distance clamping to prevent coordinate boundary drift
+    const distMeters = Math.sqrt(xMeters * xMeters + yMeters * yMeters);
+    let clampedX = xMeters;
+    let clampedY = yMeters;
+    if (distMeters > maxRadiusMeters) {
+      clampedX = (xMeters / distMeters) * maxRadiusMeters;
+      clampedY = (yMeters / distMeters) * maxRadiusMeters;
+    }
+
+    setSourceX(parseFloat(clampedX.toFixed(2)));
+    setSourceY(parseFloat(clampedY.toFixed(2)));
   };
 
   useEffect(() => {
@@ -355,12 +366,14 @@ const SpatialAudioTest = () => {
   // Map relative position coordinates back to screen pixels for visual display
   const mapXToPercent = (x: number) => {
     const maxRadiusMeters = 8.0;
-    return 50 + (x / maxRadiusMeters) * 50;
+    const clampedX = Math.max(-maxRadiusMeters, Math.min(maxRadiusMeters, x));
+    return Math.max(0, Math.min(100, 50 + (clampedX / maxRadiusMeters) * 50));
   };
 
   const mapYToPercent = (y: number) => {
     const maxRadiusMeters = 8.0;
-    return 50 - (y / maxRadiusMeters) * 50; // invert back for HTML top percent
+    const clampedY = Math.max(-maxRadiusMeters, Math.min(maxRadiusMeters, y));
+    return Math.max(0, Math.min(100, 50 - (clampedY / maxRadiusMeters) * 50)); // invert back for HTML top percent
   };
 
   return (
