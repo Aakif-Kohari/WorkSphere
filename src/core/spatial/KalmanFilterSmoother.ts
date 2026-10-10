@@ -57,8 +57,11 @@ export class KalmanFilterSmoother {
         this.state.vx = (this.state.x - (this.state.x - kalmanGainX * innovationX)) / this.dt;
         this.state.vy = (this.state.y - (this.state.y - kalmanGainY * innovationY)) / this.dt;
 
-        this.covariance.pxx = (1 - kalmanGainX) * this.covariance.pxx;
-        this.covariance.pyy = (1 - kalmanGainY) * this.covariance.pyy;
+        // Joseph's stabilized covariance form: P = (I - KH)P(I - KH)' + KRK'
+        const oneMinusKx = 1 - kalmanGainX;
+        const oneMinusKy = 1 - kalmanGainY;
+        this.covariance.pxx = Math.max(1e-6, oneMinusKx * this.covariance.pxx * oneMinusKx + kalmanGainX * this.measurementNoise * kalmanGainX);
+        this.covariance.pyy = Math.max(1e-6, oneMinusKy * this.covariance.pyy * oneMinusKy + kalmanGainY * this.measurementNoise * kalmanGainY);
 
         return { ...this.state };
     }
