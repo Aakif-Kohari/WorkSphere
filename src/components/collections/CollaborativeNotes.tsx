@@ -101,6 +101,9 @@ export function CollaborativeNotes({
 
   const isLocalTypingRef = useRef(false);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const userMetaRef = useRef({ currentUserId, currentUserName, currentUserAvatar });
+  userMetaRef.current = { currentUserId, currentUserName, currentUserAvatar };
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const ytextRef = useRef<Y.Text | null>(null);
   const selectionRef = useRef<{
@@ -267,7 +270,12 @@ export function CollaborativeNotes({
 
   // Requirement 2: Clients send a presence heartbeat every 5 seconds while active
   useEffect(() => {
-    const heartbeatTimer = setInterval(() => {
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
+    }
+
+    heartbeatTimerRef.current = setInterval(() => {
       try {
         const isOpen =
           socket &&
@@ -275,12 +283,17 @@ export function CollaborativeNotes({
             (typeof WebSocket !== "undefined" &&
               socket.readyState === WebSocket.OPEN));
         if (isOpen) {
+          const {
+            currentUserId: uid,
+            currentUserName: uname,
+            currentUserAvatar: uavatar,
+          } = userMetaRef.current;
           socket.send(
             JSON.stringify({
               type: "presence_heartbeat",
-              userId: currentUserId,
-              userName: currentUserName,
-              avatarUrl: currentUserAvatar,
+              userId: uid,
+              userName: uname,
+              avatarUrl: uavatar,
               isTyping: isLocalTypingRef.current,
               lastActive: Date.now(),
             }),
@@ -291,8 +304,13 @@ export function CollaborativeNotes({
       }
     }, HEARTBEAT_INTERVAL_MS);
 
-    return () => clearInterval(heartbeatTimer);
-  }, [socket, currentUserId, currentUserName, currentUserAvatar]);
+    return () => {
+      if (heartbeatTimerRef.current) {
+        clearInterval(heartbeatTimerRef.current);
+        heartbeatTimerRef.current = null;
+      }
+    };
+  }, [socket]);
 
   // Remember caret position as CRDT-relative position
   const rememberSelection = useCallback(() => {
