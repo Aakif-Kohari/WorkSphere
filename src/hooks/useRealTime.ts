@@ -8,10 +8,15 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/nextjs";
-import usePartySocket from "@/hooks/usePartySocketReconnect";
+import usePartySocket from "@/hooks/usePartySocket";
 import YProvider from "y-partykit/provider";
 import * as Y from "yjs";
 import { useHydrationComplete } from "@/hooks/useHydrationComplete";
+
+export {
+  ConnectionStatus,
+  type ConnectionStatusProps,
+} from "@/components/realtime/ConnectionStatus";
 
 interface VenueUpdate {
   type: "rating" | "availability" | "new_review";
@@ -229,27 +234,6 @@ export function usePollingUpdates<T>(
   }, [enabled, interval, refresh]);
 
   return { data, isLoading, error, refresh };
-}
-
-/**
- * Connection status indicator component
- */
-export function ConnectionStatus({ isConnected }: { isConnected: boolean }) {
-  if (isConnected) {
-    return (
-      <div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
-        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-        Live
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-      <span className="w-2 h-2 bg-amber-500 rounded-full" />
-      Reconnecting...
-    </div>
-  );
 }
 
 export function useMultiplayerSession(roomId: string | null) {
