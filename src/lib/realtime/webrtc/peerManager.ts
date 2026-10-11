@@ -23,6 +23,8 @@ import {
 import {
   findMeshRoutes,
   MeshPathBalancer,
+  type MeshLinkTelemetry,
+  type MeshRoute,
   MIN_CHUNK_SIZE,
   MAX_CHUNK_SIZE,
   DEFAULT_CHUNK_SIZE,

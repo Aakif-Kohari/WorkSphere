@@ -220,6 +220,14 @@ export async function searchVenuesWithRrf(
   query: string,
   filters: HybridVenueSearchFilters = {},
   candidateLimit = 500,
+): Promise<RankedVenueId[]> {
+  const searchQuery = query.trim().slice(0, 256);
+  if (!searchQuery) return [];
+
+  const embedding = await embedSearchQuery(searchQuery);
+  const embeddingString = embedding ? `[${embedding.join(",")}]` : null;
+  const predicates: Prisma.Sql[] = [];
+
 ): Promise<RankedVenueList> {
   const searchQuery = query.trim().slice(0, 256);
   if (!searchQuery) {
@@ -370,6 +378,8 @@ export async function searchVenuesWithRrf(
     fused_scores AS (
       SELECT
         "id",
+        SUM(CASE WHEN rank_bm25 IS NOT NULL THEN 1.0 / (60 + rank_bm25) ELSE 0 END)
+        + SUM(CASE WHEN rank_vector IS NOT NULL THEN 1.0 / (60 + rank_vector) ELSE 0 END) AS rrf_score
         SUM(CASE WHEN rank_bm25 IS NOT NULL AND rank_bm25 >= 1 THEN ${fullTextWeight} / (${rrfK} + FLOOR(rank_bm25)::bigint) ELSE 0 END)
         + SUM(CASE WHEN rank_vector IS NOT NULL AND rank_vector >= 1 THEN ${semanticWeight} / (${rrfK} + FLOOR(rank_vector)::bigint) ELSE 0 END) AS rrf_score
       FROM fused_candidates
@@ -399,6 +409,7 @@ export async function searchVenuesWithRrf(
     ORDER BY fused_scores.rrf_score DESC, fused_scores."id"
   `);
 
+  const ranked = results ?? [];
   let ranked: RankedVenueList = Object.assign([...(results ?? [])], {
     fuzzyMatched: false,
     suggestedQuery: undefined,

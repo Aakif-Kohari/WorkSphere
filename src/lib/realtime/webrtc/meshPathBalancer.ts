@@ -80,6 +80,10 @@ export class MeshPathBalancer {
   private readonly telemetry = new Map<string, MeshLinkTelemetry>();
   private readonly recoverySamples = new Map<string, number>();
   private readonly congestedLinks = new Set<string>();
+  private alternativeCursor = 0;
+
+  constructor(options: MeshPathBalancerOptions = {}) {
+    this.options = { ...DEFAULT_OPTIONS, ...options };
   private readonly optimalChunkSizes = new Map<string, number>();
   private alternativeCursor = 0;
 
@@ -100,6 +104,10 @@ export class MeshPathBalancer {
 
   updateTelemetry(peerId: string, metrics: MeshLinkTelemetry): void {
     this.telemetry.set(peerId, metrics);
+    const congested =
+      metrics.packetLoss >= this.options.packetLossThreshold ||
+      metrics.jitterMs >= this.options.jitterThresholdMs ||
+      metrics.rttMs >= this.options.rttThresholdMs;
     const congested = this.checkCongestion(metrics);
 
     if (congested) {
@@ -170,6 +178,11 @@ export class MeshPathBalancer {
   isCongested(peerId: string, now = Date.now()): boolean {
     const metrics = this.telemetry.get(peerId);
     if (metrics && now - metrics.sampledAt <= 5000) {
+      const congested =
+        metrics.packetLoss >= this.options.packetLossThreshold ||
+        metrics.jitterMs >= this.options.jitterThresholdMs ||
+        metrics.rttMs >= this.options.rttThresholdMs;
+      if (congested) return true;
       if (this.checkCongestion(metrics)) return true;
     }
     return this.congestedLinks.has(peerId);
@@ -179,6 +192,15 @@ export class MeshPathBalancer {
     return this.telemetry.get(peerId);
   }
 
+  choosePath(routes: MeshRoute[], now = Date.now()): MeshRoute | null {
+    const available = routes.filter((route) => route.path.length >= 2);
+    if (available.length === 0) return null;
+
+    const primary = available.find(
+      (route) =>
+        route.path.length === 2 &&
+        route.path[route.path.length - 1] === route.destination,
+    ) ?? available[0];
   getOptimalChunkSize(peerId: string): number {
     return this.optimalChunkSizes.get(peerId) ?? this.options.minChunkSize;
   }

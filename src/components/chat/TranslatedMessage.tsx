@@ -1,5 +1,8 @@
 "use client";
 
+import { Languages, Loader2 } from "lucide-react";
+import { useMessageTranslation } from "@/hooks/useMessageTranslation";
+
 import { useEffect, useState } from "react";
 import { Check, Copy, Eye, EyeOff, Languages, Loader2 } from "lucide-react";
 import { useMessageTranslation } from "@/hooks/useMessageTranslation";
@@ -77,6 +80,7 @@ export function TranslatedMessage({ messageId, text }: TranslatedMessageProps) {
     <div>
       {translation && (
         <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-zinc-400">
+          <span>Translated from {translation.sourceLanguage}</span>
           <span>
             {translation.sourceLanguage &&
             translation.sourceLanguage.toLowerCase() !== "unknown" &&
@@ -94,6 +98,11 @@ export function TranslatedMessage({ messageId, text }: TranslatedMessageProps) {
           >
             {showOriginal ? "Show translation" : "Show original"}
           </button>
+        </div>
+      )}
+      <span className="whitespace-pre-wrap">
+        {translation && !showOriginal ? translation.translatedText : text}
+      </span>
           <button
             type="button"
             onClick={toggleSideBySide}

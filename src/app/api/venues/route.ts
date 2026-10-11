@@ -479,6 +479,7 @@ export async function GET(req: NextRequest) {
         maxLng: where.longitude?.lte,
         category: where.category,
         cities: rawData.cities ? splitSearchList(String(rawData.cities)) : undefined,
+      });
         semanticWeight:
           rawData.semanticWeight !== undefined && Number.isFinite(Number(rawData.semanticWeight))
             ? Number(rawData.semanticWeight)

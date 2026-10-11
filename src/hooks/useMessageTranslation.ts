@@ -1,3 +1,4 @@
+"use client";
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -128,6 +129,7 @@ export function useMessageTranslation(messageId: string, text: string) {
   }, [messageId, translationKey]);
 
   const translate = useCallback(async () => {
+    if (!text.trim()) return;
     const trimmed = typeof text === "string" ? text.trim() : "";
     if (!trimmed) {
       setState({
