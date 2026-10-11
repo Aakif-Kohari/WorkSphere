@@ -80,18 +80,18 @@ export class MeshPathBalancer {
   private readonly telemetry = new Map<string, MeshLinkTelemetry>();
   private readonly recoverySamples = new Map<string, number>();
   private readonly congestedLinks = new Set<string>();
-  private alternativeCursor = 0;
-
-  constructor(options: MeshPathBalancerOptions = {}) {
-    this.options = { ...DEFAULT_OPTIONS, ...options };
   private readonly optimalChunkSizes = new Map<string, number>();
   private alternativeCursor = 0;
 
   constructor(options: MeshPathBalancerOptions = {}) {
     const minChunk =
-      options.minChunkSize ?? options.minPacketSize ?? DEFAULT_OPTIONS.minChunkSize;
+      options.minChunkSize ??
+      options.minPacketSize ??
+      DEFAULT_OPTIONS.minChunkSize;
     const maxChunk =
-      options.maxChunkSize ?? options.maxPacketSize ?? DEFAULT_OPTIONS.maxChunkSize;
+      options.maxChunkSize ??
+      options.maxPacketSize ??
+      DEFAULT_OPTIONS.maxChunkSize;
     this.options = {
       ...DEFAULT_OPTIONS,
       ...options,
@@ -104,10 +104,6 @@ export class MeshPathBalancer {
 
   updateTelemetry(peerId: string, metrics: MeshLinkTelemetry): void {
     this.telemetry.set(peerId, metrics);
-    const congested =
-      metrics.packetLoss >= this.options.packetLossThreshold ||
-      metrics.jitterMs >= this.options.jitterThresholdMs ||
-      metrics.rttMs >= this.options.rttThresholdMs;
     const congested = this.checkCongestion(metrics);
 
     if (congested) {
@@ -124,8 +120,10 @@ export class MeshPathBalancer {
   }
 
   private checkCongestion(metrics: MeshLinkTelemetry): boolean {
-    const isLossCongested = metrics.packetLoss >= this.options.packetLossThreshold;
-    const isJitterCongested = metrics.jitterMs >= this.options.jitterThresholdMs;
+    const isLossCongested =
+      metrics.packetLoss >= this.options.packetLossThreshold;
+    const isJitterCongested =
+      metrics.jitterMs >= this.options.jitterThresholdMs;
     const isRttCongested = metrics.rttMs >= this.options.rttThresholdMs;
 
     // Check outbound data channel buffer fill rate (#5739)
@@ -134,10 +132,20 @@ export class MeshPathBalancer {
       metrics.bufferedAmountBytes >= this.options.bufferedAmountThresholdBytes;
 
     // Check asymmetric send queue delay (#5739)
-    const directionalLatency = this.calculateDirectionalLinkCost(metrics, "send");
-    const isDirectionalDelayCongested = directionalLatency >= this.options.rttThresholdMs;
+    const directionalLatency = this.calculateDirectionalLinkCost(
+      metrics,
+      "send",
+    );
+    const isDirectionalDelayCongested =
+      directionalLatency >= this.options.rttThresholdMs;
 
-    return isLossCongested || isJitterCongested || isRttCongested || isBufferCongested || isDirectionalDelayCongested;
+    return (
+      isLossCongested ||
+      isJitterCongested ||
+      isRttCongested ||
+      isBufferCongested ||
+      isDirectionalDelayCongested
+    );
   }
 
   /**
@@ -146,7 +154,7 @@ export class MeshPathBalancer {
    */
   public calculateDirectionalLinkCost(
     metrics: MeshLinkTelemetry,
-    direction: "send" | "receive" = "send"
+    direction: "send" | "receive" = "send",
   ): number {
     const oneWayBase =
       direction === "send"
@@ -178,11 +186,6 @@ export class MeshPathBalancer {
   isCongested(peerId: string, now = Date.now()): boolean {
     const metrics = this.telemetry.get(peerId);
     if (metrics && now - metrics.sampledAt <= 5000) {
-      const congested =
-        metrics.packetLoss >= this.options.packetLossThreshold ||
-        metrics.jitterMs >= this.options.jitterThresholdMs ||
-        metrics.rttMs >= this.options.rttThresholdMs;
-      if (congested) return true;
       if (this.checkCongestion(metrics)) return true;
     }
     return this.congestedLinks.has(peerId);
@@ -192,15 +195,6 @@ export class MeshPathBalancer {
     return this.telemetry.get(peerId);
   }
 
-  choosePath(routes: MeshRoute[], now = Date.now()): MeshRoute | null {
-    const available = routes.filter((route) => route.path.length >= 2);
-    if (available.length === 0) return null;
-
-    const primary = available.find(
-      (route) =>
-        route.path.length === 2 &&
-        route.path[route.path.length - 1] === route.destination,
-    ) ?? available[0];
   getOptimalChunkSize(peerId: string): number {
     return this.optimalChunkSizes.get(peerId) ?? this.options.minChunkSize;
   }
@@ -248,7 +242,11 @@ export class MeshPathBalancer {
   async probeChannelMtu(
     peerId: string,
     probeFn: (size: number) => Promise<boolean> | boolean,
-    options: { minSize?: number; maxSize?: number; stepPrecision?: number } = {},
+    options: {
+      minSize?: number;
+      maxSize?: number;
+      stepPrecision?: number;
+    } = {},
   ): Promise<number> {
     const min = options.minSize ?? this.options.minChunkSize;
     const max = options.maxSize ?? this.options.maxChunkSize;
@@ -309,7 +307,7 @@ export class MeshPathBalancer {
   choosePath(
     routes: MeshRoute[],
     now = Date.now(),
-    direction: "send" | "receive" = "send"
+    direction: "send" | "receive" = "send",
   ): MeshRoute | null {
     const available = routes.filter((route) => route.path.length >= 2);
     if (available.length === 0) return null;
@@ -338,7 +336,10 @@ export class MeshPathBalancer {
 
     // Directional link cost comparison on asymmetric links (#5739)
     if (primaryMetrics) {
-      const primaryCost = this.calculateDirectionalLinkCost(primaryMetrics, direction);
+      const primaryCost = this.calculateDirectionalLinkCost(
+        primaryMetrics,
+        direction,
+      );
 
       // Check if an alternative route has significantly lower directional latency
       let bestAlt: MeshRoute | null = null;
@@ -350,7 +351,10 @@ export class MeshPathBalancer {
 
         const altMetrics = this.telemetry.get(altFirstHop);
         if (altMetrics) {
-          const altCost = this.calculateDirectionalLinkCost(altMetrics, direction);
+          const altCost = this.calculateDirectionalLinkCost(
+            altMetrics,
+            direction,
+          );
           if (altCost < lowestAltCost) {
             lowestAltCost = altCost;
             bestAlt = alt;

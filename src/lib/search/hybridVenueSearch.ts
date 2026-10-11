@@ -60,7 +60,12 @@ export function calculateRrfScore(
   k: number = DEFAULT_RRF_K,
   weight: number = 1,
 ): number {
-  if (rank === null || rank === undefined || !Number.isFinite(rank) || rank <= 0) {
+  if (
+    rank === null ||
+    rank === undefined ||
+    !Number.isFinite(rank) ||
+    rank <= 0
+  ) {
     return 0;
   }
   const safeRank = Math.floor(rank);
@@ -209,7 +214,9 @@ async function embedSearchQuery(query: string): Promise<number[] | null> {
     if (!response.ok) return null;
     const result = await response.json();
     const embedding = result.embeddings?.[0];
-    return Array.isArray(embedding) && embedding.length === 1024 ? embedding : null;
+    return Array.isArray(embedding) && embedding.length === 1024
+      ? embedding
+      : null;
   } catch (error) {
     console.warn("Venue search embedding generation failed:", error);
     return null;
@@ -220,14 +227,6 @@ export async function searchVenuesWithRrf(
   query: string,
   filters: HybridVenueSearchFilters = {},
   candidateLimit = 500,
-): Promise<RankedVenueId[]> {
-  const searchQuery = query.trim().slice(0, 256);
-  if (!searchQuery) return [];
-
-  const embedding = await embedSearchQuery(searchQuery);
-  const embeddingString = embedding ? `[${embedding.join(",")}]` : null;
-  const predicates: Prisma.Sql[] = [];
-
 ): Promise<RankedVenueList> {
   const searchQuery = query.trim().slice(0, 256);
   if (!searchQuery) {
@@ -378,8 +377,6 @@ export async function searchVenuesWithRrf(
     fused_scores AS (
       SELECT
         "id",
-        SUM(CASE WHEN rank_bm25 IS NOT NULL THEN 1.0 / (60 + rank_bm25) ELSE 0 END)
-        + SUM(CASE WHEN rank_vector IS NOT NULL THEN 1.0 / (60 + rank_vector) ELSE 0 END) AS rrf_score
         SUM(CASE WHEN rank_bm25 IS NOT NULL AND rank_bm25 >= 1 THEN ${fullTextWeight} / (${rrfK} + FLOOR(rank_bm25)::bigint) ELSE 0 END)
         + SUM(CASE WHEN rank_vector IS NOT NULL AND rank_vector >= 1 THEN ${semanticWeight} / (${rrfK} + FLOOR(rank_vector)::bigint) ELSE 0 END) AS rrf_score
       FROM fused_candidates
@@ -409,7 +406,6 @@ export async function searchVenuesWithRrf(
     ORDER BY fused_scores.rrf_score DESC, fused_scores."id"
   `);
 
-  const ranked = results ?? [];
   let ranked: RankedVenueList = Object.assign([...(results ?? [])], {
     fuzzyMatched: false,
     suggestedQuery: undefined,
@@ -424,7 +420,8 @@ export async function searchVenuesWithRrf(
     searchQuery.length >= 3
   ) {
     const minSimilarity =
-      typeof filters.minSimilarity === "number" && Number.isFinite(filters.minSimilarity)
+      typeof filters.minSimilarity === "number" &&
+      Number.isFinite(filters.minSimilarity)
         ? Math.max(0.05, Math.min(1.0, filters.minSimilarity))
         : 0.25;
 
@@ -525,7 +522,9 @@ export async function searchVenuesWithRrf(
   }
 
   if (embeddingString) {
-    for (const candidate of ranked.filter((result) => result.needs_embedding).slice(0, 3)) {
+    for (const candidate of ranked
+      .filter((result) => result.needs_embedding)
+      .slice(0, 3)) {
       if (candidate.search_document) {
         void indexVenueSearchEmbedding(candidate.id, candidate.search_document);
       }

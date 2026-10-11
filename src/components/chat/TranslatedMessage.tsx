@@ -1,9 +1,6 @@
 "use client";
 
-import { Languages, Loader2 } from "lucide-react";
-import { useMessageTranslation } from "@/hooks/useMessageTranslation";
-
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, Copy, Eye, EyeOff, Languages, Loader2 } from "lucide-react";
 import { useMessageTranslation } from "@/hooks/useMessageTranslation";
 
@@ -53,7 +50,8 @@ export function TranslatedMessage({ messageId, text }: TranslatedMessageProps) {
     });
   };
 
-  const currentText = translation && !showOriginal ? translation.translatedText : text;
+  const currentText =
+    translation && !showOriginal ? translation.translatedText : text;
 
   const handleCopy = async () => {
     try {
@@ -80,7 +78,6 @@ export function TranslatedMessage({ messageId, text }: TranslatedMessageProps) {
     <div>
       {translation && (
         <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-zinc-400">
-          <span>Translated from {translation.sourceLanguage}</span>
           <span>
             {translation.sourceLanguage &&
             translation.sourceLanguage.toLowerCase() !== "unknown" &&
@@ -98,11 +95,6 @@ export function TranslatedMessage({ messageId, text }: TranslatedMessageProps) {
           >
             {showOriginal ? "Show translation" : "Show original"}
           </button>
-        </div>
-      )}
-      <span className="whitespace-pre-wrap">
-        {translation && !showOriginal ? translation.translatedText : text}
-      </span>
           <button
             type="button"
             onClick={toggleSideBySide}
@@ -112,11 +104,7 @@ export function TranslatedMessage({ messageId, text }: TranslatedMessageProps) {
                 ? "Switch to single message view"
                 : "Switch to side-by-side view"
             }
-            title={
-              sideBySide
-                ? "Single view"
-                : "Compare side-by-side"
-            }
+            title={sideBySide ? "Single view" : "Compare side-by-side"}
           >
             {sideBySide ? (
               <EyeOff className="h-3 w-3" aria-hidden="true" />
@@ -132,11 +120,16 @@ export function TranslatedMessage({ messageId, text }: TranslatedMessageProps) {
               type="button"
               onClick={handleCopy}
               className="inline-flex items-center gap-1 rounded p-0.5 text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-200"
-              aria-label={copied ? "Copied translated text" : "Copy translated text"}
+              aria-label={
+                copied ? "Copied translated text" : "Copy translated text"
+              }
               title={copied ? "Copied!" : "Copy"}
             >
               {copied ? (
-                <Check className="h-3 w-3 text-emerald-500" aria-hidden="true" />
+                <Check
+                  className="h-3 w-3 text-emerald-500"
+                  aria-hidden="true"
+                />
               ) : (
                 <Copy className="h-3 w-3" aria-hidden="true" />
               )}

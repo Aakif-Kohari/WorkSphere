@@ -19,11 +19,6 @@
   outline-offset: 6px;
 }
 
-:global(.perspective-1000) {
-  perspective: 1000px;
-}
-
-:global(.transform-style-3d) {
 .perspective1000 {
   perspective: 1000px;
 }
@@ -52,7 +47,6 @@
   aspect-ratio: 1;
   border: 10px ridge #d4a35d;
   border-radius: 50%;
-  background: radial-gradient(circle at 33% 25%, #ffe1a7, #b87b36 49%, #704722 100%);
   background: radial-gradient(
     circle at 33% 25%,
     #ffe1a7,
@@ -67,7 +61,6 @@
   transition: transform 700ms cubic-bezier(0.2, 0.75, 0.2, 1);
 }
 
-:global(.rotate-y-180) {
 .rotateY180 {
   transform: rotateY(180deg);
 }
@@ -97,7 +90,6 @@
 .kicker {
   max-width: 80%;
   color: #e8c586;
-  font: 600 0.62rem/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
   font:
     600 0.62rem/1.3 ui-monospace,
     SFMono-Regular,
@@ -114,7 +106,6 @@
   border: 2px solid #e8c586;
   border-radius: 50%;
   color: #fae3b7;
-  font: 700 2.2rem/1 Georgia, serif;
   font:
     700 2.2rem/1 Georgia,
     serif;
@@ -125,7 +116,6 @@
   max-width: 76%;
   overflow: hidden;
   color: #fff1d3;
-  font: 600 0.72rem/1.4 Georgia, serif;
   font:
     600 0.72rem/1.4 Georgia,
     serif;
@@ -135,7 +125,6 @@
 
 .verified {
   color: #eff6e9;
-  font: 700 1.05rem/1 Georgia, serif;
   font:
     700 1.05rem/1 Georgia,
     serif;
@@ -145,7 +134,6 @@
   max-width: 78%;
   overflow: hidden;
   color: #d8e4df;
-  font: 500 0.52rem/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
   font:
     500 0.52rem/1.7 ui-monospace,
     SFMono-Regular,

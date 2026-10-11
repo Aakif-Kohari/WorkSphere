@@ -108,7 +108,12 @@ export async function GET(req: NextRequest) {
       const where: any = {};
       const andConditions: any[] = [];
 
-      if (minLatParam !== null && !isNaN(Number(minLatParam)) && maxLatParam !== null && !isNaN(Number(maxLatParam))) {
+      if (
+        minLatParam !== null &&
+        !isNaN(Number(minLatParam)) &&
+        maxLatParam !== null &&
+        !isNaN(Number(maxLatParam))
+      ) {
         andConditions.push({
           latitude: {
             gte: parseFloat(minLatParam),
@@ -124,7 +129,12 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      if (minLngParam !== null && !isNaN(Number(minLngParam)) && maxLngParam !== null && !isNaN(Number(maxLngParam))) {
+      if (
+        minLngParam !== null &&
+        !isNaN(Number(minLngParam)) &&
+        maxLngParam !== null &&
+        !isNaN(Number(maxLngParam))
+      ) {
         andConditions.push({
           longitude: {
             gte: parseFloat(minLngParam),
@@ -179,11 +189,13 @@ export async function GET(req: NextRequest) {
               : undefined,
           cities: citiesParam ? splitSearchList(citiesParam) : undefined,
           semanticWeight:
-            semanticWeightParam !== null && Number.isFinite(Number(semanticWeightParam))
+            semanticWeightParam !== null &&
+            Number.isFinite(Number(semanticWeightParam))
               ? Number(semanticWeightParam)
               : undefined,
           fullTextWeight:
-            fullTextWeightParam !== null && Number.isFinite(Number(fullTextWeightParam))
+            fullTextWeightParam !== null &&
+            Number.isFinite(Number(fullTextWeightParam))
               ? Number(fullTextWeightParam)
               : undefined,
         });
@@ -197,10 +209,14 @@ export async function GET(req: NextRequest) {
               },
             })
           : [];
-        const venueMap = new Map(matchingVenues.map((venue) => [venue.id, venue]));
+        const venueMap = new Map(
+          matchingVenues.map((venue) => [venue.id, venue]),
+        );
         const orderedVenues = rankedIds
           .map((id) => venueMap.get(id))
-          .filter((venue): venue is (typeof matchingVenues)[number] => Boolean(venue));
+          .filter((venue): venue is (typeof matchingVenues)[number] =>
+            Boolean(venue),
+          );
         const venues = orderedVenues.slice(skip, skip + limit);
         const total = orderedVenues.length;
 
@@ -478,14 +494,17 @@ export async function GET(req: NextRequest) {
         minLng: where.longitude?.gte,
         maxLng: where.longitude?.lte,
         category: where.category,
-        cities: rawData.cities ? splitSearchList(String(rawData.cities)) : undefined,
-      });
+        cities: rawData.cities
+          ? splitSearchList(String(rawData.cities))
+          : undefined,
         semanticWeight:
-          rawData.semanticWeight !== undefined && Number.isFinite(Number(rawData.semanticWeight))
+          rawData.semanticWeight !== undefined &&
+          Number.isFinite(Number(rawData.semanticWeight))
             ? Number(rawData.semanticWeight)
             : undefined,
         fullTextWeight:
-          rawData.fullTextWeight !== undefined && Number.isFinite(Number(rawData.fullTextWeight))
+          rawData.fullTextWeight !== undefined &&
+          Number.isFinite(Number(rawData.fullTextWeight))
             ? Number(rawData.fullTextWeight)
             : undefined,
       });
@@ -501,10 +520,14 @@ export async function GET(req: NextRequest) {
             },
           })
         : [];
-      const venueMap = new Map(matchingVenues.map((venue) => [venue.id, venue]));
+      const venueMap = new Map(
+        matchingVenues.map((venue) => [venue.id, venue]),
+      );
       const orderedVenues = rankedIds
         .map((id) => venueMap.get(id))
-        .filter((venue): venue is (typeof matchingVenues)[number] => Boolean(venue));
+        .filter((venue): venue is (typeof matchingVenues)[number] =>
+          Boolean(venue),
+        );
       total = orderedVenues.length;
       venues = orderedVenues.slice(skip, skip + limit);
     } else {
@@ -798,7 +821,9 @@ export async function POST(req: NextRequest) {
           ? "quiet focus concentration"
           : null,
         venue.hasNoMusic ? "no music silent" : null,
-        venue.dogFriendly || venue.petsAllowedIndoors ? "dog pet friendly" : null,
+        venue.dogFriendly || venue.petsAllowedIndoors
+          ? "dog pet friendly"
+          : null,
         venue.hasAncHeadsetRental ? "noise cancelling headset" : null,
       ]
         .filter(Boolean)
