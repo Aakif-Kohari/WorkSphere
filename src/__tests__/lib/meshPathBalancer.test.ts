@@ -252,4 +252,87 @@ describe("MeshPathBalancer", () => {
       );
     });
   });
+
+  describe("Asymmetric Link Latency Calculation & Buffer Weighting (#5739)", () => {
+    it("weights asymmetric send/receive queue delays independently", () => {
+      const balancer = new MeshPathBalancer({
+        sendQueueWeight: 1.5,
+        receiveQueueWeight: 1.0,
+      });
+
+      const asymmetricMetrics = {
+        packetLoss: 0.01,
+        jitterMs: 5,
+        rttMs: 60, // Symmetrical assumption would be 30ms each way
+        sampledAt: Date.now(),
+        oneWaySendMs: 50, // 50ms upload (congested / asymmetric uplink)
+        oneWayReceiveMs: 10, // 10ms download
+        sendQueueDelayMs: 20,
+        receiveQueueDelayMs: 5,
+        bufferedAmountBytes: 0,
+      };
+
+      // Send cost: 50 + (20 * 1.5) = 80ms
+      const sendCost = balancer.calculateDirectionalLinkCost(asymmetricMetrics, "send");
+      expect(sendCost).toBe(80);
+
+      // Receive cost: 10 + (5 * 1.0) = 15ms
+      const receiveCost = balancer.calculateDirectionalLinkCost(asymmetricMetrics, "receive");
+      expect(receiveCost).toBe(15);
+    });
+
+    it("triggers congestion when dataChannel.bufferedAmount exceeds buffer threshold", () => {
+      const balancer = new MeshPathBalancer({
+        bufferedAmountThresholdBytes: 256 * 1024, // 256KB
+      });
+
+      const now = Date.now();
+      balancer.updateTelemetry("target", {
+        packetLoss: 0.01,
+        jitterMs: 10,
+        rttMs: 40,
+        sampledAt: now,
+        bufferedAmountBytes: 300 * 1024, // 300KB (> 256KB threshold)
+      });
+
+      expect(balancer.isCongested("target", now)).toBe(true);
+
+      const selected = balancer.choosePath(routes, now);
+      // Diverts away from direct path to alternate route due to outbound buffer congestion
+      expect(selected?.path).not.toEqual(routes[0].path);
+    });
+
+    it("selects alternative multi-hop route when direct link uplink is degraded on asymmetric link", () => {
+      const balancer = new MeshPathBalancer();
+      const now = Date.now();
+
+      // Direct route has high upload delay despite low total RTT
+      balancer.updateTelemetry("target", {
+        packetLoss: 0.01,
+        jitterMs: 5,
+        rttMs: 80,
+        sampledAt: now,
+        oneWaySendMs: 70, // Severely degraded uplink
+        oneWayReceiveMs: 10,
+        sendQueueDelayMs: 30, // Queue buildup
+        bufferedAmountBytes: 64 * 1024,
+      });
+
+      // Relay A has fast symmetrical uplink
+      balancer.updateTelemetry("relay-a", {
+        packetLoss: 0.005,
+        jitterMs: 2,
+        rttMs: 30,
+        sampledAt: now,
+        oneWaySendMs: 15,
+        oneWayReceiveMs: 15,
+        sendQueueDelayMs: 0,
+        bufferedAmountBytes: 0,
+      });
+
+      // choosePath evaluates directional send costs and chooses relay-a route
+      const selected = balancer.choosePath(routes, now, "send");
+      expect(selected?.path).toEqual(["source", "relay-a", "target"]);
+    });
+  });
 });

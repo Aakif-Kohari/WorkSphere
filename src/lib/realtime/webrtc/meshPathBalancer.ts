@@ -3,6 +3,12 @@ export interface MeshLinkTelemetry {
   jitterMs: number;
   rttMs: number;
   sampledAt: number;
+  // Directional metrics on asymmetric links (#5739)
+  oneWaySendMs?: number;
+  oneWayReceiveMs?: number;
+  bufferedAmountBytes?: number;
+  sendQueueDelayMs?: number;
+  receiveQueueDelayMs?: number;
 }
 
 export interface MeshRoute {
@@ -43,6 +49,10 @@ export interface MeshPathBalancerOptions {
   minPacketSize?: number;
   maxPacketSize?: number;
   stepPrecision?: number;
+  // Asymmetric link weighting factors (#5739)
+  bufferedAmountThresholdBytes?: number;
+  sendQueueWeight?: number;
+  receiveQueueWeight?: number;
 }
 
 const DEFAULT_OPTIONS: Required<MeshPathBalancerOptions> = {
@@ -55,6 +65,9 @@ const DEFAULT_OPTIONS: Required<MeshPathBalancerOptions> = {
   minPacketSize: MIN_PACKET_SIZE,
   maxPacketSize: MAX_PACKET_SIZE,
   stepPrecision: DEFAULT_STEP_PRECISION,
+  bufferedAmountThresholdBytes: 256 * 1024, // 256KB outbound buffer threshold
+  sendQueueWeight: 1.5,
+  receiveQueueWeight: 1.0,
 };
 
 /**
@@ -87,10 +100,7 @@ export class MeshPathBalancer {
 
   updateTelemetry(peerId: string, metrics: MeshLinkTelemetry): void {
     this.telemetry.set(peerId, metrics);
-    const congested =
-      metrics.packetLoss >= this.options.packetLossThreshold ||
-      metrics.jitterMs >= this.options.jitterThresholdMs ||
-      metrics.rttMs >= this.options.rttThresholdMs;
+    const congested = this.checkCongestion(metrics);
 
     if (congested) {
       this.congestedLinks.add(peerId);
@@ -105,6 +115,51 @@ export class MeshPathBalancer {
     }
   }
 
+  private checkCongestion(metrics: MeshLinkTelemetry): boolean {
+    const isLossCongested = metrics.packetLoss >= this.options.packetLossThreshold;
+    const isJitterCongested = metrics.jitterMs >= this.options.jitterThresholdMs;
+    const isRttCongested = metrics.rttMs >= this.options.rttThresholdMs;
+
+    // Check outbound data channel buffer fill rate (#5739)
+    const isBufferCongested =
+      metrics.bufferedAmountBytes !== undefined &&
+      metrics.bufferedAmountBytes >= this.options.bufferedAmountThresholdBytes;
+
+    // Check asymmetric send queue delay (#5739)
+    const directionalLatency = this.calculateDirectionalLinkCost(metrics, "send");
+    const isDirectionalDelayCongested = directionalLatency >= this.options.rttThresholdMs;
+
+    return isLossCongested || isJitterCongested || isRttCongested || isBufferCongested || isDirectionalDelayCongested;
+  }
+
+  /**
+   * Calculates directional link cost accounting for asymmetric links,
+   * outbound buffer fill rates, and weighted send/receive queue delays (#5739).
+   */
+  public calculateDirectionalLinkCost(
+    metrics: MeshLinkTelemetry,
+    direction: "send" | "receive" = "send"
+  ): number {
+    const oneWayBase =
+      direction === "send"
+        ? (metrics.oneWaySendMs ?? metrics.rttMs / 2)
+        : (metrics.oneWayReceiveMs ?? metrics.rttMs / 2);
+
+    // Dynamic queue delay contribution
+    const queueDelay =
+      direction === "send"
+        ? (metrics.sendQueueDelayMs ?? 0) * this.options.sendQueueWeight
+        : (metrics.receiveQueueDelayMs ?? 0) * this.options.receiveQueueWeight;
+
+    // Outbound buffer pressure penalty (e.g. 50ms penalty per 64KB queued)
+    const bufferPenaltyMs =
+      direction === "send" && metrics.bufferedAmountBytes
+        ? (metrics.bufferedAmountBytes / (64 * 1024)) * 50
+        : 0;
+
+    return oneWayBase + queueDelay + bufferPenaltyMs;
+  }
+
   removePeer(peerId: string): void {
     this.telemetry.delete(peerId);
     this.recoverySamples.delete(peerId);
@@ -115,11 +170,7 @@ export class MeshPathBalancer {
   isCongested(peerId: string, now = Date.now()): boolean {
     const metrics = this.telemetry.get(peerId);
     if (metrics && now - metrics.sampledAt <= 5000) {
-      const congested =
-        metrics.packetLoss >= this.options.packetLossThreshold ||
-        metrics.jitterMs >= this.options.jitterThresholdMs ||
-        metrics.rttMs >= this.options.rttThresholdMs;
-      if (congested) return true;
+      if (this.checkCongestion(metrics)) return true;
     }
     return this.congestedLinks.has(peerId);
   }
@@ -233,7 +284,11 @@ export class MeshPathBalancer {
     return this.probeChannelMtu(peerId, probeFn, options);
   }
 
-  choosePath(routes: MeshRoute[], now = Date.now()): MeshRoute | null {
+  choosePath(
+    routes: MeshRoute[],
+    now = Date.now(),
+    direction: "send" | "receive" = "send"
+  ): MeshRoute | null {
     const available = routes.filter((route) => route.path.length >= 2);
     if (available.length === 0) return null;
 
@@ -252,8 +307,39 @@ export class MeshPathBalancer {
     }
 
     const primaryPeer = primary.path[1];
+    const primaryMetrics = this.telemetry.get(primaryPeer);
+
+    // If primary link is congested, divert immediately
     if (this.isCongested(primaryPeer, now)) {
       return alternatives[this.alternativeCursor++ % alternatives.length];
+    }
+
+    // Directional link cost comparison on asymmetric links (#5739)
+    if (primaryMetrics) {
+      const primaryCost = this.calculateDirectionalLinkCost(primaryMetrics, direction);
+
+      // Check if an alternative route has significantly lower directional latency
+      let bestAlt: MeshRoute | null = null;
+      let lowestAltCost = Infinity;
+
+      for (const alt of alternatives) {
+        const altFirstHop = alt.path[1];
+        if (this.isCongested(altFirstHop, now)) continue;
+
+        const altMetrics = this.telemetry.get(altFirstHop);
+        if (altMetrics) {
+          const altCost = this.calculateDirectionalLinkCost(altMetrics, direction);
+          if (altCost < lowestAltCost) {
+            lowestAltCost = altCost;
+            bestAlt = alt;
+          }
+        }
+      }
+
+      // If alternative path offers > 20% lower directional cost, switch to it
+      if (bestAlt && lowestAltCost < primaryCost * 0.8) {
+        return bestAlt;
+      }
     }
 
     return primary;
