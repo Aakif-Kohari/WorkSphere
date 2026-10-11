@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminUser } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
-import { calculatePartitionDates, escapeCsv } from "../dateHelper";
+import { calculatePartitionDates, escapeCsv, sanitizeExportFilename } from "../dateHelper";
 
 export const dynamic = "force-dynamic";
 
@@ -26,9 +26,18 @@ export async function GET(request: NextRequest) {
     const { searchParams } = request.nextUrl;
     const yearParam = searchParams.get("year");
     const monthParam = searchParams.get("month");
+    const tableParam = searchParams.get("tableName") || searchParams.get("table");
     const typeParam = (
-      searchParams.get("type") || "telemetry"
+      searchParams.get("type") || (tableParam && tableParam.toLowerCase().includes("push") ? "push" : "telemetry")
     ).toLowerCase() as PartitionExportType;
+
+    // Guard against path traversal sequences in table / tableName parameter
+    if (tableParam && (tableParam.includes("..") || /[/\\]/.test(tableParam))) {
+      return NextResponse.json(
+        { error: "Invalid table name: path traversal sequences are not allowed" },
+        { status: 400 },
+      );
+    }
 
     const now = new Date();
     const year = yearParam ? parseInt(yearParam, 10) : now.getUTCFullYear();
@@ -54,9 +63,13 @@ export async function GET(request: NextRequest) {
     const monthStr = String(month + 1).padStart(2, "0");
 
     const isTelemetry = typeParam === "telemetry";
-    const filename = isTelemetry
-      ? `telemetry-records-${year}-${monthStr}.csv`
-      : `push-logs-${year}-${monthStr}.csv`;
+    const rawPrefix = tableParam
+      ? sanitizeExportFilename(tableParam)
+      : isTelemetry
+        ? "telemetry-records"
+        : "push-logs";
+    const rawFilename = `${rawPrefix}-${year}-${monthStr}.csv`;
+    const filename = sanitizeExportFilename(rawFilename);
 
     const headers = isTelemetry
       ? [

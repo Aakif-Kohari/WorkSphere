@@ -5,6 +5,7 @@ import {
   parsePartitionDate,
   isValidDateString,
   DATE_STRING_REGEX,
+  sanitizeExportFilename,
 } from "../../../../app/api/admin/system/partitions/dateHelper";
 import { GET } from "../../../../app/api/admin/system/partitions/export/route";
 import { getAdminUser } from "@/lib/admin";
@@ -168,6 +169,60 @@ describe("Partition Date Calculations & Export (#3777, #4914)", () => {
       expect(text).toContain(
         "tel-1,ven-1,2026-03-15T10:00:00.000Z,150.5,50.2,12,45,20,true,moderate",
       );
+    });
+
+    it("sanitizes filename in Content-Disposition header when table name has special characters or spaces", async () => {
+      (getAdminUser as jest.Mock).mockResolvedValue({
+        id: "admin-1",
+        email: "admin@worksphere.com",
+      });
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValueOnce([]);
+
+      const req = new NextRequest(
+        "http://localhost:3000/api/admin/system/partitions/export?year=2026&month=2&tableName=Telemetry%20Records;%22alert(1)%22",
+      );
+      const res = await GET(req);
+
+      expect(res.status).toBe(200);
+      const disposition = res.headers.get("Content-Disposition");
+      expect(disposition).toBeDefined();
+      expect(disposition).toContain('filename="Telemetry_Records_alert_1_-2026-03.csv"');
+      expect(disposition).not.toContain(" ");
+      expect(disposition).not.toContain(";alert");
+    });
+
+    it("guards against path traversal sequences (../) in export tableName parameter", async () => {
+      (getAdminUser as jest.Mock).mockResolvedValue({
+        id: "admin-1",
+        email: "admin@worksphere.com",
+      });
+
+      const req = new NextRequest(
+        "http://localhost:3000/api/admin/system/partitions/export?year=2026&month=2&tableName=../../etc/passwd",
+      );
+      const res = await GET(req);
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toBe("Invalid table name: path traversal sequences are not allowed");
+    });
+  });
+
+  describe("sanitizeExportFilename helper", () => {
+    it("replaces spaces and special characters with underscores", () => {
+      expect(sanitizeExportFilename("Telemetry Records (2026)!")).toBe("Telemetry_Records_2026");
+      expect(sanitizeExportFilename('foo"bar;baz?qux=1')).toBe("foo_bar_baz_qux_1");
+    });
+
+    it("guards against path traversal sequences and slashes", () => {
+      expect(sanitizeExportFilename("../../secrets/passwords.csv")).toBe("secrets_passwords.csv");
+      expect(sanitizeExportFilename("..\\..\\windows\\win.ini")).toBe("windows_win.ini");
+    });
+
+    it("falls back to default fallback when string is empty or invalid", () => {
+      expect(sanitizeExportFilename("")).toBe("export");
+      expect(sanitizeExportFilename("___")).toBe("export");
+      expect(sanitizeExportFilename(null as unknown as string, "fallback")).toBe("fallback");
     });
   });
 });
