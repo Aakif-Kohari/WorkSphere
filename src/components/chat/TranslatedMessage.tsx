@@ -48,7 +48,13 @@ export function TranslatedMessage({ messageId, text }: TranslatedMessageProps) {
     <div>
       {translation && (
         <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-zinc-400">
-          <span>Translated from {translation.sourceLanguage}</span>
+          <span>
+            {translation.sourceLanguage &&
+            translation.sourceLanguage.toLowerCase() !== "unknown" &&
+            translation.sourceLanguage.toLowerCase() !== "undefined"
+              ? `Translated from ${translation.sourceLanguage}`
+              : "Auto-detected"}
+          </span>
           <button
             type="button"
             onClick={toggleOriginal}

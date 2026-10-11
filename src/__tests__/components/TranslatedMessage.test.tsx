@@ -40,4 +40,39 @@ describe("TranslatedMessage", () => {
     expect(screen.getByText("Hola mundo")).toBeInTheDocument();
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
   });
+
+  it("renders fallback label 'Auto-detected' when sourceLanguage is undefined, null, or 'Unknown'", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        translatedText: "Bonjour le monde",
+        sourceLanguage: undefined,
+      }),
+    }) as jest.Mock;
+
+    render(<TranslatedMessage messageId="message-2" text="Hello world" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Translate message" }));
+
+    expect(await screen.findByText("Bonjour le monde")).toBeInTheDocument();
+    expect(screen.getByText("Auto-detected")).toBeInTheDocument();
+    expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
+  });
+
+  it("renders fallback label 'Auto-detected' when sourceLanguage is 'Unknown'", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        translatedText: "Ciao mondo",
+        sourceLanguage: "Unknown",
+      }),
+    }) as jest.Mock;
+
+    render(<TranslatedMessage messageId="message-3" text="Hello world" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Translate message" }));
+
+    expect(await screen.findByText("Ciao mondo")).toBeInTheDocument();
+    expect(screen.getByText("Auto-detected")).toBeInTheDocument();
+  });
 });
