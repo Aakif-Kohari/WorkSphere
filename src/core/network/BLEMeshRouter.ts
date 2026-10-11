@@ -29,20 +29,47 @@ export class BLEMeshRouter {
     lifetimeMs: number = 3600000
   ): void {
     const bundles = this.protocol.createBundle(source, destination, payload, lifetimeMs, priority);
+    for (const bundle of bundles) {
+      this.protocol.storeBundle(bundle);
+    }
     this.outgoingQueue.push(...bundles);
+    this.purgeExpiredQueue();
     DTNBundleProtocol.sortQueueByPriority(this.outgoingQueue);
   }
 
+  public purgeExpiredQueue(now: number = Date.now()): Bundle[] {
+    const initialLen = this.outgoingQueue.length;
+    const valid: Bundle[] = [];
+    const expired: Bundle[] = [];
+    for (const b of this.outgoingQueue) {
+      if (now >= b.header.creationTimestamp + b.header.lifetime) {
+        expired.push(b);
+      } else {
+        valid.push(b);
+      }
+    }
+    this.outgoingQueue = valid;
+    this.protocol.purgeExpiredBundles(now);
+    return expired;
+  }
+
   public getQueue(): Bundle[] {
+    this.purgeExpiredQueue();
     return [...this.outgoingQueue];
   }
 
   public getQueueLength(): number {
+    this.purgeExpiredQueue();
     return this.outgoingQueue.length;
+  }
+
+  public getProtocol(): DTNBundleProtocol {
+    return this.protocol;
   }
 
   public clearQueue(): void {
     this.outgoingQueue = [];
+    this.protocol.clearStoredBundles();
   }
 
   public setOnBundleReceived(callback: (bundle: Bundle) => void): void {
