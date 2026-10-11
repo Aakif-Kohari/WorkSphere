@@ -24,6 +24,9 @@ export interface DifficultyAdjustmentConfig {
     minDifficulty: number; // Minimum leading zeros
     maxDifficulty: number; // Maximum leading zeros
     maxAdjustmentFactor: number; // Max dampening factor to prevent oscillation (e.g. 4)
+    retargetWindowSize?: number; // Number of past blocks used for per-block EMA retargeting (default 12)
+    maxShiftFactor?: number; // Maximum single-block difficulty shift (default 0.16 for +/- 16%)
+    usePerBlockRetargeting?: boolean; // When true, updates difficulty per block (default true)
 }
 
 export interface DifficultyRecalculationResult {
@@ -35,12 +38,37 @@ export interface DifficultyRecalculationResult {
     isAdjusted: boolean;
 }
 
+export interface EmaRetargetingResult {
+    newDifficulty: number;
+    currentDifficulty: number;
+    emaBlockTimeMs: number;
+    targetBlockTimeMs: number;
+    rawShiftPercent: number;
+    clampedShiftPercent: number;
+    shiftMultiplier: number;
+    isAdjusted: boolean;
+    sampleCount: number;
+}
+
+export interface CompactBitsRetargetingResult {
+    newBits: number;
+    currentBits: number;
+    newTarget: bigint;
+    currentTarget: bigint;
+    emaBlockTimeMs: number;
+    targetBlockTimeMs: number;
+    shiftMultiplier: number;
+}
+
 export const DEFAULT_DIFFICULTY_CONFIG: DifficultyAdjustmentConfig = {
     targetBlockTimeMs: 10000, // 10 seconds per submission
-    retargetInterval: 10,     // Retarget every 10 blocks
+    retargetInterval: 10,     // Retarget every 10 blocks (epoch mode)
     minDifficulty: 1,
     maxDifficulty: 8,
     maxAdjustmentFactor: 4,
+    retargetWindowSize: 12,   // 12-block rolling window for DGW/DigiShield EMA (#5776)
+    maxShiftFactor: 0.16,     // Dampen maximum single-block shift to +/- 16% (#5776)
+    usePerBlockRetargeting: true,
 };
 
 export class ProofOfWorkValidator {
@@ -86,6 +114,182 @@ export class ProofOfWorkValidator {
         }
 
         return true;
+    }
+
+    /**
+     * Calculates the exponential moving average (EMA) of block intervals over the rolling window.
+     * Guards against timestamp manipulation by sorting and enforcing minimum interval bounds.
+     */
+    public static calculateEmaBlockTime(
+        recentTimings: (number | BlockTimingInfo)[],
+        windowSize: number = 12
+    ): { emaBlockTimeMs: number; intervals: number[] } {
+        const timestamps = recentTimings
+            .map(t => (typeof t === 'number' ? t : t.timestamp))
+            .filter(t => Number.isFinite(t) && t > 0)
+            .sort((a, b) => a - b);
+
+        if (timestamps.length < 2) {
+            return { emaBlockTimeMs: 0, intervals: [] };
+        }
+
+        // Compute positive intervals, clamped to minimum 1ms to prevent division by zero / negative intervals
+        const allIntervals: number[] = [];
+        for (let i = 1; i < timestamps.length; i++) {
+            const diff = Math.max(1, timestamps[i] - timestamps[i - 1]);
+            allIntervals.push(diff);
+        }
+
+        // Take at most the last windowSize intervals (default 12 blocks)
+        const windowIntervals = allIntervals.slice(-windowSize);
+        if (windowIntervals.length === 0) {
+            return { emaBlockTimeMs: 0, intervals: [] };
+        }
+
+        // Exponential Moving Average weighting (alpha = 2 / (N + 1))
+        const alpha = 2 / (windowIntervals.length + 1);
+        let ema = windowIntervals[0];
+        for (let i = 1; i < windowIntervals.length; i++) {
+            ema = alpha * windowIntervals[i] + (1 - alpha) * ema;
+        }
+
+        return {
+            emaBlockTimeMs: Math.round(ema * 100) / 100,
+            intervals: windowIntervals,
+        };
+    }
+
+    /**
+     * Recalculates difficulty on every block using an exponential moving average (EMA) of past 12 blocks,
+     * dampening the maximum single-block difficulty shift to +/- 16% (DigiShield / Dark Gravity Wave style) (#5776).
+     */
+    public static recalculateEmaDifficulty(
+        currentDifficulty: number,
+        recentTimings: (number | BlockTimingInfo)[],
+        configOverrides: Partial<DifficultyAdjustmentConfig> = {}
+    ): EmaRetargetingResult {
+        const config: DifficultyAdjustmentConfig = {
+            ...DEFAULT_DIFFICULTY_CONFIG,
+            ...configOverrides,
+        };
+
+        const windowSize = config.retargetWindowSize ?? 12;
+        const maxShift = config.maxShiftFactor ?? 0.16; // 16%
+
+        const { emaBlockTimeMs, intervals } = ProofOfWorkValidator.calculateEmaBlockTime(
+            recentTimings,
+            windowSize
+        );
+
+        if (intervals.length === 0 || emaBlockTimeMs <= 0) {
+            return {
+                newDifficulty: currentDifficulty,
+                currentDifficulty,
+                emaBlockTimeMs: config.targetBlockTimeMs,
+                targetBlockTimeMs: config.targetBlockTimeMs,
+                rawShiftPercent: 0,
+                clampedShiftPercent: 0,
+                shiftMultiplier: 1.0,
+                isAdjusted: false,
+                sampleCount: 0,
+            };
+        }
+
+        // Ideal shift ratio: targetBlockTime / actualEmaTime
+        // If actualTime < targetTime (mined too quickly), idealMultiplier > 1 => difficulty increases
+        // If actualTime > targetTime (mined too slowly), idealMultiplier < 1 => difficulty decreases
+        const idealMultiplier = config.targetBlockTimeMs / emaBlockTimeMs;
+        const rawShiftPercent = idealMultiplier - 1.0;
+
+        // Dampen single-block shift strictly within [-maxShift, +maxShift] (+/- 16%)
+        const clampedShiftPercent = Math.max(-maxShift, Math.min(maxShift, rawShiftPercent));
+        const shiftMultiplier = 1.0 + clampedShiftPercent;
+
+        // Apply clamped multiplier and bound to [minDifficulty, maxDifficulty]
+        const rawNewDifficulty = currentDifficulty * shiftMultiplier;
+        const clampedDifficulty = Math.max(
+            config.minDifficulty,
+            Math.min(config.maxDifficulty, rawNewDifficulty)
+        );
+
+        // Keep 4 decimal places of continuous precision for smooth adaptation
+        const newDifficulty = Math.round(clampedDifficulty * 10000) / 10000;
+
+        return {
+            newDifficulty,
+            currentDifficulty,
+            emaBlockTimeMs,
+            targetBlockTimeMs: config.targetBlockTimeMs,
+            rawShiftPercent: Math.round(rawShiftPercent * 10000) / 100, // e.g. 100.00%
+            clampedShiftPercent: Math.round(clampedShiftPercent * 10000) / 100, // e.g. 16.00%
+            shiftMultiplier: Math.round(shiftMultiplier * 10000) / 10000,
+            isAdjusted: newDifficulty !== currentDifficulty,
+            sampleCount: intervals.length,
+        };
+    }
+
+    /**
+     * Recalculates compact 32-bit difficulty bits on every block using the EMA of the past 12 blocks,
+     * dampening the single-block target shift to +/- 16%.
+     */
+    public static recalculateEmaTargetBits(
+        currentBits: number,
+        recentTimings: (number | BlockTimingInfo)[],
+        configOverrides: Partial<DifficultyAdjustmentConfig> = {}
+    ): CompactBitsRetargetingResult {
+        const config: DifficultyAdjustmentConfig = {
+            ...DEFAULT_DIFFICULTY_CONFIG,
+            ...configOverrides,
+        };
+
+        const currentTarget = ProofOfWorkValidator.decodeCompactBits(currentBits);
+        const windowSize = config.retargetWindowSize ?? 12;
+        const maxShift = config.maxShiftFactor ?? 0.16;
+
+        const { emaBlockTimeMs, intervals } = ProofOfWorkValidator.calculateEmaBlockTime(
+            recentTimings,
+            windowSize
+        );
+
+        if (intervals.length === 0 || emaBlockTimeMs <= 0 || currentTarget === 0n) {
+            return {
+                newBits: currentBits,
+                currentBits,
+                newTarget: currentTarget,
+                currentTarget,
+                emaBlockTimeMs: config.targetBlockTimeMs,
+                targetBlockTimeMs: config.targetBlockTimeMs,
+                shiftMultiplier: 1.0,
+            };
+        }
+
+        // For target: target decreases when difficulty increases (actual < target)
+        // targetMultiplier = actualTime / targetTime
+        const idealTargetMultiplier = emaBlockTimeMs / config.targetBlockTimeMs;
+        const rawShift = idealTargetMultiplier - 1.0;
+        const clampedShift = Math.max(-maxShift, Math.min(maxShift, rawShift));
+        const shiftMultiplier = 1.0 + clampedShift;
+
+        // Apply shift to 256-bit BigInt target
+        const scale = 10000n;
+        const scaledMultiplier = BigInt(Math.round(shiftMultiplier * 10000));
+        let newTarget = (currentTarget * scaledMultiplier) / scale;
+
+        const maxTarget = (1n << 256n) - 1n;
+        if (newTarget > maxTarget) newTarget = maxTarget;
+        if (newTarget <= 0n) newTarget = 1n;
+
+        const newBits = ProofOfWorkValidator.encodeCompactBits(newTarget);
+
+        return {
+            newBits,
+            currentBits,
+            newTarget,
+            currentTarget,
+            emaBlockTimeMs,
+            targetBlockTimeMs: config.targetBlockTimeMs,
+            shiftMultiplier: Math.round(shiftMultiplier * 10000) / 10000,
+        };
     }
 
     /**
@@ -170,10 +374,30 @@ export class ProofOfWorkValidator {
 
     /**
      * Records a new block timestamp and returns the active adaptive difficulty.
+     * When usePerBlockRetargeting is enabled, recalculates difficulty smoothly on every block (#5776).
      */
     public recordBlock(timestamp: number = Date.now()): number {
         this.blockTimestamps.push(timestamp);
 
+        if (this.config.usePerBlockRetargeting) {
+            // Retain at most (retargetWindowSize + 1) timestamps in memory
+            const maxStored = (this.config.retargetWindowSize ?? 12) + 1;
+            if (this.blockTimestamps.length > maxStored) {
+                this.blockTimestamps.shift();
+            }
+
+            if (this.blockTimestamps.length >= 2) {
+                const result = ProofOfWorkValidator.recalculateEmaDifficulty(
+                    this.currentDifficulty,
+                    this.blockTimestamps,
+                    this.config
+                );
+                this.currentDifficulty = result.newDifficulty;
+            }
+            return this.currentDifficulty;
+        }
+
+        // Fallback epoch-based retargeting
         if (this.blockTimestamps.length >= this.config.retargetInterval) {
             const result = ProofOfWorkValidator.recalculateAdaptiveDifficulty(
                 this.currentDifficulty,
@@ -192,6 +416,13 @@ export class ProofOfWorkValidator {
         return this.currentDifficulty;
     }
 
+    public getIntegerDifficulty(): number {
+        return Math.max(
+            this.config.minDifficulty,
+            Math.min(this.config.maxDifficulty, Math.round(this.currentDifficulty))
+        );
+    }
+
     public setDifficulty(difficulty: number): void {
         this.currentDifficulty = Math.max(
             this.config.minDifficulty,
@@ -203,7 +434,7 @@ export class ProofOfWorkValidator {
      * Computes the 64-character hex target representation corresponding to a difficulty level.
      */
     public static calculateTargetHash(difficulty: number): string {
-        const clampedDiff = Math.max(0, Math.min(64, difficulty));
+        const clampedDiff = Math.max(0, Math.min(64, Math.round(difficulty)));
         return '0'.repeat(clampedDiff) + 'f'.repeat(64 - clampedDiff);
     }
 
@@ -212,7 +443,7 @@ export class ProofOfWorkValidator {
      */
     public static meetsDifficultyTarget(hash: string, difficulty: number): boolean {
         if (!hash || typeof hash !== 'string') return false;
-        const targetPrefix = '0'.repeat(Math.max(0, difficulty));
+        const targetPrefix = '0'.repeat(Math.max(0, Math.round(difficulty)));
         return hash.startsWith(targetPrefix);
     }
 
@@ -296,4 +527,3 @@ export class ProofOfWorkValidator {
         }
     }
 }
-
