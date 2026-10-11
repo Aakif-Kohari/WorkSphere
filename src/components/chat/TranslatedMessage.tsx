@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Copy, Languages, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, Copy, Eye, EyeOff, Languages, Loader2 } from "lucide-react";
 import { useMessageTranslation } from "@/hooks/useMessageTranslation";
+
+const VIEW_MODE_STORAGE_KEY = "worksphere-translation-view-mode";
 
 interface TranslatedMessageProps {
   messageId: string;
@@ -20,6 +22,33 @@ export function TranslatedMessage({ messageId, text }: TranslatedMessageProps) {
   } = useMessageTranslation(messageId, text);
 
   const [copied, setCopied] = useState(false);
+  const [sideBySide, setSideBySide] = useState<boolean>(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      try {
+        return window.localStorage.getItem(VIEW_MODE_STORAGE_KEY) === "dual";
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  });
+
+  const toggleSideBySide = () => {
+    setSideBySide((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined" && window.localStorage) {
+        try {
+          window.localStorage.setItem(
+            VIEW_MODE_STORAGE_KEY,
+            next ? "dual" : "single",
+          );
+        } catch {
+          // Ignore localStorage errors
+        }
+      }
+      return next;
+    });
+  };
 
   const currentText = translation && !showOriginal ? translation.translatedText : text;
 
@@ -65,6 +94,30 @@ export function TranslatedMessage({ messageId, text }: TranslatedMessageProps) {
           >
             {showOriginal ? "Show translation" : "Show original"}
           </button>
+          <button
+            type="button"
+            onClick={toggleSideBySide}
+            className="inline-flex items-center gap-1 rounded p-0.5 text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-200"
+            aria-label={
+              sideBySide
+                ? "Switch to single message view"
+                : "Switch to side-by-side view"
+            }
+            title={
+              sideBySide
+                ? "Single view"
+                : "Compare side-by-side"
+            }
+          >
+            {sideBySide ? (
+              <EyeOff className="h-3 w-3" aria-hidden="true" />
+            ) : (
+              <Eye className="h-3 w-3" aria-hidden="true" />
+            )}
+            <span className="text-[10px]">
+              {sideBySide ? "Single view" : "Side-by-side"}
+            </span>
+          </button>
           <div className="relative inline-flex items-center">
             <button
               type="button"
@@ -90,7 +143,32 @@ export function TranslatedMessage({ messageId, text }: TranslatedMessageProps) {
           </div>
         </div>
       )}
-      <span className="whitespace-pre-wrap">{currentText}</span>
+      {translation && sideBySide ? (
+        <div
+          data-testid="dual-text-layout"
+          className="mt-1 flex flex-col gap-1 rounded-md border border-zinc-200/60 bg-zinc-50/50 p-2 text-xs dark:border-zinc-800/60 dark:bg-zinc-900/50 sm:flex-row sm:items-start sm:gap-3"
+        >
+          <div className="flex-1">
+            <span className="block text-[9px] font-bold uppercase tracking-wider text-zinc-400">
+              Original
+            </span>
+            <span className="whitespace-pre-wrap text-zinc-500 dark:text-zinc-400">
+              {text}
+            </span>
+          </div>
+          <div className="hidden h-auto w-px self-stretch bg-zinc-200 dark:bg-zinc-700 sm:block" />
+          <div className="flex-1">
+            <span className="block text-[9px] font-bold uppercase tracking-wider text-zinc-400">
+              Translated
+            </span>
+            <span className="whitespace-pre-wrap font-medium text-zinc-900 dark:text-zinc-100">
+              {translation.translatedText}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <span className="whitespace-pre-wrap">{currentText}</span>
+      )}
       {error && (
         <p role="alert" className="mt-1 text-xs text-red-500">
           {error}
