@@ -183,4 +183,91 @@ describe("Contour SVG Exporter (#5392)", () => {
       global.URL = originalURL;
     });
   });
+
+  describe("Degenerate and Zero-Length Contour Filtering (#5735)", () => {
+    it("filters out single-pixel artifacts with identical points", () => {
+      const singlePixelContour: ContourPolygon = [
+        { x: 50, y: 50 },
+        { x: 50, y: 50 },
+        { x: 50, y: 50 },
+      ];
+
+      const d = contourToSvgPathData(singlePixelContour, 800, 600);
+      expect(d).toBe("");
+    });
+
+    it("filters out contours with fewer than 3 points", () => {
+      const singlePoint: ContourPolygon = [{ x: 20, y: 20 }];
+      const twoPoints: ContourPolygon = [
+        { x: 20, y: 20 },
+        { x: 21, y: 20 },
+      ];
+
+      expect(contourToSvgPathData(singlePoint, 800, 600)).toBe("");
+      expect(contourToSvgPathData(twoPoints, 800, 600)).toBe("");
+    });
+
+    it("filters out contours with perimeter below threshold (< 10px)", () => {
+      // Small 1x1 pixel box: perimeter = 1 + 1 + 1 + 1 = 4px (< 10px threshold)
+      const tinyNoiseBox: ContourPolygon = [
+        { x: 10, y: 10 },
+        { x: 11, y: 10 },
+        { x: 11, y: 11 },
+        { x: 10, y: 11 },
+      ];
+
+      const d = contourToSvgPathData(tinyNoiseBox, 800, 600);
+      expect(d).toBe("");
+    });
+
+    it("eliminates noise contours and preserves valid room contours in generateFloorplanSvg", () => {
+      const validRoom: ContourPolygon = [
+        { x: 50, y: 50 },
+        { x: 200, y: 50 },
+        { x: 200, y: 150 },
+        { x: 50, y: 150 },
+      ];
+      const singlePixelNoise: ContourPolygon = [
+        { x: 300, y: 300 },
+        { x: 300, y: 300 },
+      ];
+      const tinyArtifact: ContourPolygon = [
+        { x: 400, y: 400 },
+        { x: 401, y: 400 },
+        { x: 401, y: 401 },
+        { x: 400, y: 401 },
+      ];
+
+      const svg = generateFloorplanSvg(
+        [validRoom, singlePixelNoise, tinyArtifact],
+        800,
+        600,
+        "venue-clean-test"
+      );
+
+      // Only validRoom should be included
+      expect(svg).toContain(`<!-- Venue: venue-clean-test | Contours: 1 | ViewBox: 0 0 800 600 -->`);
+      expect(svg).toContain(`id="contour-1"`);
+      expect(svg).not.toContain(`id="contour-2"`);
+      expect(svg).not.toContain(`id="contour-3"`);
+    });
+
+    it("allows custom minPerimeter override", () => {
+      // Box with perimeter 12px
+      const smallBox: ContourPolygon = [
+        { x: 0, y: 0 },
+        { x: 3, y: 0 },
+        { x: 3, y: 3 },
+        { x: 0, y: 3 },
+      ];
+
+      // Default minPerimeter is 10px, so 12px passes
+      expect(contourToSvgPathData(smallBox, 800, 600)).not.toBe("");
+
+      // Strict minPerimeter of 20px filters it out
+      expect(
+        contourToSvgPathData(smallBox, 800, 600, { minPerimeter: 20 })
+      ).toBe("");
+    });
+  });
 });
