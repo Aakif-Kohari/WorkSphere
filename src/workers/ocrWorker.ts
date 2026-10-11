@@ -3,12 +3,147 @@
  * Web Worker that processes the image buffer through the WASM pipeline and outputs raw text coordinates.
  */
 
+export interface OcrProcessingOptions {
+    enhanceContrast?: boolean;
+    useClahe?: boolean;
+    clipLimit?: number;
+    tileGridSize?: number;
+}
+
+/**
+ * Applies Contrast Limited Adaptive Histogram Equalization (CLAHE) on grayscale pixels.
+ * Enhances local contrast across grid tiles while limiting noise amplification via clipLimit.
+ */
+export function applyCLAHE(
+    grayscale: Uint8Array,
+    width: number,
+    height: number,
+    clipLimit: number = 3.0,
+    gridSize: number = 8
+): Uint8Array {
+    const output = new Uint8Array(grayscale.length);
+    const tilesX = Math.max(1, Math.floor(width / gridSize));
+    const tilesY = Math.max(1, Math.floor(height / gridSize));
+
+    // Compute CDF for each tile
+    const cdfs: Float32Array[] = [];
+
+    for (let ty = 0; ty < tilesY; ty++) {
+        for (let tx = 0; tx < tilesX; tx++) {
+            const startX = Math.floor((tx * width) / tilesX);
+            const endX = Math.floor(((tx + 1) * width) / tilesX);
+            const startY = Math.floor((ty * height) / tilesY);
+            const endY = Math.floor(((ty + 1) * height) / tilesY);
+            const tilePixelCount = (endX - startX) * (endY - startY);
+
+            // 256-bin histogram
+            const hist = new Uint32Array(256);
+            for (let y = startY; y < endY; y++) {
+                for (let x = startX; x < endX; x++) {
+                    hist[grayscale[y * width + x]]++;
+                }
+            }
+
+            // Clip histogram
+            const clipThreshold = Math.max(1, Math.floor((clipLimit * tilePixelCount) / 256));
+            let excess = 0;
+            for (let i = 0; i < 256; i++) {
+                if (hist[i] > clipThreshold) {
+                    excess += hist[i] - clipThreshold;
+                    hist[i] = clipThreshold;
+                }
+            }
+
+            // Redistribute excess evenly
+            const bonus = Math.floor(excess / 256);
+            const remainder = excess % 256;
+            for (let i = 0; i < 256; i++) {
+                hist[i] += bonus + (i < remainder ? 1 : 0);
+            }
+
+            // Compute normalized Cumulative Distribution Function (CDF)
+            const cdf = new Float32Array(256);
+            let sum = 0;
+            for (let i = 0; i < 256; i++) {
+                sum += hist[i];
+                cdf[i] = (sum / tilePixelCount) * 255.0;
+            }
+            cdfs.push(cdf);
+        }
+    }
+
+    // Bilinear interpolation across tile grid centroids
+    for (let y = 0; y < height; y++) {
+        const normY = ((y + 0.5) / height) * tilesY - 0.5;
+        const ty1 = Math.max(0, Math.min(tilesY - 1, Math.floor(normY)));
+        const ty2 = Math.max(0, Math.min(tilesY - 1, ty1 + 1));
+        const dy = Math.max(0, Math.min(1, normY - ty1));
+
+        for (let x = 0; x < width; x++) {
+            const normX = ((x + 0.5) / width) * tilesX - 0.5;
+            const tx1 = Math.max(0, Math.min(tilesX - 1, Math.floor(normX)));
+            const tx2 = Math.max(0, Math.min(tilesX - 1, tx1 + 1));
+            const dx = Math.max(0, Math.min(1, normX - tx1));
+
+            const val = grayscale[y * width + x];
+
+            const cdfTL = cdfs[ty1 * tilesX + tx1][val];
+            const cdfTR = cdfs[ty1 * tilesX + tx2][val];
+            const cdfBL = cdfs[ty2 * tilesX + tx1][val];
+            const cdfBR = cdfs[ty2 * tilesX + tx2][val];
+
+            const top = cdfTL * (1 - dx) + cdfTR * dx;
+            const bottom = cdfBL * (1 - dx) + cdfBR * dx;
+            const interpolated = top * (1 - dy) + bottom * dy;
+
+            output[y * width + x] = Math.max(0, Math.min(255, Math.round(interpolated)));
+        }
+    }
+
+    return output;
+}
+
+/**
+ * Global contrast stretching (min-max normalization) to expand dynamic range.
+ */
+export function applyContrastStretch(grayscale: Uint8Array): Uint8Array {
+    let min = 255;
+    let max = 0;
+    for (let i = 0; i < grayscale.length; i++) {
+        if (grayscale[i] < min) min = grayscale[i];
+        if (grayscale[i] > max) max = grayscale[i];
+    }
+
+    if (max <= min) {
+        return new Uint8Array(grayscale);
+    }
+
+    const output = new Uint8Array(grayscale.length);
+    const range = max - min;
+    for (let i = 0; i < grayscale.length; i++) {
+        output[i] = Math.round(((grayscale[i] - min) / range) * 255);
+    }
+    return output;
+}
+
 self.onmessage = async (event: MessageEvent) => {
     const { type, payload } = event.data;
 
     if (type === 'PROCESS_IMAGE') {
         try {
-            const { imageData, width, height, wasmUrl } = payload;
+            const {
+                imageData,
+                width,
+                height,
+                wasmUrl,
+                options = {}
+            } = payload as {
+                imageData: Uint8ClampedArray | Uint8Array;
+                width: number;
+                height: number;
+                wasmUrl: string;
+                options?: OcrProcessingOptions;
+            };
 
             // Initialize WASM (mocked for scaffold)
             const response = await fetch(wasmUrl);
@@ -21,12 +156,28 @@ self.onmessage = async (event: MessageEvent) => {
 
             // Copy image data to WASM
             const pixelCount = width * height;
-            const grayscale = new Uint8Array(pixelCount);
+            let grayscale = new Uint8Array(pixelCount);
             for (let i = 0; i < pixelCount; i++) {
                 const r = imageData[i * 4];
                 const g = imageData[i * 4 + 1];
                 const b = imageData[i * 4 + 2];
                 grayscale[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+            }
+
+            // Pre-processing filter: Adaptive Histogram Equalization (CLAHE) / Contrast Stretching
+            const shouldEnhanceContrast = options.enhanceContrast !== false; // Enabled by default or on toggle
+            if (shouldEnhanceContrast) {
+                if (options.useClahe !== false) {
+                    grayscale = applyCLAHE(
+                        grayscale,
+                        width,
+                        height,
+                        options.clipLimit ?? 3.0,
+                        options.tileGridSize ?? 8
+                    );
+                } else {
+                    grayscale = applyContrastStretch(grayscale);
+                }
             }
 
             const imgPtr = 0;
