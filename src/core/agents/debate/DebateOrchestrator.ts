@@ -50,6 +50,22 @@ export interface CrossExaminationResult {
     timestamp: number;
 }
 
+export interface ArgumentNoveltyReport {
+    persona: PersonaType;
+    roundNumber: number;
+    argument: string;
+    similarityToHistory: number; // Max cosine similarity against prior persona arguments
+    noveltyScore: number;       // Novelty score in [0.0, 1.0]
+    isRepetitive: boolean;      // True if similarityToHistory >= 0.85
+    penaltyApplied: number;     // Penalty points deducted from persona score
+}
+
+export interface NoveltyScoringConfig {
+    similarityThreshold?: number;     // Repetition threshold, default: 0.85
+    noveltyDeductionPenalty?: number; // Score deduction when threshold exceeded, default: 10
+    maxRepetitiveRoundsBeforeEarlyTermination?: number; // Early stop when cycles occur across personas, default: 2
+}
+
 export interface DebateResult {
     rounds: DebateRound[];
     finalScores: Record<PersonaType, number>;
@@ -58,11 +74,14 @@ export interface DebateResult {
     totalRoundsExecuted?: number;
     crossExaminations?: CrossExaminationResult[];
     preCrossExamScores?: Record<PersonaType, number>;
+    noveltyReports?: ArgumentNoveltyReport[];
+    terminatedEarlyDueToCircularRebuttal?: boolean;
 }
 
 export interface DebateRunOptions {
     maxRounds?: number;
     autoCrossExamine?: boolean;
+    noveltyConfig?: NoveltyScoringConfig;
     crossExaminations?: Array<{
         challenger: PersonaType;
         respondent: PersonaType;
@@ -160,6 +179,129 @@ export class DebateOrchestrator {
             posteriorScore,
             confidence: Math.round(confidence * 100) / 100,
             shiftDelta: Math.round(shiftDelta * 10) / 10,
+        };
+    }
+
+    /**
+     * Computes the cosine similarity between two numerical vector embeddings.
+     */
+    public static calculateCosineSimilarity(vecA: number[], vecB: number[]): number {
+        if (!vecA || !vecB || vecA.length === 0 || vecB.length === 0 || vecA.length !== vecB.length) {
+            return 0.0;
+        }
+
+        let dot = 0;
+        let normA = 0;
+        let normB = 0;
+
+        for (let i = 0; i < vecA.length; i++) {
+            dot += vecA[i] * vecB[i];
+            normA += vecA[i] * vecA[i];
+            normB += vecB[i] * vecB[i];
+        }
+
+        if (normA <= 0 || normB <= 0) return 0.0;
+        return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    }
+
+    /**
+     * Generates a normalized semantic bag-of-words / character n-gram term frequency embedding
+     * for an argument string, ensuring deterministic semantic similarity computation without external network calls.
+     */
+    public static generateArgumentEmbedding(text: string, dimensions: number = 128): number[] {
+        if (!text || typeof text !== 'string') {
+            return new Array(dimensions).fill(0);
+        }
+
+        const normalized = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+        const tokens = normalized.split(' ').filter(t => t.length > 1);
+
+        const vector = new Array(dimensions).fill(0);
+
+        // Hash-based feature embedding mapping token & character n-grams
+        for (const token of tokens) {
+            let hash = 0;
+            for (let i = 0; i < token.length; i++) {
+                hash = (hash * 31 + token.charCodeAt(i)) >>> 0;
+            }
+            const bucket = hash % dimensions;
+            vector[bucket] += 1.0;
+        }
+
+        // Add character 3-grams for phrase and morphological structure matching
+        for (let i = 0; i < normalized.length - 2; i++) {
+            const gram = normalized.substring(i, i + 3);
+            let hash = 0;
+            for (let j = 0; j < 3; j++) {
+                hash = (hash * 37 + gram.charCodeAt(j)) >>> 0;
+            }
+            const bucket = hash % dimensions;
+            vector[bucket] += 0.5;
+        }
+
+        // L2 normalize vector
+        let norm = 0;
+        for (let i = 0; i < dimensions; i++) {
+            norm += vector[i] * vector[i];
+        }
+        if (norm > 0) {
+            const invNorm = 1.0 / Math.sqrt(norm);
+            for (let i = 0; i < dimensions; i++) {
+                vector[i] *= invNorm;
+            }
+        }
+
+        return vector;
+    }
+
+    /**
+     * Evaluates the semantic novelty of an argument against historical persona claims.
+     * Deducts novelty score and penalizes score when similarity exceeds the threshold (0.85) (#5742).
+     */
+    public static calculateArgumentNovelty(
+        currentArgument: string,
+        historicalArguments: string[],
+        config: NoveltyScoringConfig = {}
+    ): ArgumentNoveltyReport & { currentEmbedding: number[] } {
+        const threshold = config.similarityThreshold ?? 0.85;
+        const penaltyAmount = config.noveltyDeductionPenalty ?? 10;
+        const currentEmbedding = DebateOrchestrator.generateArgumentEmbedding(currentArgument);
+
+        if (!historicalArguments || historicalArguments.length === 0) {
+            return {
+                persona: 'BUDGET_CONSCIOUS' as PersonaType,
+                roundNumber: 1,
+                argument: currentArgument,
+                similarityToHistory: 0.0,
+                noveltyScore: 1.0,
+                isRepetitive: false,
+                penaltyApplied: 0,
+                currentEmbedding,
+            };
+        }
+
+        let maxSimilarity = 0.0;
+        for (const prevArg of historicalArguments) {
+            const prevEmbedding = DebateOrchestrator.generateArgumentEmbedding(prevArg);
+            const sim = DebateOrchestrator.calculateCosineSimilarity(currentEmbedding, prevEmbedding);
+            if (sim > maxSimilarity) {
+                maxSimilarity = sim;
+            }
+        }
+
+        const isRepetitive = maxSimilarity >= threshold;
+        const noveltyScore = Math.max(0.0, Math.min(1.0, 1.0 - maxSimilarity));
+        const penaltyApplied = isRepetitive ? penaltyAmount : 0;
+
+        return {
+            persona: 'BUDGET_CONSCIOUS' as PersonaType,
+            roundNumber: 1,
+            argument: currentArgument,
+            similarityToHistory: Math.round(maxSimilarity * 1000) / 1000,
+            noveltyScore: Math.round(noveltyScore * 1000) / 1000,
+            isRepetitive,
+            penaltyApplied,
+            currentEmbedding,
         };
     }
 
@@ -310,10 +452,27 @@ export class DebateOrchestrator {
         let executedRounds = 0;
         const maxRoundsToRun = options.maxRounds ?? this.maxRounds;
 
+        const personaArgumentHistory: Record<PersonaType, string[]> = {
+            BUDGET_CONSCIOUS: [],
+            FOCUS_ADVOCATE: [],
+            SOCIAL_NETWORKER: [],
+        };
+        const noveltyReports: ArgumentNoveltyReport[] = [];
+        let terminatedEarlyDueToCircularRebuttal = false;
+        let consecutiveRepetitiveRounds = 0;
+
+        const noveltyConfig: NoveltyScoringConfig = {
+            similarityThreshold: 0.85,
+            noveltyDeductionPenalty: 10,
+            maxRepetitiveRoundsBeforeEarlyTermination: 2,
+            ...options.noveltyConfig,
+        };
+
         for (let round = 1; round <= maxRoundsToRun; round++) {
             executedRounds = round;
             const roundPeerScores: { persona: PersonaType; score: number }[] = [];
             const isFirstRound = round === 1;
+            let roundHadRepetition = false;
 
             for (const persona of this.personas) {
                 const prompt = getPersonaPrompt(persona, venueData);
@@ -324,6 +483,18 @@ export class DebateOrchestrator {
                     currentScores[persona] = score;
                     convictionTrajectories[persona].push(score);
                     roundPeerScores.push({ persona, score });
+                    personaArgumentHistory[persona].push(argument);
+
+                    const novelty = DebateOrchestrator.calculateArgumentNovelty(
+                        argument,
+                        [],
+                        noveltyConfig
+                    );
+                    noveltyReports.push({
+                        ...novelty,
+                        persona,
+                        roundNumber: round,
+                    });
 
                     rounds.push({
                         roundNumber: round,
@@ -358,18 +529,54 @@ export class DebateOrchestrator {
                         conviction
                     );
 
-                    currentScores[persona] = conviction.posteriorScore;
-                    convictionTrajectories[persona].push(conviction.posteriorScore);
-                    roundPeerScores.push({ persona, score: conviction.posteriorScore });
+                    // Semantic argument novelty tracking & repetition detection (#5742)
+                    const pastArgs = personaArgumentHistory[persona];
+                    const novelty = DebateOrchestrator.calculateArgumentNovelty(
+                        argument,
+                        pastArgs,
+                        noveltyConfig
+                    );
+
+                    let effectiveScore = conviction.posteriorScore;
+                    if (novelty.isRepetitive) {
+                        roundHadRepetition = true;
+                        // Deduct penalty when argument similarity exceeds 0.85 threshold
+                        effectiveScore = Math.max(0, effectiveScore - novelty.penaltyApplied);
+                    }
+
+                    noveltyReports.push({
+                        ...novelty,
+                        persona,
+                        roundNumber: round,
+                    });
+                    personaArgumentHistory[persona].push(argument);
+
+                    currentScores[persona] = effectiveScore;
+                    convictionTrajectories[persona].push(effectiveScore);
+                    roundPeerScores.push({ persona, score: effectiveScore });
 
                     rounds.push({
                         roundNumber: round,
                         persona,
                         argument,
-                        score: conviction.posteriorScore,
-                        conviction,
+                        score: effectiveScore,
+                        conviction: {
+                            ...conviction,
+                            posteriorScore: effectiveScore,
+                        },
                     });
                 }
+            }
+
+            // Early termination on circular rebuttal loops (#5742)
+            if (roundHadRepetition) {
+                consecutiveRepetitiveRounds++;
+                if (consecutiveRepetitiveRounds >= (noveltyConfig.maxRepetitiveRoundsBeforeEarlyTermination ?? 2)) {
+                    terminatedEarlyDueToCircularRebuttal = true;
+                    break;
+                }
+            } else {
+                consecutiveRepetitiveRounds = 0;
             }
 
             // Check convergence criterion: max pairwise discrepancy < epsilon
@@ -442,6 +649,8 @@ export class DebateOrchestrator {
             totalRoundsExecuted: executedRounds,
             crossExaminations: crossExaminations.length > 0 ? crossExaminations : undefined,
             preCrossExamScores: crossExaminations.length > 0 ? preCrossExamScores : undefined,
+            noveltyReports: noveltyReports.length > 0 ? noveltyReports : undefined,
+            terminatedEarlyDueToCircularRebuttal,
         };
     }
 
