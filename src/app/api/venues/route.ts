@@ -213,6 +213,13 @@ export async function GET(req: NextRequest) {
             totalPages: Math.ceil(total / limit),
             hasNextPage: skip + venues.length < total,
           },
+          fuzzyMatched: Boolean(ranked.fuzzyMatched),
+          ...(ranked.suggestedQuery
+            ? {
+                suggestedQuery: ranked.suggestedQuery,
+                notice: `Showing results for ${ranked.suggestedQuery}`,
+              }
+            : {}),
         });
       }
 
@@ -461,6 +468,8 @@ export async function GET(req: NextRequest) {
     const querySearch = rawData.query || rawData.q;
     let total: number;
     let venues: any[];
+    let fuzzyMatched = false;
+    let suggestedQuery: string | undefined;
 
     if (querySearch) {
       const ranked = await searchVenuesWithRrf(querySearch, {
@@ -479,6 +488,8 @@ export async function GET(req: NextRequest) {
             ? Number(rawData.fullTextWeight)
             : undefined,
       });
+      fuzzyMatched = Boolean(ranked.fuzzyMatched);
+      suggestedQuery = ranked.suggestedQuery;
       const rankedIds = ranked.map(({ id }) => id);
       const matchingVenues = rankedIds.length
         ? await prisma.venue.findMany({
@@ -551,6 +562,8 @@ export async function GET(req: NextRequest) {
 
       const matchedFuzzy = fuzzyFilterVenues(allCandidates, querySearch);
       if (matchedFuzzy.length > 0) {
+        fuzzyMatched = true;
+        suggestedQuery = matchedFuzzy[0]?.name;
         total = matchedFuzzy.length;
         const pageItems = matchedFuzzy.slice(skip, skip + limit);
         const pageIds = pageItems.map((v) => v.id);
@@ -585,6 +598,13 @@ export async function GET(req: NextRequest) {
         totalPages: Math.ceil(total / limit),
         hasNextPage: skip + venues.length < total,
       },
+      fuzzyMatched: Boolean(fuzzyMatched),
+      ...(suggestedQuery
+        ? {
+            suggestedQuery,
+            notice: `Showing results for ${suggestedQuery}`,
+          }
+        : {}),
     });
   } catch (error) {
     console.error("GET /api/venues error:", error);

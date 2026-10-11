@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { fuzzyFilterVenues } from "@/lib/search/fuzzySearch";
 
 export interface HybridVenueSearchFilters {
   minLat?: number;
@@ -19,6 +20,21 @@ export interface RankedVenueId {
   score: number;
   needs_embedding?: boolean;
   search_document?: string;
+  fuzzyMatched?: boolean;
+  similarity?: number;
+  suggestedQuery?: string;
+  matchedName?: string;
+}
+
+export interface RankedVenueList extends Array<RankedVenueId> {
+  fuzzyMatched?: boolean;
+  suggestedQuery?: string;
+}
+
+export interface HybridVenueSearchResult {
+  venues: RankedVenueId[];
+  fuzzyMatched: boolean;
+  suggestedQuery?: string;
 }
 
 export const DEFAULT_RRF_K = 60;
@@ -204,9 +220,13 @@ export async function searchVenuesWithRrf(
   query: string,
   filters: HybridVenueSearchFilters = {},
   candidateLimit = 500,
-): Promise<RankedVenueId[]> {
+): Promise<RankedVenueList> {
   const searchQuery = query.trim().slice(0, 256);
-  if (!searchQuery) return [];
+  if (!searchQuery) {
+    const emptyList = [] as RankedVenueList;
+    emptyList.fuzzyMatched = false;
+    return emptyList;
+  }
 
   const rawEmbedding =
     filters.queryEmbedding !== undefined
@@ -379,7 +399,120 @@ export async function searchVenuesWithRrf(
     ORDER BY fused_scores.rrf_score DESC, fused_scores."id"
   `);
 
-  const ranked = results ?? [];
+  let ranked: RankedVenueList = Object.assign([...(results ?? [])], {
+    fuzzyMatched: false,
+    suggestedQuery: undefined,
+  });
+
+  // ── Typo tolerance fuzzy matching fallback (pg_trgm SIMILARITY) (#5771) ──────
+  // When standard full-text / ts_query search yields 0 rows, trigger trigram similarity
+  // query: SIMILARITY(v."name", $query) >= minSimilarity
+  if (
+    ranked.length === 0 &&
+    filters.enableFuzzyFallback !== false &&
+    searchQuery.length >= 3
+  ) {
+    const minSimilarity =
+      typeof filters.minSimilarity === "number" && Number.isFinite(filters.minSimilarity)
+        ? Math.max(0.05, Math.min(1.0, filters.minSimilarity))
+        : 0.25;
+
+    try {
+      const fuzzyResults = await prisma.$queryRaw<
+        Array<{
+          id: string;
+          name: string;
+          similarity: number;
+          score: number;
+          needs_embedding: boolean;
+          search_document: string;
+        }>
+      >(Prisma.sql`
+        SELECT
+          v."id",
+          v."name",
+          SIMILARITY(v."name", ${searchQuery}) AS similarity,
+          SIMILARITY(v."name", ${searchQuery}) AS score,
+          v."searchEmbedding" IS NULL AS needs_embedding,
+          concat_ws(' ',
+            v."name", v."category", v."address",
+            array_to_string(v."foodTags", ' '),
+            array_to_string(v."powerTypes", ' '),
+            v."noiseLevel", v."lighting", v."musicStyle",
+            CASE WHEN v."wifiQuality" IS NOT NULL THEN 'wifi wireless internet' END,
+            CASE WHEN v."wifiSpeed" IS NOT NULL THEN v."wifiSpeed"::text || ' mbps fast wifi' END,
+            CASE WHEN v."hasOutlets" THEN 'power outlets charging' END,
+            CASE WHEN v."hasErgonomic" THEN 'ergonomic seating chair' END,
+            CASE WHEN v."hasPhoneBooths" THEN 'phone booth private calls' END,
+            CASE WHEN v."hasQuietZone" OR v."noiseLevel" = 'quiet' THEN 'quiet focus concentration' END,
+            CASE WHEN v."hasNoMusic" THEN 'no music silent' END,
+            CASE WHEN v."dogFriendly" OR v."petsAllowedIndoors" THEN 'dog pet friendly' END,
+            CASE WHEN v."hasAncHeadsetRental" THEN 'noise cancelling headset' END
+          ) AS search_document
+        FROM "Venue" v
+        WHERE SIMILARITY(v."name", ${searchQuery}) >= ${minSimilarity}
+        ${venueFilters}
+        ORDER BY SIMILARITY(v."name", ${searchQuery}) DESC, v."id"
+        LIMIT ${candidateLimit}
+      `);
+
+      if (fuzzyResults && fuzzyResults.length > 0) {
+        const suggestedQuery = fuzzyResults[0].name;
+        const mappedFuzzy: RankedVenueId[] = fuzzyResults.map((item) => ({
+          id: item.id,
+          score: Number(item.score ?? item.similarity ?? 0),
+          needs_embedding: Boolean(item.needs_embedding),
+          search_document: item.search_document,
+          fuzzyMatched: true,
+          similarity: Number(item.similarity ?? item.score ?? 0),
+          matchedName: item.name,
+          suggestedQuery,
+        }));
+
+        ranked = Object.assign(mappedFuzzy, {
+          fuzzyMatched: true,
+          suggestedQuery,
+        });
+      }
+    } catch (fuzzyError) {
+      console.warn(
+        "Postgres pg_trgm SIMILARITY search fallback failed, attempting in-memory fallback:",
+        fuzzyError,
+      );
+
+      try {
+        const allCandidates = await prisma.venue.findMany({
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            description: true,
+          },
+          take: candidateLimit,
+        });
+
+        const matchedFuzzy = fuzzyFilterVenues(allCandidates, searchQuery);
+        if (matchedFuzzy.length > 0) {
+          const suggestedQuery = matchedFuzzy[0].name;
+          const mappedFuzzy: RankedVenueId[] = matchedFuzzy.map((v, idx) => ({
+            id: v.id,
+            score: 1 / (idx + 1),
+            fuzzyMatched: true,
+            matchedName: v.name,
+            suggestedQuery,
+          }));
+
+          ranked = Object.assign(mappedFuzzy, {
+            fuzzyMatched: true,
+            suggestedQuery,
+          });
+        }
+      } catch (inMemoryError) {
+        console.warn("In-memory fuzzy fallback failed:", inMemoryError);
+      }
+    }
+  }
+
   if (embeddingString) {
     for (const candidate of ranked.filter((result) => result.needs_embedding).slice(0, 3)) {
       if (candidate.search_document) {
