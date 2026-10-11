@@ -222,4 +222,78 @@ export class ProofOfWorkValidator {
     public static calculateDifficulty(baseDifficulty: number, spamMultiplier: number): number {
         return Math.min(Math.max(baseDifficulty + Math.floor(spamMultiplier), 1), 8);
     }
+
+    /**
+     * Decodes compact 32-bit difficulty bits (e.g. 0x1d00ffff) into a 256-bit BigInt target hash.
+     * Follows Bitcoin / Hashcash compact target representation:
+     * - Exponent = bits >> 24
+     * - Mantissa = bits & 0x007fffff (sign bit at 0x00800000 indicates negative)
+     * - Target = mantissa * 256^(exponent - 3)
+     * Handles sign bit edge cases and boundary targets accurately using BigInt to prevent integer truncation.
+     */
+    public static decodeCompactBits(bits: number): bigint {
+        const exponent = (bits >>> 24) & 0xff;
+        const isNegative = (bits & 0x00800000) !== 0;
+        let mantissa = BigInt(bits & 0x007fffff);
+
+        // If sign bit is set, or mantissa is 0, or exponent is 0, target is 0
+        if (isNegative || mantissa === 0n || exponent === 0) {
+            return 0n;
+        }
+
+        let target: bigint;
+        if (exponent <= 3) {
+            target = mantissa >> BigInt(8 * (3 - exponent));
+        } else {
+            target = mantissa << BigInt(8 * (exponent - 3));
+        }
+
+        // 256-bit maximum boundary clamp
+        const maxTarget = (1n << 256n) - 1n;
+        if (target > maxTarget) {
+            return maxTarget;
+        }
+
+        return target;
+    }
+
+    /**
+     * Encodes a 256-bit BigInt target into compact 32-bit bits integer representation.
+     */
+    public static encodeCompactBits(target: bigint): number {
+        if (target <= 0n) return 0;
+
+        let hex = target.toString(16);
+        if (hex.length % 2 !== 0) {
+            hex = '0' + hex;
+        }
+
+        let exponent = hex.length / 2;
+        let mantissa = parseInt(hex.slice(0, 6), 16);
+
+        // If the most significant bit of the 3-byte mantissa is 1 (>= 0x800000),
+        // we shift right by 1 byte and increase exponent to avoid sign collision
+        if (mantissa > 0x7fffff) {
+            mantissa = parseInt(hex.slice(0, 4), 16);
+            exponent += 1;
+        }
+
+        return ((exponent & 0xff) << 24) | (mantissa & 0x007fffff);
+    }
+
+    /**
+     * Validates whether a 256-bit hexadecimal hash meets the difficulty target encoded in compact bits.
+     */
+    public static validateHashTarget(hashHex: string, compactBits: number): boolean {
+        if (!hashHex || typeof hashHex !== 'string') return false;
+        try {
+            const cleanHex = hashHex.startsWith('0x') ? hashHex.slice(2) : hashHex;
+            const hashInt = BigInt('0x' + cleanHex);
+            const target = ProofOfWorkValidator.decodeCompactBits(compactBits);
+            return hashInt <= target;
+        } catch {
+            return false;
+        }
+    }
 }
+
