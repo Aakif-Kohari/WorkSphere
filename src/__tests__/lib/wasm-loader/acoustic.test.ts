@@ -205,6 +205,14 @@ describe('Acoustic WASM Loader & Worker SAB Fallback (#5312)', () => {
         removeEventListener: jest.fn(),
       } as unknown as Worker;
 
+      const loader = new AcousticFingerprintLoader(mockWorker);
+      const audioData = new Float32Array([0.1]);
+
+      await expect(loader.processAudio(audioData, 44100)).rejects.toThrow(
+        'WASM memory allocation failed'
+      );
+    });
+
     it('downsamples high sample rate audio (96kHz and 192kHz) to prevent WASM buffer overflow (#5279)', async () => {
       (globalThis as any).crossOriginIsolated = false;
 
