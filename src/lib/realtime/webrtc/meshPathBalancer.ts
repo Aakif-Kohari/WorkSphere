@@ -10,11 +10,39 @@ export interface MeshRoute {
   path: string[];
 }
 
+export const MIN_CHUNK_SIZE = 16 * 1024; // 16KB (16,384 bytes)
+export const MAX_CHUNK_SIZE = 64 * 1024; // 64KB (65,536 bytes)
+export const DEFAULT_CHUNK_SIZE = 16 * 1024; // 16KB
+export const MIN_PACKET_SIZE = MIN_CHUNK_SIZE;
+export const MAX_PACKET_SIZE = MAX_CHUNK_SIZE;
+export const DEFAULT_PACKET_SIZE = DEFAULT_CHUNK_SIZE;
+export const DEFAULT_STEP_PRECISION = 1024; // 1KB step precision
+
+export interface MtuProbeMessage {
+  type: "mesh-mtu-probe";
+  probeId: string;
+  size: number;
+  payload?: string;
+  timestamp: number;
+}
+
+export interface MtuProbeAckMessage {
+  type: "mesh-mtu-probe-ack";
+  probeId: string;
+  size: number;
+  timestamp: number;
+}
+
 export interface MeshPathBalancerOptions {
   packetLossThreshold?: number;
   jitterThresholdMs?: number;
   rttThresholdMs?: number;
   recoverySamples?: number;
+  minChunkSize?: number;
+  maxChunkSize?: number;
+  minPacketSize?: number;
+  maxPacketSize?: number;
+  stepPrecision?: number;
 }
 
 const DEFAULT_OPTIONS: Required<MeshPathBalancerOptions> = {
@@ -22,21 +50,39 @@ const DEFAULT_OPTIONS: Required<MeshPathBalancerOptions> = {
   jitterThresholdMs: 50,
   rttThresholdMs: 300,
   recoverySamples: 3,
+  minChunkSize: MIN_CHUNK_SIZE,
+  maxChunkSize: MAX_CHUNK_SIZE,
+  minPacketSize: MIN_PACKET_SIZE,
+  maxPacketSize: MAX_PACKET_SIZE,
+  stepPrecision: DEFAULT_STEP_PRECISION,
 };
 
 /**
  * Chooses paths per packet, failing over immediately and returning traffic
  * to the best route after consecutive healthy telemetry samples.
+ * Manages Path MTU Discovery (PMTUD) and optimal dynamic chunk/packet sizing.
  */
 export class MeshPathBalancer {
   private readonly options: Required<MeshPathBalancerOptions>;
   private readonly telemetry = new Map<string, MeshLinkTelemetry>();
   private readonly recoverySamples = new Map<string, number>();
   private readonly congestedLinks = new Set<string>();
+  private readonly optimalChunkSizes = new Map<string, number>();
   private alternativeCursor = 0;
 
   constructor(options: MeshPathBalancerOptions = {}) {
-    this.options = { ...DEFAULT_OPTIONS, ...options };
+    const minChunk =
+      options.minChunkSize ?? options.minPacketSize ?? DEFAULT_OPTIONS.minChunkSize;
+    const maxChunk =
+      options.maxChunkSize ?? options.maxPacketSize ?? DEFAULT_OPTIONS.maxChunkSize;
+    this.options = {
+      ...DEFAULT_OPTIONS,
+      ...options,
+      minChunkSize: minChunk,
+      minPacketSize: minChunk,
+      maxChunkSize: maxChunk,
+      maxPacketSize: maxChunk,
+    };
   }
 
   updateTelemetry(peerId: string, metrics: MeshLinkTelemetry): void {
@@ -63,6 +109,7 @@ export class MeshPathBalancer {
     this.telemetry.delete(peerId);
     this.recoverySamples.delete(peerId);
     this.congestedLinks.delete(peerId);
+    this.optimalChunkSizes.delete(peerId);
   }
 
   isCongested(peerId: string, now = Date.now()): boolean {
@@ -81,15 +128,121 @@ export class MeshPathBalancer {
     return this.telemetry.get(peerId);
   }
 
+  getOptimalChunkSize(peerId: string): number {
+    return this.optimalChunkSizes.get(peerId) ?? this.options.minChunkSize;
+  }
+
+  setOptimalChunkSize(peerId: string, size: number): void {
+    const clamped = Math.min(
+      this.options.maxChunkSize,
+      Math.max(this.options.minChunkSize, Math.round(size)),
+    );
+    this.optimalChunkSizes.set(peerId, clamped);
+  }
+
+  getOptimalPacketSize(peerId: string): number {
+    return this.getOptimalChunkSize(peerId);
+  }
+
+  setOptimalPacketSize(peerId: string, size: number): void {
+    this.setOptimalChunkSize(peerId, size);
+  }
+
+  createProbePacket(size: number, probeId?: string): MtuProbeMessage {
+    const id =
+      probeId ??
+      `probe_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const headerEstimate = 90;
+    const paddingLength = Math.max(0, size - headerEstimate);
+    return {
+      type: "mesh-mtu-probe",
+      probeId: id,
+      size,
+      payload: "X".repeat(paddingLength),
+      timestamp: Date.now(),
+    };
+  }
+
+  /**
+   * Performs binary search probe packet sequence to discover the maximum
+   * unfragmented payload size between minChunkSize (16KB) and maxChunkSize (64KB).
+   *
+   * @param peerId Target peer connection ID
+   * @param probeFn Prober callback that attempts sending a packet of size bytes and returns true on success
+   * @param options Custom search bounds or step precision
+   * @returns Optimal payload size discovered (in bytes)
+   */
+  async probeChannelMtu(
+    peerId: string,
+    probeFn: (size: number) => Promise<boolean> | boolean,
+    options: { minSize?: number; maxSize?: number; stepPrecision?: number } = {},
+  ): Promise<number> {
+    const min = options.minSize ?? this.options.minChunkSize;
+    const max = options.maxSize ?? this.options.maxChunkSize;
+    const step = options.stepPrecision ?? this.options.stepPrecision;
+
+    // Verify baseline minimum payload
+    try {
+      const minSuccess = await probeFn(min);
+      if (!minSuccess) {
+        this.setOptimalChunkSize(peerId, min);
+        return min;
+      }
+    } catch {
+      this.setOptimalChunkSize(peerId, min);
+      return min;
+    }
+
+    let low = min + step;
+    let high = max;
+    let optimal = min;
+
+    while (low <= high) {
+      const rawMid = Math.floor((low + high) / 2);
+      const mid = Math.min(
+        max,
+        Math.max(min, Math.round(rawMid / step) * step),
+      );
+
+      if (mid < low || mid > high) break;
+
+      let success = false;
+      try {
+        success = await probeFn(mid);
+      } catch {
+        success = false;
+      }
+
+      if (success) {
+        optimal = Math.max(optimal, mid);
+        low = mid + step;
+      } else {
+        high = mid - step;
+      }
+    }
+
+    this.setOptimalChunkSize(peerId, optimal);
+    return optimal;
+  }
+
+  discoverPathMtu(
+    peerId: string,
+    probeFn: (size: number) => Promise<boolean> | boolean,
+    options?: { minSize?: number; maxSize?: number; stepPrecision?: number },
+  ): Promise<number> {
+    return this.probeChannelMtu(peerId, probeFn, options);
+  }
+
   choosePath(routes: MeshRoute[], now = Date.now()): MeshRoute | null {
     const available = routes.filter((route) => route.path.length >= 2);
     if (available.length === 0) return null;
 
-    const primary = available.find(
-      (route) =>
-        route.path.length === 2 &&
-        route.path[route.path.length - 1] === route.destination,
-    ) ?? available[0];
+    const primary =
+      available.find(
+        (route) =>
+          route.path.length === 2 &&
+          route.path[route.path.length - 1] === route.destination,
+      ) ?? available[0];
     const alternatives = available.filter(
       (route) => route.path !== primary?.path,
     );
