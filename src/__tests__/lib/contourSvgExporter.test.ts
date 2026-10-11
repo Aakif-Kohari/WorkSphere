@@ -3,6 +3,9 @@ import {
   generateFloorplanSvg,
   downloadFloorplanSvg,
   type ContourPolygon,
+  type ContourSvgExportOptions,
+  CONTOUR_STROKE_PRESETS,
+  CONTOUR_STROKE_WIDTHS,
 } from "@/lib/floorplan/contourSvgExporter";
 
 describe("Contour SVG Exporter (#5392)", () => {
@@ -68,6 +71,71 @@ describe("Contour SVG Exporter (#5392)", () => {
       expect(svg).toContain(`stroke="#ff0000"`);
       expect(svg).toContain(`stroke-width="4"`);
       expect(svg).toContain(`fill="rgba(255, 0, 0, 0.2)"`);
+    });
+
+    it("supports ContourSvgExportOptions with strokeColor presets (#5767)", () => {
+      // Test Blueprint Blue swatch
+      const blueprintSvg = generateFloorplanSvg(
+        [samplePolygon1],
+        800,
+        600,
+        "venue-blueprint",
+        {
+          strokeColor: CONTOUR_STROKE_PRESETS.blueprintBlue.strokeColor,
+          strokeWidth: 2,
+          fillColor: CONTOUR_STROKE_PRESETS.blueprintBlue.fillColor,
+        }
+      );
+      expect(blueprintSvg).toContain(`stroke="#0284c7"`);
+      expect(blueprintSvg).toContain(`stroke-width="2"`);
+      expect(blueprintSvg).toContain(`fill="rgba(14, 165, 233, 0.15)"`);
+
+      // Test Emerald Green swatch
+      const emeraldSvg = generateFloorplanSvg(
+        [samplePolygon1],
+        800,
+        600,
+        "venue-emerald",
+        {
+          strokeColor: CONTOUR_STROKE_PRESETS.emeraldGreen.strokeColor,
+          strokeWidth: 3,
+          fillColor: CONTOUR_STROKE_PRESETS.emeraldGreen.fillColor,
+        }
+      );
+      expect(emeraldSvg).toContain(`stroke="#059669"`);
+      expect(emeraldSvg).toContain(`stroke-width="3"`);
+      expect(emeraldSvg).toContain(`fill="rgba(16, 185, 129, 0.15)"`);
+
+      // Test Minimalist Charcoal swatch
+      const charcoalSvg = generateFloorplanSvg(
+        [samplePolygon1],
+        800,
+        600,
+        "venue-charcoal",
+        {
+          strokeColor: CONTOUR_STROKE_PRESETS.minimalistCharcoal.strokeColor,
+          strokeWidth: 1,
+          fillColor: CONTOUR_STROKE_PRESETS.minimalistCharcoal.fillColor,
+        }
+      );
+      expect(charcoalSvg).toContain(`stroke="#334155"`);
+      expect(charcoalSvg).toContain(`stroke-width="1"`);
+      expect(charcoalSvg).toContain(`fill="rgba(51, 65, 85, 0.15)"`);
+    });
+
+    it("supports custom stroke widths between 1px and 4px (#5767)", () => {
+      CONTOUR_STROKE_WIDTHS.forEach((width) => {
+        const svg = generateFloorplanSvg(
+          [samplePolygon1],
+          800,
+          600,
+          "venue-width-test",
+          {
+            strokeWidth: width,
+          }
+        );
+        expect(svg).toContain(`stroke-width="${width}"`);
+      });
     });
   });
 

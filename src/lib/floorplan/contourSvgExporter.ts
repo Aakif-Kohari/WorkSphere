@@ -11,7 +11,7 @@ export interface ContourPoint {
 
 export type ContourPolygon = ContourPoint[];
 
-export interface SvgExportOptions {
+export interface ContourSvgExportOptions {
   strokeColor?: string;
   strokeWidth?: number;
   fillColor?: string;
@@ -19,6 +19,34 @@ export interface SvgExportOptions {
   precision?: number;  // Decimal places for points (default 2)
   includeMetadata?: boolean;
 }
+
+// Backward compatibility alias for SvgExportOptions
+export type SvgExportOptions = ContourSvgExportOptions;
+
+export const CONTOUR_STROKE_PRESETS = {
+  blueprintBlue: {
+    label: "Blueprint Blue",
+    strokeColor: "#0284c7",
+    fillColor: "rgba(14, 165, 233, 0.15)",
+  },
+  emeraldGreen: {
+    label: "Emerald Green",
+    strokeColor: "#059669",
+    fillColor: "rgba(16, 185, 129, 0.15)",
+  },
+  minimalistCharcoal: {
+    label: "Minimalist Charcoal",
+    strokeColor: "#334155",
+    fillColor: "rgba(51, 65, 85, 0.15)",
+  },
+  cadAmber: {
+    label: "CAD Amber",
+    strokeColor: "#d97706",
+    fillColor: "rgba(245, 158, 11, 0.15)",
+  },
+} as const;
+
+export const CONTOUR_STROKE_WIDTHS = [1, 2, 3, 4] as const;
 
 /**
  * Converts an array of contour polygons (as traced by contour_tracer.c) into normalized SVG path strings.
