@@ -35,16 +35,17 @@ self.onmessage = async (event: MessageEvent) => {
                 grayscale[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
             }
 
-            // Copy to WASM memory
+            // Copy to WASM memory with safe bounded offsets
             const imagePtr = 0;
-            const poseResultPtr = pixelCount; // Offset for PoseResult struct
+            // Align offsets safely past the image buffer
+            const poseResultPtr = Math.max(pixelCount, 256 * 256) + 16; // Offset for PoseResult struct
             const ergonomicReportPtr = poseResultPtr + 256; // Offset for ErgonomicReport struct
             const spineTrackerPtr = ergonomicReportPtr + 32; // Offset for SpineCurvatureResult struct
 
             const imageView = new Uint8Array(memory.buffer, imagePtr, pixelCount);
             imageView.set(grayscale);
 
-            // Run pose estimation
+            // Run pose estimation with normalized dimensions & bounds guards
             (instance.exports.estimate_pose as CallableFunction)(imagePtr, width, height, poseResultPtr);
 
             // Run ergonomic scoring

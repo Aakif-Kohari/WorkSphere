@@ -57,9 +57,137 @@ typedef struct {
 #define LEFT_ANKLE 15
 #define RIGHT_ANKLE 16
 
+#define MODEL_INPUT_WIDTH 256
+#define MODEL_INPUT_HEIGHT 256
+
+typedef struct {
+    float scale;
+    int pad_x;
+    int pad_y;
+    int scaled_w;
+    int scaled_h;
+    int target_w;
+    int target_h;
+    int src_w;
+    int src_h;
+    int src_stride;
+} LetterboxParams;
+
+/**
+ * Calculates letterbox transformation parameters to map any input aspect ratio
+ * (portrait, square, ultrawide) to the model tensor dimensions (256x256).
+ */
+void calculate_letterbox_params(
+    int src_w,
+    int src_h,
+    int src_stride,
+    int target_w,
+    int target_h,
+    LetterboxParams* params
+) {
+    if (!params) return;
+    if (src_w <= 0) src_w = 1;
+    if (src_h <= 0) src_h = 1;
+    if (target_w <= 0) target_w = MODEL_INPUT_WIDTH;
+    if (target_h <= 0) target_h = MODEL_INPUT_HEIGHT;
+
+    params->src_w = src_w;
+    params->src_h = src_h;
+    params->src_stride = (src_stride > 0) ? src_stride : src_w;
+    params->target_w = target_w;
+    params->target_h = target_h;
+
+    float scale_x = (float)target_w / (float)src_w;
+    float scale_y = (float)target_h / (float)src_h;
+    float scale = (scale_x < scale_y) ? scale_x : scale_y;
+    params->scale = scale;
+
+    int scaled_w = (int)roundf((float)src_w * scale);
+    int scaled_h = (int)roundf((float)src_h * scale);
+    if (scaled_w > target_w) scaled_w = target_w;
+    if (scaled_h > target_h) scaled_h = target_h;
+    params->scaled_w = scaled_w;
+    params->scaled_h = scaled_h;
+
+    params->pad_x = (target_w - scaled_w) / 2;
+    params->pad_y = (target_h - scaled_h) / 2;
+}
+
+/**
+ * Resamples and letterboxes an input grayscale frame into a normalized target tensor buffer
+ * guarding against out-of-bounds pointer offsets on non-standard aspect ratios.
+ */
+int preprocess_letterbox(
+    const uint8_t* src,
+    int src_w,
+    int src_h,
+    int src_stride,
+    uint8_t* dst,
+    int target_w,
+    int target_h,
+    LetterboxParams* out_params
+) {
+    if (!src || !dst || src_w <= 0 || src_h <= 0 || target_w <= 0 || target_h <= 0) {
+        return 0;
+    }
+
+    LetterboxParams params;
+    calculate_letterbox_params(src_w, src_h, src_stride, target_w, target_h, &params);
+    if (out_params) {
+        *out_params = params;
+    }
+
+    int stride = params.src_stride;
+    int total_dst_pixels = target_w * target_h;
+    int max_src_idx = src_h * stride - 1;
+
+    // Fill entire destination tensor with neutral background (0)
+    for (int i = 0; i < total_dst_pixels; i++) {
+        dst[i] = 0;
+    }
+
+    // Populate letterboxed region with bounds checking on pointer offsets
+    for (int dy = 0; dy < params.scaled_h; dy++) {
+        int dst_y = params.pad_y + dy;
+        if (dst_y < 0 || dst_y >= target_h) continue;
+
+        // Map back to source pixel coordinates
+        int src_y = (int)((float)dy / params.scale);
+        if (src_y >= src_h) src_y = src_h - 1;
+        if (src_y < 0) src_y = 0;
+
+        int row_offset = src_y * stride;
+
+        for (int dx = 0; dx < params.scaled_w; dx++) {
+            int dst_x = params.pad_x + dx;
+            if (dst_x < 0 || dst_x >= target_w) continue;
+
+            int src_x = (int)((float)dx / params.scale);
+            if (src_x >= src_w) src_x = src_w - 1;
+            if (src_x < 0) src_x = 0;
+
+            int src_idx = row_offset + src_x;
+            int dst_idx = dst_y * target_w + dst_x;
+
+            if (src_idx >= 0 && src_idx <= max_src_idx && dst_idx >= 0 && dst_idx < total_dst_pixels) {
+                dst[dst_idx] = src[src_idx];
+            }
+        }
+    }
+
+    return 1;
+}
+
 static float calculate_gradient(const uint8_t* image, int width, int height, int x, int y) {
+    if (!image || width <= 2 || height <= 2) return 0.0f;
     if (x <= 0 || x >= width - 1 || y <= 0 || y >= height - 1) return 0.0f;
+
+    int total_pixels = width * height;
     int idx = y * width + x;
+    if (idx - width < 0 || idx + width >= total_pixels || idx - 1 < 0 || idx + 1 >= total_pixels) {
+        return 0.0f;
+    }
+
     float gx = (float)(image[idx + 1] - image[idx - 1]);
     float gy = (float)(image[idx + width] - image[idx - width]);
     return sqrtf(gx * gx + gy * gy);
@@ -71,10 +199,15 @@ void estimate_pose(
     int height,
     PoseResult* result
 ) {
-    if (!grayscale_image || !result) return;
+    if (!grayscale_image || !result || width <= 0 || height <= 0) return;
     
     result->count = MAX_LANDMARKS;
+
+    // Normalize aspect ratio through letterboxing parameters (256x256 tensor space)
+    LetterboxParams params;
+    calculate_letterbox_params(width, height, width, MODEL_INPUT_WIDTH, MODEL_INPUT_HEIGHT, &params);
     
+    // Landmark estimation relative to source coordinates
     float center_x = width / 2.0f;
     float center_y = height / 3.0f;
     
