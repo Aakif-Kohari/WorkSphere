@@ -1,15 +1,17 @@
 /**
  * sha256_pow.c
  * C implementation of the SHA-256 hashing algorithm optimized for rapid
- * proof-of-work verification. Used in the browser to mine nonces locally before
- * submitting telemetry data.
+ * proof-of-work verification and nonce mining.
+ * Prevents 32-bit shift overflows under extreme difficulty settings via 256-bit target arrays (#5611).
  */
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 #define SHA256_BLOCK_SIZE 32
+#define MAX_DIFFICULTY_BITS 256
 
 static const uint32_t k[64] = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
@@ -137,16 +139,88 @@ void sha256_final(SHA256_CTX *ctx, uint8_t hash[]) {
   }
 }
 
-int verify_pow(const uint8_t *data, size_t len, const uint8_t *nonce,
-               size_t nonce_len, int difficulty) {
-  SHA256_CTX ctx;
-  uint8_t hash[32];
+/**
+ * Validates difficulty parameter bounds to guard against negative numbers
+ * or values exceeding the 256-bit hash size (#5611).
+ * Returns true if valid (0 <= difficulty <= 256), false otherwise.
+ */
+bool validate_difficulty(int difficulty) {
+  if (difficulty < 0 || difficulty > MAX_DIFFICULTY_BITS) {
+    return false;
+  }
+  return true;
+}
 
-  sha256_init(&ctx);
-  sha256_update(&ctx, data, len);
-  sha256_update(&ctx, nonce, nonce_len);
-  sha256_final(&ctx, hash);
+/**
+ * Constructs a 256-bit target comparison byte array from a bit difficulty requirement.
+ * Eliminates undefined 32-bit integer shift overflows by working across the full 32-byte array.
+ * Target threshold = 2^(256 - difficulty) - 1.
+ * Any hash <= target satisfies the difficulty requirement.
+ */
+int compute_target_256(int difficulty_bits, uint8_t target[32]) {
+  if (!target) return -1;
+  if (!validate_difficulty(difficulty_bits)) {
+    // For invalid difficulty, zero out target completely (unreachable)
+    memset(target, 0x00, 32);
+    return -1;
+  }
 
+  memset(target, 0x00, 32);
+
+  if (difficulty_bits == 0) {
+    // 0 bits difficulty: entire target is 0xFF (any hash passes)
+    memset(target, 0xFF, 32);
+    return 0;
+  }
+
+  if (difficulty_bits >= MAX_DIFFICULTY_BITS) {
+    // 256 bits difficulty: all zeros (only hash == 0 passes)
+    memset(target, 0x00, 32);
+    return 0;
+  }
+
+  int full_zero_bytes = difficulty_bits / 8;
+  int remaining_zero_bits = difficulty_bits % 8;
+
+  // Leading bytes are set to 0x00
+  for (int i = 0; i < full_zero_bytes; i++) {
+    target[i] = 0x00;
+  }
+
+  // The transitional byte has (8 - remaining_zero_bits) trailing 1s
+  if (full_zero_bytes < 32) {
+    target[full_zero_bytes] = (uint8_t)(0xFF >> remaining_zero_bits);
+  }
+
+  // All remaining trailing bytes are set to 0xFF
+  for (int i = full_zero_bytes + 1; i < 32; i++) {
+    target[i] = 0xFF;
+  }
+
+  return 0;
+}
+
+/**
+ * Compares two 256-bit big-endian byte arrays (hash vs target).
+ * Returns:
+ *   -1 if hash < target (valid proof-of-work)
+ *    0 if hash == target (valid proof-of-work)
+ *    1 if hash > target (exceeds target, invalid)
+ */
+int compare_hash_target(const uint8_t hash[32], const uint8_t target[32]) {
+  if (!hash || !target) return 1;
+  for (int i = 0; i < 32; i++) {
+    if (hash[i] < target[i]) return -1;
+    if (hash[i] > target[i]) return 1;
+  }
+  return 0;
+}
+
+/**
+ * Counts leading zero bits in a 32-byte SHA-256 hash without 32-bit shift overflows.
+ */
+int count_leading_zero_bits(const uint8_t hash[32]) {
+  if (!hash) return 0;
   int leading_zeros = 0;
   for (int i = 0; i < 32; i++) {
     if (hash[i] == 0) {
@@ -160,6 +234,85 @@ int verify_pow(const uint8_t *data, size_t len, const uint8_t *nonce,
       break;
     }
   }
+  return leading_zeros;
+}
 
-  return leading_zeros >= difficulty ? 1 : 0;
+/**
+ * Verifies a proof-of-work submission against a 256-bit target array.
+ * Returns 1 on success (hash <= target), 0 on failure.
+ */
+int verify_pow_target(const uint8_t *data, size_t len, const uint8_t *nonce,
+                      size_t nonce_len, const uint8_t target[32]) {
+  if (!data || !nonce || !target) return 0;
+
+  SHA256_CTX ctx;
+  uint8_t hash[32];
+
+  sha256_init(&ctx);
+  sha256_update(&ctx, data, len);
+  sha256_update(&ctx, nonce, nonce_len);
+  sha256_final(&ctx, hash);
+
+  return compare_hash_target(hash, target) <= 0 ? 1 : 0;
+}
+
+/**
+ * Main WebAssembly export for verifying proof-of-work with integer difficulty.
+ * Safely guards against negative difficulty and overflows >= 32 bits (#5611).
+ * Returns 1 if valid, 0 if invalid or parameters out of bounds.
+ */
+int verify_pow(const uint8_t *data, size_t len, const uint8_t *nonce,
+               size_t nonce_len, int difficulty) {
+  if (!data || !nonce) return 0;
+  if (!validate_difficulty(difficulty)) {
+    return 0; // Guard against negative or >256 difficulty
+  }
+
+  uint8_t target[32];
+  if (compute_target_256(difficulty, target) != 0) {
+    return 0;
+  }
+
+  return verify_pow_target(data, len, nonce, nonce_len, target);
+}
+
+/**
+ * Mines a valid nonce satisfying the requested difficulty within max_iterations.
+ * Returns 1 if found, 0 if max_iterations exceeded, -1 if invalid parameters.
+ */
+int mine_pow(const uint8_t *data, size_t len, uint8_t *nonce_out, size_t nonce_len,
+             int difficulty, uint64_t max_iterations, uint64_t *iterations_out) {
+  if (!data || !nonce_out || nonce_len < 8) return -1;
+  if (!validate_difficulty(difficulty)) return -1;
+
+  uint8_t target[32];
+  if (compute_target_256(difficulty, target) != 0) return -1;
+
+  uint64_t nonce_val = 0;
+  SHA256_CTX ctx_base;
+  sha256_init(&ctx_base);
+  sha256_update(&ctx_base, data, len);
+
+  for (uint64_t iter = 0; iter < max_iterations; ++iter) {
+    SHA256_CTX ctx = ctx_base;
+    uint8_t nonce_bytes[8];
+    for (int b = 0; b < 8; b++) {
+      nonce_bytes[7 - b] = (uint8_t)((nonce_val >> (b * 8)) & 0xFF);
+    }
+
+    sha256_update(&ctx, nonce_bytes, 8);
+    uint8_t hash[32];
+    sha256_final(&ctx, hash);
+
+    if (compare_hash_target(hash, target) <= 0) {
+      memcpy(nonce_out, nonce_bytes, 8);
+      if (iterations_out) *iterations_out = iter + 1;
+      return 1; // Solution found!
+    }
+
+    nonce_val++;
+  }
+
+  if (iterations_out) *iterations_out = max_iterations;
+  return 0; // Exceeded max_iterations
 }
