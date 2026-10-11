@@ -1,6 +1,6 @@
 "use client";
 
-import Tesseract from "tesseract.js";
+import dynamic from "next/dynamic";
 import { Languages, Sparkles } from "lucide-react";
 import { useTransition } from "react";
 import { getVenueCoverTransitionName } from "@/lib/viewTransitions";
@@ -40,16 +40,6 @@ import {
   BadgeCheck,
 } from "lucide-react";
 import { useState, useEffect, useMemo, useRef } from "react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-} from "recharts";
 import { useTranslation } from "react-i18next";
 
 import { Venue } from "./ChatMessages";
@@ -58,10 +48,33 @@ import { AmenityVoteBreakdownModal } from "./AmenityVoteBreakdownModal";
 import { NoiseReportingWidget } from "@/components/noise/NoiseReportingWidget";
 import { AmbientNoiseSpectrumVisualizer } from "@/components/noise/AmbientNoiseSpectrumVisualizer";
 import { AudioEqualizer } from "@/components/audio/AudioEqualizer";
-import {
-  NoiseTimelineChart,
-  HourlyForecast,
-} from "@/components/noise/NoiseTimelineChart";
+import type { HourlyForecast } from "@/components/noise/NoiseTimelineChart";
+
+const VenueNoiseChart = dynamic(
+  () =>
+    import("./VenueNoiseChart").then(
+      (mod) => mod.VenueNoiseChart ?? mod.default,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-40 animate-pulse bg-black/20 rounded-2xl mb-6 border border-white/5" />
+    ),
+  },
+);
+
+const NoiseTimelineChart = dynamic(
+  () =>
+    import("@/components/noise/NoiseTimelineChart").then(
+      (mod) => mod.NoiseTimelineChart ?? mod.default,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-40 animate-pulse bg-black/20 rounded-2xl mb-6 border border-white/5" />
+    ),
+  },
+);
 import { AmbientNoiseTrendGraph } from "@/components/noise/AmbientNoiseTrendGraph";
 import { CopyToClipboardButton } from "@/components/ui/CopyToClipboardButton";
 import { ReviewSentimentBadge } from "@/components/venue/ReviewSentimentBadge";
@@ -416,9 +429,12 @@ export function VenueDetailDialog({
     if (!extractedText) {
       setIsExtracting(true);
       try {
+        const { createWorker } = await import("tesseract.js");
+        const worker = await createWorker("eng");
         const {
           data: { text },
-        } = await Tesseract.recognize(previewPhoto, "eng");
+        } = await worker.recognize(previewPhoto);
+        await worker.terminate();
         extractedText = text.trim();
         setOcrCache((prev) => ({ ...prev, [previewPhoto]: extractedText }));
       } catch (error) {
@@ -1574,150 +1590,10 @@ export function VenueDetailDialog({
                 />
               </div>
 
-              {wifiPredictions.length > 0 && (
-                <div className="mb-6 bg-black/20 p-5 rounded-2xl border border-white/5 shadow-sm">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-zinc-200 mb-1 flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-blue-400" />
-                    AI Wifi Prediction
-                  </h3>
-                  <p className="text-[10px] text-zinc-400 uppercase tracking-widest mb-4">
-                    Expected speeds based on crowd telemetry
-                  </p>
-                  <div className="h-40 w-full mt-2">
-                    <ResponsiveContainer
-                      width="99%"
-                      height="100%"
-                      debounce={50}
-                    >
-                      <BarChart data={wifiPredictions}>
-                        <XAxis
-                          dataKey="time"
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fontSize: 10, fill: "#888" }}
-                        />
-                        <YAxis
-                          tickFormatter={(value) => `${value} Mbps`}
-                          tick={{ fontSize: 10, fill: "#888" }}
-                          width={40}
-                        />
-                        <Tooltip
-                          isAnimationActive={false}
-                          cursor={{ fill: "rgba(255,255,255,0.05)" }}
-                          content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                              const data = payload[0].payload;
-                              return (
-                                <div className="bg-zinc-900 border border-zinc-700 p-2.5 rounded shadow-xl">
-                                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
-                                    {data.time}
-                                  </p>
-                                  <p className="text-sm font-bold text-blue-400">
-                                    {data.download} Mbps (Download)
-                                  </p>
-                                  <p className="text-sm font-bold text-green-400">
-                                    {data.upload} Mbps (Upload)
-                                  </p>
-                                  <p className="text-sm font-bold text-orange-400">
-                                    {data.latency} ms (Latency)
-                                  </p>
-                                  <p className="text-[10px] uppercase tracking-wider text-zinc-500 mt-1">
-                                    Crowd: {data.crowd}
-                                  </p>
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
-                        <Bar
-                          dataKey="download"
-                          fill="#60a5fa"
-                          radius={[4, 4, 0, 0]}
-                          name="Download"
-                        />
-                        <Bar
-                          dataKey="upload"
-                          fill="#4ade80"
-                          radius={[4, 4, 0, 0]}
-                          name="Upload"
-                        />
-                        <Bar
-                          dataKey="latency"
-                          fill="#fb923c"
-                          radius={[4, 4, 0, 0]}
-                          name="Latency"
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              )}
-
-              {occupancyData.length > 0 && (
-                <div className="mb-6 bg-black/20 p-5 rounded-2xl border border-white/5 shadow-sm">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-zinc-200 mb-1 flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-orange-400" />
-                    Live Crowd Occupancy
-                  </h3>
-                  <p className="text-[10px] text-zinc-400 uppercase tracking-widest mb-4">
-                    Historical crowd levels by hour
-                  </p>
-                  <div className="h-40 w-full mt-2">
-                    <ResponsiveContainer
-                      width="99%"
-                      height="100%"
-                      debounce={50}
-                    >
-                      <LineChart data={occupancyData}>
-                        <XAxis
-                          dataKey="time"
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fontSize: 10, fill: "#888" }}
-                        />
-                        <YAxis
-                          tickFormatter={(value) => `${value}%`}
-                          tick={{ fontSize: 10, fill: "#888" }}
-                          width={40}
-                          domain={[0, 100]}
-                        />
-                        <Tooltip
-                          isAnimationActive={false}
-                          cursor={{
-                            stroke: "rgba(255,255,255,0.1)",
-                            strokeWidth: 2,
-                          }}
-                          content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                              const data = payload[0].payload;
-                              return (
-                                <div className="bg-zinc-900 border border-zinc-700 p-2.5 rounded shadow-xl">
-                                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
-                                    {data.time}
-                                  </p>
-                                  <p className="text-sm font-bold text-orange-400">
-                                    {data.occupancy}% Occupied
-                                  </p>
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="occupancy"
-                          stroke="#fb923c"
-                          strokeWidth={3}
-                          dot={{ fill: "#fb923c", r: 4 }}
-                          activeDot={{ r: 6 }}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              )}
+              <VenueNoiseChart
+                wifiPredictions={wifiPredictions}
+                occupancyData={occupancyData}
+              />
 
               {noiseForecast.length > 0 && (
                 <>
