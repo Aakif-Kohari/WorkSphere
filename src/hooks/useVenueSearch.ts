@@ -247,11 +247,22 @@ export function useVenueSearch<T = VenueSearchResult>(
 
   const handleSetQuery = useCallback(
     (newQuery: string) => {
+      const trimmed = newQuery.trim();
+      if (!trimmed || trimmed.length < minQueryLength) {
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current);
+          debounceTimerRef.current = null;
+        }
+        abort();
+        setVenues([]);
+        setIsLoading(false);
+        setError(null);
+      }
       if (!isControlled) {
         setInternalQuery(newQuery);
       }
     },
-    [isControlled],
+    [abort, isControlled, minQueryLength],
   );
 
   return {
