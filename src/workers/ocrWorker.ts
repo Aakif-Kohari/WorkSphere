@@ -209,3 +209,179 @@ self.onmessage = async (event: MessageEvent) => {
         }
     }
 };
+
+/**
+ * Default idle timeout duration in milliseconds (2 minutes = 120,000ms).
+ */
+export const DEFAULT_OCR_IDLE_TIMEOUT_MS = 2 * 60 * 1000;
+
+export interface WorkerInstanceLike {
+    postMessage: (message: unknown, transfer?: Transferable[]) => void;
+    terminate: () => void;
+    addEventListener?: (type: string, listener: (event: unknown) => void) => void;
+    removeEventListener?: (type: string, listener: (event: unknown) => void) => void;
+    onmessage?: ((event: MessageEvent) => void) | null;
+    onerror?: ((event: ErrorEvent) => void) | null;
+}
+
+export type WorkerFactory = () => WorkerInstanceLike;
+
+/**
+ * Manages the lifecycle of an OCR web worker instance with automatic idle termination.
+ * Automatically calls worker.terminate() when no jobs are active after the idle timeout window,
+ * and transparently re-spawns the worker on subsequent requests (#5736).
+ */
+export class OcrWorkerManager {
+    private worker: WorkerInstanceLike | null = null;
+    private idleTimer: ReturnType<typeof setTimeout> | null = null;
+    private activeJobsCount: number = 0;
+    private readonly idleTimeoutMs: number;
+    private readonly workerFactory: WorkerFactory;
+    private onTerminatedCallback?: () => void;
+
+    constructor(
+        options: {
+            idleTimeoutMs?: number;
+            workerFactory?: WorkerFactory;
+            onTerminated?: () => void;
+        } = {}
+    ) {
+        this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_OCR_IDLE_TIMEOUT_MS;
+        this.workerFactory =
+            options.workerFactory ??
+            (() => {
+                if (typeof Worker !== 'undefined') {
+                    return new Worker(new URL('./ocrWorker.ts', import.meta.url), {
+                        type: 'module',
+                    });
+                }
+                throw new Error('Web Workers are not supported in this environment');
+            });
+        this.onTerminatedCallback = options.onTerminated;
+    }
+
+    /**
+     * Gets or creates the active Worker instance, resetting idle countdown.
+     */
+    public getOrCreateWorker(): WorkerInstanceLike {
+        this.clearIdleTimer();
+        if (!this.worker) {
+            this.worker = this.workerFactory();
+        }
+        return this.worker;
+    }
+
+    /**
+     * Checks if a worker instance is currently spawned and active.
+     */
+    public isWorkerActive(): boolean {
+        return this.worker !== null;
+    }
+
+    /**
+     * Increments active job counter, cancelling any scheduled idle termination.
+     */
+    public startJob(): WorkerInstanceLike {
+        this.activeJobsCount++;
+        return this.getOrCreateWorker();
+    }
+
+    /**
+     * Decrements active job counter and initiates idle countdown if zero jobs remain.
+     */
+    public endJob(): void {
+        this.activeJobsCount = Math.max(0, this.activeJobsCount - 1);
+        if (this.activeJobsCount === 0) {
+            this.scheduleIdleTermination();
+        }
+    }
+
+    /**
+     * Schedules worker termination after idle timeout elapses.
+     */
+    public scheduleIdleTermination(): void {
+        this.clearIdleTimer();
+        if (this.worker && this.activeJobsCount === 0) {
+            this.idleTimer = setTimeout(() => {
+                this.terminate();
+            }, this.idleTimeoutMs);
+        }
+    }
+
+    /**
+     * Immediately terminates the active worker instance and releases resources.
+     */
+    public terminate(): void {
+        this.clearIdleTimer();
+        if (this.worker) {
+            this.worker.terminate();
+            this.worker = null;
+            if (this.onTerminatedCallback) {
+                this.onTerminatedCallback();
+            }
+        }
+    }
+
+    private clearIdleTimer(): void {
+        if (this.idleTimer !== null) {
+            clearTimeout(this.idleTimer);
+            this.idleTimer = null;
+        }
+    }
+
+    /**
+     * Executes an OCR image processing job, managing worker spawning and idle lifecycle.
+     */
+    public async processImage(payload: unknown): Promise<unknown> {
+        const worker = this.startJob();
+
+        return new Promise((resolve, reject) => {
+            const handleMessage = (event: MessageEvent) => {
+                const { type, payload: resPayload, error } = event.data || {};
+                if (type === 'OCR_RESULT') {
+                    cleanup();
+                    resolve(resPayload);
+                } else if (type === 'ERROR') {
+                    cleanup();
+                    reject(new Error(error));
+                }
+            };
+
+            const handleError = (errorEvent: ErrorEvent) => {
+                cleanup();
+                reject(errorEvent);
+            };
+
+            const cleanup = () => {
+                if (worker.removeEventListener) {
+                    worker.removeEventListener('message', handleMessage as (e: unknown) => void);
+                    worker.removeEventListener('error', handleError as (e: unknown) => void);
+                }
+                this.endJob();
+            };
+
+            if (worker.addEventListener) {
+                worker.addEventListener('message', handleMessage as (e: unknown) => void);
+                worker.addEventListener('error', handleError as (e: unknown) => void);
+            } else {
+                worker.onmessage = handleMessage;
+                worker.onerror = handleError;
+            }
+
+            worker.postMessage({
+                type: 'PROCESS_IMAGE',
+                payload,
+            });
+        });
+    }
+}
+
+// Global singleton instance for shared client use
+let globalOcrManager: OcrWorkerManager | null = null;
+
+export function getGlobalOcrManager(options?: { idleTimeoutMs?: number }): OcrWorkerManager {
+    if (!globalOcrManager) {
+        globalOcrManager = new OcrWorkerManager(options);
+    }
+    return globalOcrManager;
+}
