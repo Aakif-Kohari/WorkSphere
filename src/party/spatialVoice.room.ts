@@ -3,6 +3,7 @@
  * Real-time low-latency audio transmission room built on PartyKit.
  * Supports binary Opus packet interleaving, spatial vector routing,
  * and JSON coordinate signaling for synchronized 3D spatial audio.
+ * Prevents split-brain duplicate peer entries on network reconnections (#5612).
  */
 
 import type * as Party from "partykit/server";
@@ -15,6 +16,7 @@ export interface SpatialVector {
 
 export interface SpatialUpdate {
   peerId: string;
+  userId?: string;
   x: number;
   y: number;
   z: number;
@@ -77,6 +79,7 @@ export function determineAudioQuality(rttMs: number, packetLossPercent: number =
 
 export interface PeerAudioState {
   peerId: string;
+  userId?: string;
   position: SpatialVector;
   lastSequence: number;
   lastTimestamp: number;
@@ -103,11 +106,89 @@ export default class SpatialVoiceRoom implements Party.Server {
   private peers: Map<string, PeerAudioState> = new Map();
   private positions: Map<string, SpatialUpdate> = new Map();
 
+  // Mapping to track and prevent duplicate connections for the same user (#5612)
+  private userToConnection: Map<string, string> = new Map();
+  private connectionToUser: Map<string, string> = new Map();
+
   constructor(readonly room: Party.Room) {}
 
+  /**
+   * Registers a user connection and evicts any existing stale connection for the same user.
+   */
+  public handleUserConnect(userId: string, conn: Party.Connection): void {
+    const existingConnId = this.userToConnection.get(userId);
+    if (existingConnId && existingConnId !== conn.id) {
+      console.log(`[SpatialVoiceRoom] Split-brain detected for user ${userId}. Evicting stale connection ${existingConnId}`);
+
+      // Attempt to close stale connection cleanly
+      try {
+        const staleConn = this.room.getConnection ? this.room.getConnection(existingConnId) : null;
+        if (staleConn) {
+          staleConn.send(
+            JSON.stringify({
+              type: "SESSION_REPLACED",
+              reason: "Duplicate connection detected for the same userId",
+            })
+          );
+          staleConn.close();
+        }
+      } catch (err) {
+        console.warn(`Error closing stale connection ${existingConnId}:`, err);
+      }
+
+      // Immediately unregister stale connection from internal state
+      this.peers.delete(existingConnId);
+      this.positions.delete(existingConnId);
+      this.connectionToUser.delete(existingConnId);
+
+      // Broadcast PEER_LEFT for the stale connection
+      this.room.broadcast(
+        JSON.stringify({
+          type: "PEER_LEFT",
+          peerId: existingConnId,
+          userId,
+          reason: "SESSION_REPLACED",
+        }),
+        [conn.id]
+      );
+    }
+
+    // Register active mapping
+    this.userToConnection.set(userId, conn.id);
+    this.connectionToUser.set(conn.id, userId);
+
+    const peer = this.peers.get(conn.id);
+    if (peer) {
+      peer.userId = userId;
+    }
+  }
+
+  public getActiveConnectionForUser(userId: string): string | undefined {
+    return this.userToConnection.get(userId);
+  }
+
+  public getUserForConnection(connId: string): string | undefined {
+    return this.connectionToUser.get(connId);
+  }
+
+  public getPeerCount(): number {
+    return this.peers.size;
+  }
+
   async onConnect(conn: Party.Connection, ctx: Party.ConnectionContext) {
+    let userId: string | null = null;
+    try {
+      if (ctx?.request?.url) {
+        const url = new URL(ctx.request.url);
+        userId = url.searchParams.get("userId") || url.searchParams.get("user");
+      }
+    } catch {
+      // Ignore URL parsing errors
+    }
+
     this.peers.set(conn.id, {
       peerId: conn.id,
+      userId: userId || undefined,
       position: { x: 0, y: 0, z: 0 },
       lastSequence: 0,
       lastTimestamp: Date.now(),
@@ -117,6 +198,10 @@ export default class SpatialVoiceRoom implements Party.Server {
       qualityTier: 'high',
       bitrateBps: AUDIO_QUALITY_PROFILES.high.bitrateBps,
     });
+
+    if (userId) {
+      this.handleUserConnect(userId, conn);
+    }
 
     // Send initial state of all users to the newly connected peer
     const initialState = Array.from(this.positions.values());
@@ -133,18 +218,28 @@ export default class SpatialVoiceRoom implements Party.Server {
       JSON.stringify({
         type: "voice-peer-joined",
         peerId: conn.id,
+        userId: userId || undefined,
       }),
       [conn.id]
     );
   }
 
   async onDisconnect(conn: Party.Connection) {
+    const userId = this.connectionToUser.get(conn.id);
+    if (userId) {
+      if (this.userToConnection.get(userId) === conn.id) {
+        this.userToConnection.delete(userId);
+      }
+      this.connectionToUser.delete(conn.id);
+    }
+
     this.peers.delete(conn.id);
     this.positions.delete(conn.id);
     this.room.broadcast(
       JSON.stringify({
         type: "PEER_LEFT",
         peerId: conn.id,
+        userId,
       })
     );
   }
@@ -177,6 +272,7 @@ export default class SpatialVoiceRoom implements Party.Server {
 
       this.positions.set(sender.id, {
         peerId: sender.id,
+        userId: this.connectionToUser.get(sender.id),
         x,
         y,
         z,
@@ -192,6 +288,19 @@ export default class SpatialVoiceRoom implements Party.Server {
     try {
       const parsed = JSON.parse(message as string);
 
+      if (
+        parsed.type === "AUTH" ||
+        parsed.type === "JOIN" ||
+        parsed.type === "IDENTIFY" ||
+        parsed.type === "AUTHENTICATE"
+      ) {
+        const userId = parsed.userId || parsed.payload?.userId;
+        if (userId) {
+          this.handleUserConnect(userId, sender);
+        }
+        return;
+      }
+
       if (parsed.type === "POSITION_UPDATE" || parsed.type === "position-update") {
         const x = parsed.x ?? parsed.position?.x ?? 0;
         const y = parsed.y ?? parsed.position?.y ?? 0;
@@ -199,6 +308,7 @@ export default class SpatialVoiceRoom implements Party.Server {
 
         const update: SpatialUpdate = {
           peerId: sender.id,
+          userId: this.connectionToUser.get(sender.id),
           x,
           y,
           z,
