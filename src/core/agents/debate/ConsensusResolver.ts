@@ -2,6 +2,7 @@
  * ConsensusResolver.ts
  * Implements the mathematical logic to resolve conflicting agent scores into a final weighted ranking.
  * Uses a weighted average based on user preferences or default egalitarian weights.
+ * Integrates factual concessions parsed during adversarial cross-examination (#5775).
  */
 
 import { PersonaType, PERSONA_CONFIGS } from './AgentPersona';
@@ -19,6 +20,7 @@ export interface ConsensusResult {
     isTied?: boolean;
     dominantPersona?: PersonaType;
     tiedPersonas?: PersonaType[];
+    crossExaminationConcessions?: number;
 }
 
 export class ConsensusResolver {
@@ -64,7 +66,7 @@ export class ConsensusResolver {
         const { dominantPersona, isTied, tiedPersonas } = this.resolveTieBreak(scores, normWeights);
 
         // Generate consensus statement incorporating tie resolution
-        const consensusStatement = this.generateConsensusStatement(
+        let consensusStatement = this.generateConsensusStatement(
             scores,
             finalScore,
             normWeights,
@@ -73,12 +75,22 @@ export class ConsensusResolver {
             tiedPersonas
         );
 
+        // Incorporate factual cross-examination concessions into consensus summary (#5775)
+        const concededList = debateResult.crossExaminations?.filter(ce => ce.isConceded) ?? [];
+        if (concededList.length > 0) {
+            const details = concededList
+                .map(c => `${PERSONA_CONFIGS[c.respondent].name} conceded regarding "${c.claim}" (-${c.scorePenalty} pts)`)
+                .join('; ');
+            consensusStatement += ` Factual cross-examination adjustment: ${details}.`;
+        }
+
         return {
             finalScore,
             consensusStatement,
             isTied,
             dominantPersona,
             tiedPersonas,
+            crossExaminationConcessions: concededList.length,
         };
     }
 
@@ -98,20 +110,24 @@ export class ConsensusResolver {
             return {
                 dominantPersona: topPersonas[0],
                 isTied: false,
-                tiedPersonas: [topPersonas[0]],
+                tiedPersonas: topPersonas,
             };
         }
 
-        // Break tie by selecting the tied persona with the highest user preference weight
-        let dominantPersona = topPersonas[0];
-        let highestWeight = -1;
+        // Rank tied personas by user preference weight
+        const sortedTied = [...topPersonas].sort((a, b) => normWeights[b] - normWeights[a]);
+        const dominantPersona = sortedTied[0];
 
-        for (const persona of topPersonas) {
-            const weight = normWeights[persona] ?? 0;
-            if (weight > highestWeight) {
-                highestWeight = weight;
-                dominantPersona = persona;
-            }
+        // Check if top 2 weights are identical (true deadlock)
+        const topWeights = sortedTied.map(p => normWeights[p]);
+        const isExactWeightTie = topWeights.length > 1 && Math.abs(topWeights[0] - topWeights[1]) < 1e-6;
+
+        if (!isExactWeightTie) {
+            return {
+                dominantPersona,
+                isTied: true,
+                tiedPersonas: topPersonas,
+            };
         }
 
         return {
