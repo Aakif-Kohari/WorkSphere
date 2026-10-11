@@ -7,7 +7,7 @@ import {
   DATE_STRING_REGEX,
   sanitizeExportFilename,
 } from "../../../../app/api/admin/system/partitions/dateHelper";
-import { GET } from "../../../../app/api/admin/system/partitions/export/route";
+import { GET, HEAD } from "../../../../app/api/admin/system/partitions/export/route";
 import { getAdminUser } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { NextRequest } from "next/server";
@@ -205,6 +205,56 @@ describe("Partition Date Calculations & Export (#3777, #4914)", () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.error).toBe("Invalid table name: path traversal sequences are not allowed");
+    });
+
+    it("returns metadata JSON when preview=true or dryRun=true query param is provided (#5764)", async () => {
+      (getAdminUser as jest.Mock).mockResolvedValue({
+        id: "admin-1",
+        email: "admin@worksphere.com",
+      });
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValueOnce([
+        { count: 42500 },
+      ]);
+
+      const req = new NextRequest(
+        "http://localhost:3000/api/admin/system/partitions/export?year=2026&month=2&type=telemetry&preview=true",
+      );
+      const res = await GET(req);
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.preview).toBe(true);
+      expect(json.rowCount).toBe(42500);
+      expect(json.estimatedSizeBytes).toBeGreaterThan(0);
+      expect(json.partitionRange).toBeDefined();
+      expect(json.partitionRange.year).toBe(2026);
+      expect(json.partitionRange.month).toBe(3);
+      expect(json.partitionRange.start).toContain("2026-03-01");
+      expect(json.partitionRange.end).toContain("2026-04-01");
+      expect(json.filename).toContain("telemetry-records-2026-03.csv");
+    });
+
+    it("supports HEAD request returning row count and estimated size headers (#5764)", async () => {
+      (getAdminUser as jest.Mock).mockResolvedValue({
+        id: "admin-1",
+        email: "admin@worksphere.com",
+      });
+      (prisma.$queryRawUnsafe as jest.Mock).mockResolvedValueOnce([
+        { count: 1200 },
+      ]);
+
+      const req = new NextRequest(
+        "http://localhost:3000/api/admin/system/partitions/export?year=2026&month=2&type=push",
+      );
+      const res = await HEAD(req);
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("X-Row-Count")).toBe("1200");
+      expect(res.headers.get("X-Estimated-Size-Bytes")).toBeDefined();
+      expect(Number(res.headers.get("X-Estimated-Size-Bytes"))).toBeGreaterThan(0);
+      expect(res.headers.get("X-Partition-Start")).toContain("2026-03-01");
+      expect(res.headers.get("X-Partition-End")).toContain("2026-04-01");
     });
   });
 
