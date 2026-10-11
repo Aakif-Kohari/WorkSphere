@@ -1,6 +1,6 @@
 /**
  * route.ts
- * /api/venues/[id]/solar
+ * /api/venues/[venueId]/solar
  * Computes solar azimuth, elevation, and desk sunlight exposure for a given venue.
  */
 
@@ -12,17 +12,17 @@ import {
   type WindowFacade,
 } from "@/lib/geo/solarPosition";
 
-type RouteContext = { params: Promise<{ id: string }> };
+type RouteContext = { params: Promise<{ venueId: string }> };
 
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const { id } = await context.params;
+    const { venueId } = await context.params;
     const { searchParams } = new URL(req.url);
     const dateParam = searchParams.get("date");
     const hourParam = Number(searchParams.get("hour")) || 14; // default 2 PM
 
     const venue = await prisma.venue.findUnique({
-      where: { id },
+      where: { id: venueId },
       include: {
         seats: {
           where: { isEnabled: true },
@@ -104,7 +104,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       deskExposures,
     });
   } catch (error: any) {
-    console.error("[GET /api/venues/[id]/solar] Error:", error);
+    console.error("[GET /api/venues/[venueId]/solar] Error:", error);
     return NextResponse.json(
       { error: "Failed to compute solar orientation", details: error.message },
       { status: 500 }

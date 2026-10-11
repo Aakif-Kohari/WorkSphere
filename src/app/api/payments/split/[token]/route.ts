@@ -17,7 +17,7 @@ function isInactiveGuest(status: string): boolean {
 }
 
 /**
- * GET /api/pay/split/[token]
+ * GET /api/payments/split/[token]
  * Verifies split payment token and returns details for the guest checkout.
  */
 export async function GET(_req: NextRequest, context: RouteContext) {
@@ -97,7 +97,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
       },
     });
   } catch (error: any) {
-    console.error("[GET /api/pay/split/[token]] Error:", error);
+    console.error("[GET /api/payments/split/[token]] Error:", error);
     return NextResponse.json(
       { error: "Failed to load split payment details" },
       { status: 500 },
@@ -116,7 +116,7 @@ type PaymentOutcome =
     };
 
 /**
- * POST /api/pay/split/[token]
+ * POST /api/payments/split/[token]
  * Processes guest payment and issues digital guest pass.
  *
  * The state check and the paid transition run in one transaction, and the
@@ -216,7 +216,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         status: "ACCEPTED",
       });
     } catch (err) {
-      console.error("[POST /api/pay/split/[token]] guest-rsvp event failed:", err);
+      console.error("[POST /api/payments/split/[token]] guest-rsvp event failed:", err);
     }
 
     const passCode = `GP-${payload.bookingId.slice(-4).toUpperCase()}-${payload.guestId.slice(-4).toUpperCase()}`;
@@ -239,7 +239,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
     });
   } catch (error: any) {
-    console.error("[POST /api/pay/split/[token]] Error:", error);
+    console.error("[POST /api/payments/split/[token]] Error:", error);
     return NextResponse.json(
       { error: "Payment processing failed. Please try again." },
       { status: 500 },

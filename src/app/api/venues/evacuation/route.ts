@@ -1,6 +1,6 @@
 /**
  * route.ts
- * POST /api/venue/evacuation
+ * POST /api/venues/evacuation
  * Generates emergency egress route, nearest fire exits, AED locator, and assembly point guidance.
  */
 
@@ -13,7 +13,7 @@ import {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const {
       venueId,
       userSeatNumber = "Desk A-14",
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
       evacuationPlan: plan,
     });
   } catch (error: any) {
-    console.error("[POST /api/venue/evacuation] Error:", error);
+    console.error("[POST /api/venues/evacuation] Error:", error);
     return NextResponse.json(
       { error: "Failed to generate emergency evacuation plan", details: error.message },
       { status: 500 }
