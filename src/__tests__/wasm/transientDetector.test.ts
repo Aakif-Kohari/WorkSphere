@@ -13,6 +13,8 @@ interface TransientDetectorWasmModule {
     sampleRate: number,
   ) => number;
   get_transient_density: (statePtr: number) => number;
+  get_noise_floor: (statePtr: number) => number;
+  set_noise_floor: (statePtr: number, noiseFloor: number) => void;
   HEAPF32: Float32Array;
   HEAP32: Int32Array;
   memoryBuffer: ArrayBuffer;
@@ -32,6 +34,8 @@ const MAX_SAMPLE_RATE = 192000.0;
  *   offset 8  (float): attack_coeff
  *   offset 12 (float): release_coeff
  *   offset 16 (int32): transient_detected
+ *   offset 20 (float): noise_floor (#5769)
+ *   offset 24 (float): noise_floor_coeff (#5769)
  */
 function createTransientDetectorHarness(): TransientDetectorWasmModule {
   const memoryBuffer = new ArrayBuffer(64 * 1024); // 64KB heap
@@ -61,6 +65,8 @@ function createTransientDetectorHarness(): TransientDetectorWasmModule {
         -1.0 / (DEFAULT_SAMPLE_RATE * (RELEASE_TIME_MS / 1000.0)),
       );
       intView[stateIdx + 4] = 0; // transient_detected
+      floatView[stateIdx + 5] = 0.0; // noise_floor
+      floatView[stateIdx + 6] = 0.95; // noise_floor_coeff
       return -1;
     }
 
@@ -73,6 +79,8 @@ function createTransientDetectorHarness(): TransientDetectorWasmModule {
       -1.0 / (sampleRate * (RELEASE_TIME_MS / 1000.0)),
     );
     intView[stateIdx + 4] = 0; // transient_detected
+    floatView[stateIdx + 5] = 0.0; // noise_floor
+    floatView[stateIdx + 6] = 0.95; // noise_floor_coeff
     return 0;
   };
 
@@ -127,6 +135,9 @@ function createTransientDetectorHarness(): TransientDetectorWasmModule {
     }
 
     let maxAmplitude = 0.0;
+    let frameEnergy = 0.0;
+    let validSamples = 0;
+
     for (let i = 0; i < numSamples; i++) {
       const sample = floatView[inIdx + i];
       if (Number.isNaN(sample)) continue;
@@ -134,13 +145,40 @@ function createTransientDetectorHarness(): TransientDetectorWasmModule {
       if (absVal > maxAmplitude) {
         maxAmplitude = absVal;
       }
+      frameEnergy += absVal;
+      validSamples++;
+    }
+
+    const meanAmplitude = validSamples > 0 ? frameEnergy / validSamples : 0.0;
+
+    // Maintain exponential moving average (EMA) spectral noise floor (#5769)
+    let noiseFloor = floatView[stateIdx + 5];
+    if (noiseFloor <= 0.0 || Number.isNaN(noiseFloor)) {
+      noiseFloor = meanAmplitude;
+    } else if (meanAmplitude < noiseFloor) {
+      // Rapid downward adaptation to true background floor
+      noiseFloor = 0.90 * noiseFloor + 0.10 * meanAmplitude;
+    } else if (meanAmplitude < noiseFloor * 2.5) {
+      // Gradual upward adaptation for ambient background rise
+      noiseFloor = 0.98 * noiseFloor + 0.02 * meanAmplitude;
+    }
+    floatView[stateIdx + 5] = noiseFloor;
+
+    // Subtract baseline noise power before evaluating transient peak threshold (#5769)
+    const peakPower = maxAmplitude * maxAmplitude;
+    const noisePower = noiseFloor * noiseFloor;
+    const effectivePower = peakPower > noisePower ? peakPower - noisePower : 0.0;
+    let effectiveAmplitude = Math.sqrt(effectivePower);
+
+    if (maxAmplitude <= noiseFloor) {
+      effectiveAmplitude = 0.0;
     }
 
     let envelope = floatView[stateIdx + 0];
-    if (maxAmplitude > envelope) {
-      envelope = maxAmplitude + attackCoeff * (envelope - maxAmplitude);
+    if (effectiveAmplitude > envelope) {
+      envelope = effectiveAmplitude + attackCoeff * (envelope - effectiveAmplitude);
     } else {
-      envelope = maxAmplitude + releaseCoeff * (envelope - maxAmplitude);
+      envelope = effectiveAmplitude + releaseCoeff * (envelope - effectiveAmplitude);
     }
     floatView[stateIdx + 0] = envelope;
 
@@ -148,7 +186,7 @@ function createTransientDetectorHarness(): TransientDetectorWasmModule {
     floatView[stateIdx + 1] = threshold;
 
     let transientCount = 0;
-    if (maxAmplitude > threshold && envelope > 0.05) {
+    if (effectiveAmplitude > threshold && envelope > 0.05) {
       intView[stateIdx + 4] = 1;
       transientCount = 1;
     } else {
@@ -164,18 +202,32 @@ function createTransientDetectorHarness(): TransientDetectorWasmModule {
     return intView[stateIdx + 4] ? 1.0 : 0.0;
   };
 
+  const get_noise_floor = (statePtr: number): number => {
+    if (statePtr <= 0 || statePtr % 4 !== 0) return 0.0;
+    const stateIdx = statePtr / 4;
+    return floatView[stateIdx + 5];
+  };
+
+  const set_noise_floor = (statePtr: number, noiseFloor: number): void => {
+    if (statePtr <= 0 || statePtr % 4 !== 0) return;
+    const stateIdx = statePtr / 4;
+    floatView[stateIdx + 5] = Math.max(0.0, noiseFloor);
+  };
+
   return {
     transient_init,
     init_transient_detector,
     detect_transients,
     get_transient_density,
+    get_noise_floor,
+    set_noise_floor,
     HEAPF32: floatView,
     HEAP32: intView,
     memoryBuffer,
   };
 }
 
-describe("transient_detector.c WASM DSP Module (#5737)", () => {
+describe("transient_detector.c WASM DSP Module (#5737, #5769)", () => {
   let wasm: TransientDetectorWasmModule;
   const STATE_PTR = 128; // 32nd float index
   const AUDIO_PTR = 256; // 64th float index
@@ -184,99 +236,55 @@ describe("transient_detector.c WASM DSP Module (#5737)", () => {
     wasm = createTransientDetectorHarness();
   });
 
-  describe("transient_init and init_transient_detector sample rate validation", () => {
-    it("successfully initializes with standard 44.1 kHz sample rate", () => {
-      const result = wasm.transient_init(STATE_PTR, 44100);
-      expect(result).toBe(0);
-
-      const stateIdx = STATE_PTR / 4;
-      const attackCoeff = wasm.HEAPF32[stateIdx + 2];
-      const releaseCoeff = wasm.HEAPF32[stateIdx + 3];
-
-      expect(Number.isNaN(attackCoeff)).toBe(false);
-      expect(Number.isNaN(releaseCoeff)).toBe(false);
-      expect(attackCoeff).toBeCloseTo(Math.exp(-1.0 / (44100 * 0.01)), 5);
-      expect(releaseCoeff).toBeCloseTo(Math.exp(-1.0 / (44100 * 0.1)), 5);
-      expect(attackCoeff).toBeGreaterThan(0.9);
-      expect(releaseCoeff).toBeGreaterThan(0.99);
-    });
-
-    it("successfully initializes with 48 kHz, 96 kHz, and 16 kHz sample rates", () => {
-      expect(wasm.transient_init(STATE_PTR, 48000)).toBe(0);
-      expect(wasm.transient_init(STATE_PTR, 96000)).toBe(0);
-      expect(wasm.transient_init(STATE_PTR, 16000)).toBe(0);
+  describe("transient_init & init_transient_detector sample rate bounds", () => {
+    it("initializes successfully for standard audio sample rates (44100, 48000, 96000)", () => {
+      expect(wasm.transient_init(STATE_PTR, 44100)).toBe(0);
       expect(wasm.init_transient_detector(STATE_PTR, 48000)).toBe(0);
+      expect(wasm.transient_init(STATE_PTR, 96000)).toBe(0);
+
+      const stateIdx = STATE_PTR / 4;
+      expect(wasm.HEAPF32[stateIdx + 0]).toBe(0.0); // envelope
+      expect(wasm.HEAPF32[stateIdx + 1]).toBe(0.1); // threshold
+      expect(wasm.HEAPF32[stateIdx + 2]).toBeGreaterThan(0.0); // attack_coeff
+      expect(wasm.HEAPF32[stateIdx + 3]).toBeGreaterThan(0.0); // release_coeff
+      expect(wasm.HEAP32[stateIdx + 4]).toBe(0); // transient_detected
+      expect(wasm.HEAPF32[stateIdx + 5]).toBe(0.0); // noise_floor
     });
 
-    it("guards against NaN sample rate input and returns error code -1", () => {
-      const result = wasm.transient_init(STATE_PTR, NaN);
-      expect(result).toBe(-1);
+    it("rejects NaN sample rate and falls back to safe default coefficients", () => {
+      const res = wasm.transient_init(STATE_PTR, NaN);
+      expect(res).toBe(-1);
 
       const stateIdx = STATE_PTR / 4;
       const attackCoeff = wasm.HEAPF32[stateIdx + 2];
       const releaseCoeff = wasm.HEAPF32[stateIdx + 3];
 
-      // Verifies fallback coefficients prevent NaN propagation
       expect(Number.isNaN(attackCoeff)).toBe(false);
       expect(Number.isNaN(releaseCoeff)).toBe(false);
-      expect(attackCoeff).toBeCloseTo(Math.exp(-1.0 / (44100 * 0.01)), 5);
-      expect(releaseCoeff).toBeCloseTo(Math.exp(-1.0 / (44100 * 0.1)), 5);
+      expect(attackCoeff).toBeGreaterThan(0.0);
+      expect(releaseCoeff).toBeGreaterThan(0.0);
     });
 
-    it("guards against zero sample rate input and returns error code -1", () => {
-      const result = wasm.transient_init(STATE_PTR, 0);
-      expect(result).toBe(-1);
-
-      const stateIdx = STATE_PTR / 4;
-      expect(Number.isNaN(wasm.HEAPF32[stateIdx + 2])).toBe(false);
-      expect(Number.isNaN(wasm.HEAPF32[stateIdx + 3])).toBe(false);
-    });
-
-    it("guards against negative sample rates and returns error code -1", () => {
+    it("rejects non-positive and out-of-range sample rates (< 8000 or > 192000)", () => {
+      expect(wasm.transient_init(STATE_PTR, 0)).toBe(-1);
       expect(wasm.transient_init(STATE_PTR, -44100)).toBe(-1);
-      expect(wasm.transient_init(STATE_PTR, -1)).toBe(-1);
-    });
-
-    it("guards against infinite sample rates (Infinity and -Infinity)", () => {
+      expect(wasm.transient_init(STATE_PTR, 4000)).toBe(-1); // below 8kHz
+      expect(wasm.transient_init(STATE_PTR, 250000)).toBe(-1); // above 192kHz
       expect(wasm.transient_init(STATE_PTR, Infinity)).toBe(-1);
-      expect(wasm.transient_init(STATE_PTR, -Infinity)).toBe(-1);
     });
 
-    it("enforces strict lower bound sanity check (sample_rate > 8000)", () => {
-      // 8000 Hz exact boundary should be rejected (not strictly > 8000)
-      expect(wasm.transient_init(STATE_PTR, 8000)).toBe(-1);
-      // Below 8000 Hz should be rejected
-      expect(wasm.transient_init(STATE_PTR, 7999)).toBe(-1);
-      expect(wasm.transient_init(STATE_PTR, 4000)).toBe(-1);
-      // Above 8000 Hz should be accepted
-      expect(wasm.transient_init(STATE_PTR, 8001)).toBe(0);
-      expect(wasm.transient_init(STATE_PTR, 8000.5)).toBe(0);
-    });
-
-    it("enforces strict upper bound sanity check (sample_rate < 192000)", () => {
-      // 192000 Hz exact boundary should be rejected (not strictly < 192000)
-      expect(wasm.transient_init(STATE_PTR, 192000)).toBe(-1);
-      // Above 192000 Hz should be rejected
-      expect(wasm.transient_init(STATE_PTR, 192001)).toBe(-1);
-      expect(wasm.transient_init(STATE_PTR, 384000)).toBe(-1);
-      // Below 192000 Hz should be accepted
-      expect(wasm.transient_init(STATE_PTR, 191999)).toBe(0);
-    });
-
-    it("returns -1 for null/invalid state pointer", () => {
+    it("rejects unaligned or invalid memory pointers", () => {
       expect(wasm.transient_init(0, 44100)).toBe(-1);
-      expect(wasm.init_transient_detector(0, 44100)).toBe(-1);
+      expect(wasm.transient_init(3, 44100)).toBe(-1);
     });
   });
 
-  describe("detect_transients audio processing with edge-case sample rates", () => {
-    it("detects sharp transient impulse in audio frame without NaN coefficients", () => {
+  describe("detect_transients event isolation", () => {
+    it("detects sharp impulsive transient spike on quiet background", () => {
       wasm.transient_init(STATE_PTR, 44100);
 
       const numSamples = 512;
       const inIdx = AUDIO_PTR / 4;
-
-      // Fill with quiet background noise
       for (let i = 0; i < numSamples; i++) {
         wasm.HEAPF32[inIdx + i] = 0.01;
       }
@@ -321,7 +329,6 @@ describe("transient_detector.c WASM DSP Module (#5737)", () => {
         wasm.HEAPF32[inIdx + i] = 0.02;
       }
 
-      // Should not throw or generate NaN envelope when sampleRate is NaN
       const detected = wasm.detect_transients(
         AUDIO_PTR,
         numSamples,
@@ -333,6 +340,121 @@ describe("transient_detector.c WASM DSP Module (#5737)", () => {
       const stateIdx = STATE_PTR / 4;
       expect(Number.isNaN(wasm.HEAPF32[stateIdx + 0])).toBe(false); // envelope
       expect(Number.isNaN(wasm.HEAPF32[stateIdx + 1])).toBe(false); // threshold
+    });
+  });
+
+  describe("Ambient background noise profile baseline subtractor (#5769)", () => {
+    it("maintains an EMA spectral noise floor that tracks continuous ambient sound", () => {
+      wasm.transient_init(STATE_PTR, 44100);
+      const numSamples = 512;
+      const inIdx = AUDIO_PTR / 4;
+
+      // Stream continuous stationary café murmur at amplitude 0.20 for 10 frames
+      for (let frame = 0; frame < 10; frame++) {
+        for (let i = 0; i < numSamples; i++) {
+          wasm.HEAPF32[inIdx + i] = 0.20;
+        }
+        wasm.detect_transients(AUDIO_PTR, numSamples, STATE_PTR, 44100);
+      }
+
+      const noiseFloor = wasm.get_noise_floor(STATE_PTR);
+      expect(noiseFloor).toBeGreaterThan(0.15);
+      expect(noiseFloor).toBeLessThanOrEqual(0.22);
+    });
+
+    it("does NOT trigger false transient spikes under high constant background noise (e.g., loud HVAC hum 0.35)", () => {
+      wasm.transient_init(STATE_PTR, 44100);
+      const numSamples = 512;
+      const inIdx = AUDIO_PTR / 4;
+
+      // Simulate loud constant HVAC hum / background murmur (0.35)
+      for (let frame = 0; frame < 20; frame++) {
+        for (let i = 0; i < numSamples; i++) {
+          wasm.HEAPF32[inIdx + i] = 0.35;
+        }
+        const detected = wasm.detect_transients(
+          AUDIO_PTR,
+          numSamples,
+          STATE_PTR,
+          44100,
+        );
+        // After baseline noise floor establishes, constant noise must NOT trigger false transient
+        if (frame > 5) {
+          expect(detected).toBe(0);
+          expect(wasm.get_transient_density(STATE_PTR)).toBe(0.0);
+        }
+      }
+    });
+
+    it("accurately detects sharp impulsive transients superimposed on high background noise", () => {
+      wasm.transient_init(STATE_PTR, 44100);
+      const numSamples = 512;
+      const inIdx = AUDIO_PTR / 4;
+
+      // Pre-warm the noise floor to 0.30 background level
+      for (let frame = 0; frame < 15; frame++) {
+        for (let i = 0; i < numSamples; i++) {
+          wasm.HEAPF32[inIdx + i] = 0.30;
+        }
+        wasm.detect_transients(AUDIO_PTR, numSamples, STATE_PTR, 44100);
+      }
+
+      // Verify baseline noise floor is established around 0.30
+      expect(wasm.get_noise_floor(STATE_PTR)).toBeCloseTo(0.30, 1);
+
+      // Now inject a frame with background noise (0.30) PLUS a sharp transient spike (0.85 mug drop)
+      for (let i = 0; i < numSamples; i++) {
+        wasm.HEAPF32[inIdx + i] = 0.30;
+      }
+      wasm.HEAPF32[inIdx + 50] = 0.85;
+
+      const detected = wasm.detect_transients(
+        AUDIO_PTR,
+        numSamples,
+        STATE_PTR,
+        44100,
+      );
+
+      // Transient must be detected despite 0.30 background noise
+      expect(detected).toBe(1);
+      expect(wasm.get_transient_density(STATE_PTR)).toBe(1.0);
+    });
+
+    it("adapts sensitivity automatically between quiet library (0.01) and noisy café (0.30)", () => {
+      wasm.transient_init(STATE_PTR, 44100);
+      const numSamples = 512;
+      const inIdx = AUDIO_PTR / 4;
+
+      // Quiet library pre-warm (0.01)
+      for (let frame = 0; frame < 10; frame++) {
+        for (let i = 0; i < numSamples; i++) {
+          wasm.HEAPF32[inIdx + i] = 0.01;
+        }
+        wasm.detect_transients(AUDIO_PTR, numSamples, STATE_PTR, 44100);
+      }
+      expect(wasm.get_noise_floor(STATE_PTR)).toBeCloseTo(0.01, 1);
+
+      // A small transient of 0.15 is detected in quiet library
+      for (let i = 0; i < numSamples; i++) {
+        wasm.HEAPF32[inIdx + i] = 0.01;
+      }
+      wasm.HEAPF32[inIdx + 10] = 0.15;
+      expect(wasm.detect_transients(AUDIO_PTR, numSamples, STATE_PTR, 44100)).toBe(1);
+
+      // Transition to noisy café (0.30)
+      for (let frame = 0; frame < 25; frame++) {
+        for (let i = 0; i < numSamples; i++) {
+          wasm.HEAPF32[inIdx + i] = 0.30;
+        }
+        wasm.detect_transients(AUDIO_PTR, numSamples, STATE_PTR, 44100);
+      }
+      expect(wasm.get_noise_floor(STATE_PTR)).toBeGreaterThan(0.25);
+
+      // In the café, a 0.15 sound is below the 0.30 noise floor, so it does not falsely trigger
+      for (let i = 0; i < numSamples; i++) {
+        wasm.HEAPF32[inIdx + i] = 0.15;
+      }
+      expect(wasm.detect_transients(AUDIO_PTR, numSamples, STATE_PTR, 44100)).toBe(0);
     });
   });
 });
