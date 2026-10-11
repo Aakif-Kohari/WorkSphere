@@ -11,6 +11,7 @@ export interface HybridVenueSearchFilters {
   semanticWeight?: number;
   fullTextWeight?: number;
   rrfK?: number;
+  queryEmbedding?: number[] | null;
 }
 
 export interface RankedVenueId {
@@ -53,6 +54,80 @@ export function calculateRrfScore(
   const safeK = validateAndClampRrfK(k);
   const safeWeight = Number.isFinite(weight) ? Math.max(0, weight) : 0;
   return safeWeight / (safeK + safeRank);
+}
+
+/**
+ * Computes the Euclidean (L2) norm of a numeric vector: sqrt(sum(v_i^2)).
+ */
+export function computeL2Norm(vector: number[]): number {
+  if (!Array.isArray(vector) || vector.length === 0) return 0;
+  let sumSquares = 0;
+  for (let i = 0; i < vector.length; i++) {
+    const val = vector[i];
+    if (typeof val === "number" && Number.isFinite(val)) {
+      sumSquares += val * val;
+    }
+  }
+  return Math.sqrt(sumSquares);
+}
+
+/**
+ * Checks if a vector has an L2 norm strictly below epsilon (defaults to 1e-7).
+ */
+export function isZeroNormVector(
+  vector: number[] | null | undefined,
+  epsilon = 1e-7,
+): boolean {
+  if (!vector || !Array.isArray(vector) || vector.length === 0) {
+    return true;
+  }
+  return computeL2Norm(vector) < epsilon;
+}
+
+/**
+ * Normalizes a vector to unit L2 norm: v / norm.
+ * If norm < epsilon (1e-7), returns null to prevent division by zero / NaN.
+ */
+export function normalizeVector(
+  vector: number[],
+  epsilon = 1e-7,
+): number[] | null {
+  if (!Array.isArray(vector) || vector.length === 0) return null;
+  const norm = computeL2Norm(vector);
+  if (norm < epsilon) {
+    return null;
+  }
+  return vector.map((v) => v / norm);
+}
+
+/**
+ * Computes cosine similarity between two numeric vectors.
+ * Returns 0 if either vector has L2 norm < epsilon (1e-7) to prevent NaN.
+ */
+export function cosineSimilarity(
+  a: number[],
+  b: number[],
+  epsilon = 1e-7,
+): number {
+  if (
+    !Array.isArray(a) ||
+    !Array.isArray(b) ||
+    a.length !== b.length ||
+    a.length === 0
+  ) {
+    return 0;
+  }
+  const normA = computeL2Norm(a);
+  const normB = computeL2Norm(b);
+  if (normA < epsilon || normB < epsilon) {
+    return 0;
+  }
+  let dotProduct = 0;
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i];
+  }
+  const denominator = normA * normB;
+  return denominator > 0 ? dotProduct / denominator : 0;
 }
 
 const indexingVenueIds = new Set<string>();
@@ -133,22 +208,54 @@ export async function searchVenuesWithRrf(
   const searchQuery = query.trim().slice(0, 256);
   if (!searchQuery) return [];
 
-  const embedding = await embedSearchQuery(searchQuery);
-  const embeddingString = embedding ? `[${embedding.join(",")}]` : null;
+  const rawEmbedding =
+    filters.queryEmbedding !== undefined
+      ? filters.queryEmbedding
+      : await embedSearchQuery(searchQuery);
+
+  // Compute L2 norm and check for norm < 1e-7 before cosine similarity computation
+  let normalizedEmbedding: number[] | null = null;
+  let isZeroNorm = false;
+
+  if (rawEmbedding && Array.isArray(rawEmbedding) && rawEmbedding.length > 0) {
+    const norm = computeL2Norm(rawEmbedding);
+    if (norm < 1e-7) {
+      isZeroNorm = true;
+      normalizedEmbedding = null;
+    } else {
+      normalizedEmbedding = rawEmbedding.map((val) => val / norm);
+    }
+  }
+
+  const embeddingString = normalizedEmbedding
+    ? `[${normalizedEmbedding.join(",")}]`
+    : null;
   const predicates: Prisma.Sql[] = [];
 
-  const rawTextWeight =
-    typeof filters.fullTextWeight === "number" && Number.isFinite(filters.fullTextWeight)
-      ? Math.max(0, Math.min(1, filters.fullTextWeight))
-      : 0.5;
-  const rawSemanticWeight =
-    typeof filters.semanticWeight === "number" && Number.isFinite(filters.semanticWeight)
-      ? Math.max(0, Math.min(1, filters.semanticWeight))
-      : 0.5;
+  let fullTextWeight = 0.5;
+  let semanticWeight = 0.5;
 
-  const sumWeights = rawTextWeight + rawSemanticWeight;
-  const fullTextWeight = sumWeights > 0 ? rawTextWeight / sumWeights : 0.5;
-  const semanticWeight = sumWeights > 0 ? rawSemanticWeight / sumWeights : 0.5;
+  if (isZeroNorm || !normalizedEmbedding) {
+    // Fallback exclusively to BM25 full-text results when vector norm is zero
+    fullTextWeight = 1.0;
+    semanticWeight = 0.0;
+  } else {
+    const rawTextWeight =
+      typeof filters.fullTextWeight === "number" &&
+      Number.isFinite(filters.fullTextWeight)
+        ? Math.max(0, Math.min(1, filters.fullTextWeight))
+        : 0.5;
+    const rawSemanticWeight =
+      typeof filters.semanticWeight === "number" &&
+      Number.isFinite(filters.semanticWeight)
+        ? Math.max(0, Math.min(1, filters.semanticWeight))
+        : 0.5;
+
+    const sumWeights = rawTextWeight + rawSemanticWeight;
+    fullTextWeight = sumWeights > 0 ? rawTextWeight / sumWeights : 0.5;
+    semanticWeight = sumWeights > 0 ? rawSemanticWeight / sumWeights : 0.5;
+  }
+
   const rrfK = validateAndClampRrfK(filters.rrfK);
 
   if (filters.minLat !== undefined) {
