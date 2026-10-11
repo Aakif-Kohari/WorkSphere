@@ -60,12 +60,16 @@ self.onmessage = async (event: MessageEvent) => {
                 profilePtr
             );
 
-            // Run transient detection
+            // Run transient detection with sanitized sample rate
+            const safeSampleRate =
+                typeof sampleRate === 'number' && Number.isFinite(sampleRate) && sampleRate > 8000 && sampleRate < 192000
+                    ? sampleRate
+                    : 44100;
             const transientCount = (instance.exports.detect_transients as CallableFunction)(
                 currentFramePtr,
                 audioData.length,
                 transientStatePtr,
-                sampleRate
+                safeSampleRate
             );
 
             // Read results from memory
