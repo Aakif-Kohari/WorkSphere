@@ -1081,49 +1081,38 @@ export function MessageList({
 
   const { speakingMessageId, speakingSentenceIndex } = useSpeechSynthesis();
 
-  const scrollToBottomIfNeeded = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const isAtBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight <
-      200;
-    if (isAtBottom || isLoading) {
-      requestAnimationFrame(() => {
-        container.scrollTop = container.scrollHeight;
-      });
-    }
-  }, [isLoading]);
-
-  // Re-check scroll position whenever messages change or loading state changes
-  useEffect(() => {
-    scrollToBottomIfNeeded();
-  }, [messages, isLoading, scrollToBottomIfNeeded]);
-
-  // Also re-check whenever the container's own size changes (e.g. the input
-  // box growing to multiple lines shrinks the visible message area, which
-  // previously left new messages hidden below the fold)
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const resizeObserver = new ResizeObserver(() => {
-      scrollToBottomIfNeeded();
-    });
-    resizeObserver.observe(container);
-    return () => resizeObserver.disconnect();
-  }, [scrollToBottomIfNeeded]);
-
+  const prevMessageCountRef = useRef(messages.length);
+  const isNearBottomRef = useRef(true);
+  const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
+
+  const checkIsNearBottom = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return true;
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    return distanceFromBottom <= 100;
+  }, []);
 
   const handleScroll = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
-    const isAwayFromBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight >=
-      200;
-    setShowScrollToLatest(isAwayFromBottom);
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    const nearBottom = distanceFromBottom <= 100;
+    isNearBottomRef.current = nearBottom;
+
+    if (nearBottom) {
+      setHasNewMessagesBelow(false);
+      setShowScrollToLatest(false);
+    } else {
+      setShowScrollToLatest(true);
+    }
   }, []);
 
   const handleScrollToLatest = useCallback(() => {
+    setHasNewMessagesBelow(false);
+    setShowScrollToLatest(false);
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView?.({ behavior: "smooth" });
     } else if (containerRef.current) {
@@ -1134,9 +1123,41 @@ export function MessageList({
     }
   }, [messagesEndRef]);
 
+  // Handle messages changes and auto-scroll logic
   useEffect(() => {
-    handleScroll();
-  }, [messages, handleScroll]);
+    const container = containerRef.current;
+    const isNewMessage = messages.length > prevMessageCountRef.current;
+    prevMessageCountRef.current = messages.length;
+
+    if (!container) return;
+
+    if (isNearBottomRef.current || isLoading) {
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight;
+      });
+      setHasNewMessagesBelow(false);
+      setShowScrollToLatest(false);
+    } else if (isNewMessage) {
+      // User is scrolled up and a new message arrived
+      setHasNewMessagesBelow(true);
+      setShowScrollToLatest(true);
+    }
+  }, [messages, isLoading]);
+
+  // Also re-check whenever the container's own size changes
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const resizeObserver = new ResizeObserver(() => {
+      if (isNearBottomRef.current || isLoading) {
+        requestAnimationFrame(() => {
+          container.scrollTop = container.scrollHeight;
+        });
+      }
+    });
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, [isLoading]);
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col">
@@ -1341,11 +1362,22 @@ export function MessageList({
         <button
           type="button"
           onClick={handleScrollToLatest}
-          aria-label="Scroll to latest message"
-          title="Scroll to latest"
-          className="absolute bottom-3 right-4 z-10 p-2 rounded-full bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 shadow-md border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700 hover:text-zinc-900 dark:hover:text-white transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-zinc-400"
+          aria-label={hasNewMessagesBelow ? "New messages below" : "Scroll to latest message"}
+          title={hasNewMessagesBelow ? "New messages below" : "Scroll to latest"}
+          className={`absolute bottom-3 z-10 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-zinc-400 ${
+            hasNewMessagesBelow
+              ? "left-1/2 -translate-x-1/2 px-3.5 py-1.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg text-xs font-bold flex items-center gap-1.5 animate-bounce"
+              : "right-4 p-2 rounded-full bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 shadow-md border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700 hover:text-zinc-900 dark:hover:text-white"
+          }`}
         >
-          <ChevronDown className="w-4 h-4" />
+          {hasNewMessagesBelow ? (
+            <>
+              <span>New messages below</span>
+              <span aria-hidden="true">↓</span>
+            </>
+          ) : (
+            <ChevronDown className="w-4 h-4" />
+          )}
         </button>
       )}
     </div>
