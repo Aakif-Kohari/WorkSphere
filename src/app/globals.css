@@ -75,9 +75,99 @@
       color-mix(in srgb, var(--primary-accent) 30%, transparent);
   }
 
+  /* ─── Hard-Light Construct Border Glow Utilities ─────────────────── */
+  .hard-light-construct {
+    position: relative;
+    border: 1px solid color-mix(in srgb, var(--primary-accent, #3b82f6) 75%, #ffffff);
+    box-shadow:
+      0 0 1px 1px color-mix(in srgb, var(--primary-accent, #3b82f6) 80%, #ffffff),
+      0 0 12px color-mix(in srgb, var(--primary-accent, #3b82f6) 45%, transparent),
+      0 0 24px color-mix(in srgb, var(--primary-accent, #3b82f6) 25%, transparent),
+      inset 0 0 12px color-mix(in srgb, var(--primary-accent, #3b82f6) 18%, transparent);
+    transition: box-shadow 0.25s ease, border-color 0.25s ease;
+  }
+
+  .hard-light-construct:hover {
+    border-color: color-mix(in srgb, var(--primary-accent, #3b82f6) 90%, #ffffff);
+    box-shadow:
+      0 0 2px 1.5px color-mix(in srgb, var(--primary-accent, #3b82f6) 95%, #ffffff),
+      0 0 16px color-mix(in srgb, var(--primary-accent, #3b82f6) 60%, transparent),
+      0 0 32px color-mix(in srgb, var(--primary-accent, #3b82f6) 35%, transparent),
+      inset 0 0 16px color-mix(in srgb, var(--primary-accent, #3b82f6) 28%, transparent);
+  }
+
+  .border-glow-construct {
+    border: 1px solid color-mix(in srgb, var(--primary-accent, #3b82f6) 70%, transparent);
+    box-shadow:
+      0 0 1px 1px color-mix(in srgb, var(--primary-accent, #3b82f6) 60%, transparent),
+      0 0 10px color-mix(in srgb, var(--primary-accent, #3b82f6) 40%, transparent),
+      inset 0 0 8px color-mix(in srgb, var(--primary-accent, #3b82f6) 20%, transparent);
+  }
+
+  .border-glow-construct-cyan {
+    border: 1px solid rgba(6, 182, 212, 0.75);
+    box-shadow:
+      0 0 1px 1px rgba(103, 232, 249, 0.9),
+      0 0 12px rgba(6, 182, 212, 0.5),
+      0 0 24px rgba(6, 182, 212, 0.25),
+      inset 0 0 12px rgba(6, 182, 212, 0.2);
+  }
+
+  .border-glow-construct-emerald {
+    border: 1px solid rgba(16, 185, 129, 0.75);
+    box-shadow:
+      0 0 1px 1px rgba(110, 231, 183, 0.9),
+      0 0 12px rgba(16, 185, 129, 0.5),
+      0 0 24px rgba(16, 185, 129, 0.25),
+      inset 0 0 12px rgba(16, 185, 129, 0.2);
+  }
+
+  .border-glow-construct-amber {
+    border: 1px solid rgba(245, 158, 11, 0.75);
+    box-shadow:
+      0 0 1px 1px rgba(252, 211, 77, 0.9),
+      0 0 12px rgba(245, 158, 11, 0.5),
+      0 0 24px rgba(245, 158, 11, 0.25),
+      inset 0 0 12px rgba(245, 158, 11, 0.2);
+  }
+
+  .hard-light-pulse {
+    animation: hardLightConstructPulse 3s ease-in-out infinite;
+  }
+
+  @keyframes hardLightConstructPulse {
+    0%, 100% {
+      box-shadow:
+        0 0 1px 1px color-mix(in srgb, var(--primary-accent, #3b82f6) 80%, #ffffff),
+        0 0 12px color-mix(in srgb, var(--primary-accent, #3b82f6) 40%, transparent),
+        0 0 24px color-mix(in srgb, var(--primary-accent, #3b82f6) 20%, transparent),
+        inset 0 0 10px color-mix(in srgb, var(--primary-accent, #3b82f6) 15%, transparent);
+    }
+    50% {
+      box-shadow:
+        0 0 2px 1.5px color-mix(in srgb, var(--primary-accent, #3b82f6) 95%, #ffffff),
+        0 0 18px color-mix(in srgb, var(--primary-accent, #3b82f6) 65%, transparent),
+        0 0 36px color-mix(in srgb, var(--primary-accent, #3b82f6) 35%, transparent),
+        inset 0 0 16px color-mix(in srgb, var(--primary-accent, #3b82f6) 30%, transparent);
+    }
+  }
+
   .dark .glass-card {
     @apply bg-zinc-900 border-zinc-800;
   }
+}
+
+/* Accessibility overrides for high-contrast mode */
+html.high-contrast .hard-light-construct,
+html.high-contrast .border-glow-construct,
+html.high-contrast .border-glow-construct-cyan,
+html.high-contrast .border-glow-construct-emerald,
+html.high-contrast .border-glow-construct-amber,
+html.high-contrast .hard-light-pulse {
+  box-shadow: none !important;
+  animation: none !important;
+  border-width: 2px !important;
+  border-style: solid !important;
 }
 
 /* ─── Accent Color System ─────────────────────────────────────────── */
