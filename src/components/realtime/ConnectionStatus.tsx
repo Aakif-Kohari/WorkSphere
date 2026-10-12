@@ -44,11 +44,17 @@ export function ConnectionStatus({
       <div
         role="status"
         aria-live="polite"
-        className={`inline-flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400 font-medium ${className}`}
+        className={`inline-flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium ${className}`}
       >
-        <span className="relative flex h-2 w-2" aria-hidden="true">
-          <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+        <span className="relative flex h-2.5 w-2.5 items-center justify-center" aria-hidden="true">
+          <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 motion-reduce:hidden" />
+          <span
+            data-testid="lantern-power-core"
+            className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_#10b981] motion-safe:animate-[pulse_3s_cubic-bezier(0.4,0,0.6,1)_infinite]"
+            style={{
+              filter: "drop-shadow(0 0 6px #10b981)",
+            }}
+          />
         </span>
         Live
       </div>
