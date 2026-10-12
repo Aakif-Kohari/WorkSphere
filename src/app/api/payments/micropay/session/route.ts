@@ -160,6 +160,14 @@ export async function POST(req: NextRequest) {
       }
 
       const updated = MicroPaymentEngine.tickSession(session);
+
+      if (session.paymentRail === "lightning" && updated.totalAccruedSats < 1) {
+        return NextResponse.json(
+          { error: "Invalid settlement amount: Satoshi amount must be at least 1 Satoshi." },
+          { status: 400 }
+        );
+      }
+
       updated.status = "settled";
       updated.paymentProofHash = MicroPaymentEngine.generatePaymentReceiptHash(
         sessionId,
