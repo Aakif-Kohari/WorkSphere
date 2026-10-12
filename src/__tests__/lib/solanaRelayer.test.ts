@@ -13,6 +13,11 @@ import {
   getDynamicPriorityFee,
   injectPriorityFeeInstruction,
   relayGaslessUsdcTransaction,
+  relayerMutex,
+  RelayerMutex,
+  getLatestBlockhashWithCache,
+  clearBlockhashCache,
+  BLOCKHASH_CACHE_TTL_MS,
   DEFAULT_PRIORITY_FEE_PERCENTILE,
   DEFAULT_MIN_PRIORITY_FEE_MICRO_LAMPORTS,
   DEFAULT_MAX_PRIORITY_FEE_MICRO_LAMPORTS,
@@ -214,6 +219,122 @@ describe("solanaRelayer priority fee dynamic adjustment (#5774)", () => {
       expect(result.priorityFeeMicroLamports).toBeGreaterThanOrEqual(1_000);
       expect(mockGetRecentPrioritizationFees).toHaveBeenCalled();
       expect(mockSendRawTransaction).toHaveBeenCalled();
+    });
+  });
+
+  describe("RelayerMutex FIFO lock & blockhash cache (#5741)", () => {
+    it("ensures strict FIFO ordering and mutual exclusion", async () => {
+      const mutex = new RelayerMutex();
+      const executionOrder: number[] = [];
+
+      const runTask = async (id: number, delayMs: number) => {
+        const release = await mutex.acquire();
+        executionOrder.push(id);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        release();
+      };
+
+      await Promise.all([
+        runTask(1, 30),
+        runTask(2, 20),
+        runTask(3, 10),
+      ]);
+
+      expect(executionOrder).toEqual([1, 2, 3]);
+    });
+
+    it("caches latest blockhash within the 30-second TTL buffer", async () => {
+      clearBlockhashCache();
+
+      const mockGetLatestBlockhash = jest.fn().mockResolvedValue({
+        blockhash: "Blockhash1111111111111111111111111111111111",
+        lastValidBlockHeight: 12345,
+      });
+
+      const mockConnection = {
+        getLatestBlockhash: mockGetLatestBlockhash,
+      } as unknown as Connection;
+
+      const bh1 = await getLatestBlockhashWithCache(mockConnection, false, 30_000);
+      const bh2 = await getLatestBlockhashWithCache(mockConnection, false, 30_000);
+
+      expect(bh1).toBe("Blockhash1111111111111111111111111111111111");
+      expect(bh2).toBe(bh1);
+      expect(mockGetLatestBlockhash).toHaveBeenCalledTimes(1);
+
+      // Force refresh bypasses cache
+      mockGetLatestBlockhash.mockResolvedValueOnce({
+        blockhash: "Blockhash2222222222222222222222222222222222",
+        lastValidBlockHeight: 12346,
+      });
+      const bh3 = await getLatestBlockhashWithCache(mockConnection, true);
+      expect(bh3).toBe("Blockhash2222222222222222222222222222222222");
+      expect(mockGetLatestBlockhash).toHaveBeenCalledTimes(2);
+    });
+
+    it("simulates 10 concurrent relay requests without transaction collisions", async () => {
+      const relayerKeypair = Keypair.generate();
+      process.env.SOLANA_RELAYER_PRIVATE_KEY = JSON.stringify(Array.from(relayerKeypair.secretKey));
+      process.env.SOLANA_RPC_URL = "https://api.devnet.solana.com";
+
+      let activeSigners = 0;
+      let maxConcurrentSigners = 0;
+
+      const mockGetRecentPrioritizationFees = jest.fn().mockResolvedValue([
+        { slot: 1, prioritizationFee: 5_000 },
+      ]);
+      const mockGetFeeForMessage = jest.fn().mockResolvedValue({ value: 5_000 });
+      const mockGetLatestBlockhash = jest.fn().mockResolvedValue({
+        blockhash: "CachedBlockhash3333333333333333333333333333",
+        lastValidBlockHeight: 99999,
+      });
+
+      const mockSendRawTransaction = jest.fn().mockImplementation(async () => {
+        activeSigners++;
+        if (activeSigners > maxConcurrentSigners) {
+          maxConcurrentSigners = activeSigners;
+        }
+        // Simulate validator processing latency
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        activeSigners--;
+        return `txSig_${Math.random().toString(36).substring(7)}`;
+      });
+
+      jest.spyOn(Connection.prototype, "getRecentPrioritizationFees").mockImplementation(mockGetRecentPrioritizationFees);
+      jest.spyOn(Connection.prototype, "getFeeForMessage").mockImplementation(mockGetFeeForMessage);
+      jest.spyOn(Connection.prototype, "getLatestBlockhash").mockImplementation(mockGetLatestBlockhash);
+      jest.spyOn(Connection.prototype, "sendRawTransaction").mockImplementation(mockSendRawTransaction);
+
+      // Prepare 10 concurrent transactions signed by different users
+      const requests = Array.from({ length: 10 }).map((_, index) => {
+        const userKeypair = Keypair.generate();
+        const tx = new Transaction();
+        tx.feePayer = relayerKeypair.publicKey;
+        tx.recentBlockhash = "CachedBlockhash3333333333333333333333333333";
+        tx.add(
+          SystemProgram.transfer({
+            fromPubkey: userKeypair.publicKey,
+            toPubkey: Keypair.generate().publicKey,
+            lamports: 1_000 + index,
+          }),
+        );
+        tx.partialSign(userKeypair);
+
+        const base64 = tx.serialize({
+          requireAllSignatures: false,
+          verifySignatures: false,
+        }).toString("base64");
+
+        return relayGaslessUsdcTransaction(base64);
+      });
+
+      const results = await Promise.all(requests);
+
+      expect(results.length).toBe(10);
+      expect(mockSendRawTransaction).toHaveBeenCalledTimes(10);
+      // Mutex guarantees single-flight serialization: max active signers is 1
+      expect(maxConcurrentSigners).toBe(1);
+      expect(activeSigners).toBe(0);
     });
   });
 });
