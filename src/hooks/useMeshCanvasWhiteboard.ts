@@ -39,6 +39,40 @@ import {
  */
 export const meshSendTimestamps = new Map<string, number>();
 
+const PARTYKIT_HOST = process.env.NEXT_PUBLIC_PARTYKIT_URL ?? "127.0.0.1:1999";
+const NOTE_LEASE_REQUEST_TIMEOUT_MS = 3000;
+
+interface PendingNoteLease {
+  resolve: (granted: boolean) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
+function getDefaultColor(index: number): string {
+  return PRESET_COLORS[index % PRESET_COLORS.length];
+}
+
+function shapeMapToData(map: Y.Map<unknown>): ShapeData {
+  const isDeleted = (map.get("deleted") as boolean) ?? false;
+  const deletedAt = map.get("deletedAt") as number | undefined;
+  const updatedAt = map.get("updatedAt") as number | undefined;
+  const clock = (map.get("clock") as number) ?? updatedAt ?? deletedAt;
+
+  return {
+    id: map.get("id") as string,
+    type: map.get("type") as ToolType,
+    points: (map.get("points") as number[]) ?? [],
+    color: map.get("color") as string,
+    width: map.get("width") as number,
+    opacity: map.get("opacity") as number,
+    userId: map.get("userId") as string,
+    deleted: isDeleted,
+    deletedAt,
+    updatedAt,
+    clock,
+    text: map.get("text") as string | undefined,
+  };
+}
+
 export function useMeshCanvasWhiteboard(
   canvasId: string | null,
   options?: UseCanvasWhiteboardOptions,
@@ -60,6 +94,10 @@ export function useMeshCanvasWhiteboard(
   const meshConnectedRef = useRef<boolean>(false);
 
   const [shapeSnapshots, setShapeSnapshots] = useState<ShapeData[]>([]);
+  const [noteLeaseOwners, setNoteLeaseOwners] = useState<Record<string, string>>({});
+  const noteLeaseOwnersRef = useRef<Map<string, string>>(new Map());
+  const pendingNoteLeasesRef = useRef<Map<string, PendingNoteLease>>(new Map());
+  const nextNoteLeaseRequestRef = useRef(0);
   const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([]);
   const [participants, setParticipants] = useState<WhiteboardParticipant[]>([]);
   const lastActiveAtRef = useRef<number>(Date.now());
@@ -74,6 +112,91 @@ export function useMeshCanvasWhiteboard(
   const userColor = options?.userColor ?? getDefaultColor(0);
   const userAvatar = options?.userAvatar;
   const localUserId = options?.userId ?? "anonymous";
+
+  const meshRoomId = canvasId ? `canvas-${canvasId}` : "canvas-none";
+
+  const setNoteLeaseOwner = useCallback((noteId: string, ownerId: string | null) => {
+    if (ownerId) {
+      noteLeaseOwnersRef.current.set(noteId, ownerId);
+    } else {
+      noteLeaseOwnersRef.current.delete(noteId);
+    }
+    setNoteLeaseOwners(Object.fromEntries(noteLeaseOwnersRef.current));
+  }, []);
+
+  const acquireNoteLease = useCallback(
+    (noteId: string) => {
+      const socket = providerRef.current?.ws;
+      if (!socket || socket.readyState !== 1) return Promise.resolve(false);
+
+      const requestId = `${Date.now()}-${nextNoteLeaseRequestRef.current++}`;
+      return new Promise<boolean>((resolve) => {
+        const timeout = setTimeout(() => {
+          pendingNoteLeasesRef.current.delete(requestId);
+          resolve(false);
+        }, NOTE_LEASE_REQUEST_TIMEOUT_MS);
+        pendingNoteLeasesRef.current.set(requestId, { resolve, timeout });
+
+        try {
+          socket.send(JSON.stringify({
+            type: "HOLD_NOTE",
+            payload: { noteId, userId: localUserId, requestId },
+          }));
+        } catch (error) {
+          clearTimeout(timeout);
+          pendingNoteLeasesRef.current.delete(requestId);
+          console.error("Failed to request sticky note lease:", error);
+          resolve(false);
+        }
+      });
+    },
+    [localUserId],
+  );
+
+  const releaseNoteLease = useCallback((noteId: string) => {
+    const socket = providerRef.current?.ws;
+    if (!socket || socket.readyState !== 1) return;
+    try {
+      socket.send(JSON.stringify({ type: "RELEASE_NOTE", payload: { noteId } }));
+      setNoteLeaseOwner(noteId, null);
+    } catch (error) {
+      console.error("Failed to release sticky note lease:", error);
+    }
+  }, [setNoteLeaseOwner]);
+
+  const onMeshData = useCallback((peerId: string, data: ArrayBuffer) => {
+    const doc = docRef.current;
+    if (!doc) return;
+    try {
+      const rawUpdate = new Uint8Array(data);
+      const decompressed = decompressYjsUpdate(rawUpdate);
+      Y.applyUpdate(doc, decompressed, "mesh");
+    } catch (err) {
+      console.warn("Failed to apply mesh update from", peerId, err);
+    }
+  }, []);
+
+  const mesh = useMeshDataChannels({
+    roomId: meshRoomId,
+    userId: localUserId !== "anonymous" ? localUserId : null,
+    onData: onMeshData,
+  });
+
+  // Issue #1318: Keep meshConnectedRef in sync with the reactive mesh state
+  // so the doc update handler always reads the latest connectivity status.
+  useEffect(() => {
+    meshConnectedRef.current = mesh.isConnected;
+  }, [mesh.isConnected]);
+
+  useEffect(() => {
+    if (!canvasId) return;
+
+    if (typeof getToken === "function") {
+      getToken()
+        .then((t: any) => setToken(t ?? null))
+        .catch(() => setToken(null));
+    }
+  }, [canvasId, getToken]);
 
   const touchActivity = useCallback(() => {
     lastActiveAtRef.current = Date.now();
@@ -175,6 +298,8 @@ export function useMeshCanvasWhiteboard(
     let newProvider: YProvider | null = null;
     let handleStatus: (({ status }: { status: string }) => void) | null = null;
     let handleSync: ((synced: boolean) => void) | null = null;
+    let leaseSocket: WebSocket | null = null;
+    let handleNoteMessage: ((event: MessageEvent) => void) | null = null;
 
     try {
       newProvider = new YProvider(PARTYKIT_HOST, roomId, doc, {
@@ -195,6 +320,49 @@ export function useMeshCanvasWhiteboard(
         if (status === "disconnected") {
           failoverSync.handleDisconnect();
           setIsConnected(false);
+        } else if (status === "connected") {
+          const socket = newProvider?.ws;
+          if (socket && socket !== leaseSocket) {
+            if (leaseSocket && handleNoteMessage) {
+              leaseSocket.removeEventListener("message", handleNoteMessage);
+            }
+            leaseSocket = socket;
+            handleNoteMessage = (event: MessageEvent) => {
+              if (typeof event.data !== "string") return;
+              try {
+                const message = JSON.parse(event.data);
+                if (message.type === "NOTE_LOCK_STATE") {
+                  const { noteId, ownerUserId } = message.payload ?? {};
+                  if (typeof noteId === "string") {
+                    setNoteLeaseOwner(
+                      noteId,
+                      typeof ownerUserId === "string" ? ownerUserId : null,
+                    );
+                  }
+                } else if (
+                  message.type === "NOTE_LOCK_GRANTED" ||
+                  message.type === "NOTE_LOCK_DENIED"
+                ) {
+                  const requestId = message.payload?.requestId;
+                  const pending = pendingNoteLeasesRef.current.get(requestId);
+                  if (pending) {
+                    clearTimeout(pending.timeout);
+                    pendingNoteLeasesRef.current.delete(requestId);
+                    pending.resolve(message.type === "NOTE_LOCK_GRANTED");
+                  }
+                }
+              } catch {
+                // Other websocket frames belong to the Yjs provider protocol.
+              }
+            };
+            socket.addEventListener("message", handleNoteMessage);
+          }
+          const sendFn = (msg: string) => {
+            if (newProvider?.ws) {
+              newProvider.ws.send(msg);
+            }
+          };
+          failoverSync.handleConnect(sendFn, roomId);
         }
       };
       newProvider.on("status", handleStatus);
@@ -316,8 +484,17 @@ export function useMeshCanvasWhiteboard(
       if (newProvider) {
         if (handleStatus) newProvider.off("status", handleStatus);
         if (handleSync) newProvider.off("sync", handleSync);
+        if (leaseSocket && handleNoteMessage) {
+          leaseSocket.removeEventListener("message", handleNoteMessage);
+        }
         newProvider.disconnect();
       }
+      for (const pending of pendingNoteLeasesRef.current.values()) {
+        clearTimeout(pending.timeout);
+        pending.resolve(false);
+      }
+      pendingNoteLeasesRef.current.clear();
+      noteLeaseOwnersRef.current.clear();
       doc.destroy();
       shapesRef.current = null;
       docRef.current = null;
@@ -333,6 +510,7 @@ export function useMeshCanvasWhiteboard(
     userAvatar,
     localUserId,
     mesh.sendToAll,
+    setNoteLeaseOwner,
     flushStrokeBuffer,
     strokeBufferRef,
   ]);
@@ -342,11 +520,124 @@ export function useMeshCanvasWhiteboard(
       touchActivity();
       addShapeToDoc(shapesRef.current, docRef.current, data, localUserId);
     },
-    [localUserId, touchActivity],
+    [localUserId],
+  );
+
+  const applyShapePoints = useCallback(
+    (id: string, points: number[]) => {
+      const shapes = shapesRef.current;
+      const doc = docRef.current;
+      if (!shapes || !doc) return;
+      const now = Date.now();
+
+      doc.transact(() => {
+        for (let i = 0; i < shapes.length; i++) {
+          const map = shapes.get(i);
+          if (map.get("id") === id) {
+            const isDeleted = (map.get("deleted") as boolean) ?? false;
+            const delClock = (map.get("deletedAt") as number) ?? 0;
+            const curClock =
+              (map.get("clock") as number) ??
+              (map.get("updatedAt") as number) ??
+              0;
+
+            if (isDeleted && now <= delClock) return;
+            if (now < curClock) return;
+
+            map.set("points", points.slice());
+            map.set("updatedAt", now);
+            map.set("clock", now);
+            break;
+          }
+        }
+      }, localUserId);
+    },
+    [localUserId],
+  );
+
+  const flushStrokeBuffer = useCallback(
+    (targetId?: string) => {
+      if (throttleTimerRef.current !== null) {
+        clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+      if (
+        rafIdRef.current !== null &&
+        typeof cancelAnimationFrame !== "undefined"
+      ) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+
+      const buffer = strokeBufferRef.current;
+      if (buffer.size === 0) return;
+
+      if (targetId) {
+        const points = buffer.get(targetId);
+        if (points) {
+          applyShapePoints(targetId, points);
+          buffer.delete(targetId);
+        }
+      } else {
+        buffer.forEach((points, id) => {
+          applyShapePoints(id, points);
+        });
+        buffer.clear();
+      }
+      lastDispatchTimeRef.current = Date.now();
+    },
+    [applyShapePoints],
+  );
+
+  const scheduleDispatch = useCallback(() => {
+    if (throttleTimerRef.current !== null || rafIdRef.current !== null) {
+      return;
+    }
+
+    const now = Date.now();
+    const elapsed = now - lastDispatchTimeRef.current;
+    const remaining = Math.max(0, 16 - elapsed);
+
+    if (typeof requestAnimationFrame !== "undefined" && remaining === 0) {
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        flushStrokeBuffer();
+      });
+    } else {
+      throttleTimerRef.current = setTimeout(() => {
+        throttleTimerRef.current = null;
+        flushStrokeBuffer();
+      }, remaining || 16);
+    }
+  }, [flushStrokeBuffer]);
+
+  const broadcastStroke = useCallback(
+    (id: string, points: number[]) => {
+      const leaseOwner = noteLeaseOwnersRef.current.get(id);
+      if (leaseOwner && leaseOwner !== localUserId) return;
+      strokeBufferRef.current.set(id, points.slice());
+      scheduleDispatch();
+    },
+    [localUserId, scheduleDispatch],
+  );
+
+  const bufferStrokePoints = useCallback(
+    (id: string, points: number[]) => {
+      const existing = strokeBufferRef.current.get(id);
+      if (existing) {
+        strokeBufferRef.current.set(id, [...existing, ...points]);
+      } else {
+        strokeBufferRef.current.set(id, points.slice());
+      }
+      scheduleDispatch();
+    },
+    [scheduleDispatch],
   );
 
   const updateShape = useCallback(
     (id: string, updates: Partial<ShapeData>) => {
+      const leaseOwner = noteLeaseOwnersRef.current.get(id);
+      if (leaseOwner && leaseOwner !== localUserId) return;
       const keys = Object.keys(updates);
       if (
         updates.points !== undefined &&
@@ -414,11 +705,14 @@ export function useMeshCanvasWhiteboard(
   return {
     addShape,
     updateShape,
+    acquireNoteLease,
+    releaseNoteLease,
     deleteShape,
     broadcastStroke,
     bufferStrokePoints,
     flushStrokeBuffer,
     shapeSnapshots,
+    noteLeaseOwners,
     remoteCursors,
     participants,
     tool,
