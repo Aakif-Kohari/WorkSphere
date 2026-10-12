@@ -29,17 +29,22 @@ export default function CarbonFootprintTracker() {
   const [summary, setSummary] = useState<CarbonFootprintSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchCarbonAnalytics = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch("/api/analytics/carbon-footprint");
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         setSummary(data.summary);
+      } else {
+        setError(data.error || "Failed to load carbon footprint analytics.");
       }
     } catch (err) {
       console.error("Failed to load carbon analytics:", err);
+      setError("Unable to connect to carbon analytics service.");
     } finally {
       setLoading(false);
     }
@@ -138,7 +143,15 @@ export default function CarbonFootprintTracker() {
   };
 
   const totalDistance = summary ? safeParseDistance(summary.totalDistanceKm) : 0;
-  const isMissingCommuteDistance = totalDistance === 0;
+  const missingDistanceRecordsCount = summary
+    ? summary.records.filter((r) => safeParseDistance(r.distanceKm) === 0).length
+    : 0;
+  const isMissingCommuteDistance = Boolean(
+    summary && (totalDistance === 0 || summary.records.length === 0)
+  );
+  const hasPartialMissingDistance = Boolean(
+    summary && totalDistance > 0 && missingDistanceRecordsCount > 0
+  );
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-6">
@@ -178,8 +191,57 @@ export default function CarbonFootprintTracker() {
         </div>
       </div>
 
-      {/* Missing Commute Distance Gentle Prompt */}
-      {isMissingCommuteDistance && !loading && (
+      {/* API / Connectivity Error Banner */}
+      {error && !loading && (
+        <div
+          data-testid="carbon-fetch-error"
+          className="p-4 sm:p-5 rounded-2xl border border-rose-500/30 bg-rose-500/10 text-rose-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 backdrop-blur-md"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 shrink-0">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <p className="text-xs text-rose-200 font-medium">{error}</p>
+          </div>
+          <button
+            onClick={fetchCarbonAnalytics}
+            className="px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-500 hover:bg-rose-400 text-white transition shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Partial Missing Commute Distance Notice */}
+      {hasPartialMissingDistance && !loading && !error && (
+        <div
+          data-testid="partial-missing-commute-distance-prompt"
+          className="p-4 rounded-2xl border border-sky-500/30 bg-sky-500/10 text-sky-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 backdrop-blur-md"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-sky-500/20 text-sky-400 shrink-0">
+              <MapPin className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-sky-200">
+                {missingDistanceRecordsCount} commute {missingDistanceRecordsCount === 1 ? "record has" : "records have"} uncalculated distance
+              </h4>
+              <p className="text-xs text-sky-300/80 mt-0.5">
+                Some workspace check-ins are missing transit distance. Configure default commute origin in settings for full Scope 3 coverage.
+              </p>
+            </div>
+          </div>
+          <a
+            href="/settings"
+            className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-950 bg-sky-400 hover:bg-sky-300 transition shrink-0"
+          >
+            Update Location
+          </a>
+        </div>
+      )}
+
+      {/* All Missing Commute Distance Gentle Prompt */}
+      {isMissingCommuteDistance && !loading && !error && (
         <div
           data-testid="missing-commute-distance-prompt"
           className="p-4 sm:p-5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 backdrop-blur-md"
