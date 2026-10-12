@@ -15,6 +15,7 @@ import {
   HelpCircle,
   Play,
   Square,
+  Mic,
 } from "lucide-react";
 import {
   MicCalibrationProfile,
@@ -54,6 +55,8 @@ export function MicCalibrationWizard({
   const [isSamplingNoiseFloor, setIsSamplingNoiseFloor] = useState(false);
   const [samplingCountdown, setSamplingCountdown] = useState(3);
   const [micError, setMicError] = useState<string | null>(null);
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -62,6 +65,25 @@ export function MicCalibrationWizard({
   const sampledValuesRef = useRef<number[]>([]);
   const isSamplingRef = useRef(false);
   const samplingIntervalRef = useRef<number | null>(null);
+  const selectedDeviceIdRef = useRef<string>("");
+
+  useEffect(() => {
+    selectedDeviceIdRef.current = selectedDeviceId;
+  }, [selectedDeviceId]);
+
+  const loadAudioDevices = useCallback(async () => {
+    try {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      const allDevices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = allDevices.filter((d) => d.kind === "audioinput");
+      setDevices(audioInputs);
+      if (audioInputs.length > 0 && !selectedDeviceIdRef.current) {
+        setSelectedDeviceId(audioInputs[0].deviceId);
+      }
+    } catch (err) {
+      console.warn("Failed to enumerate audio devices:", err);
+    }
+  }, []);
 
   const stopAudioStream = useCallback(() => {
     if (animationFrameRef.current) {
@@ -90,10 +112,19 @@ export function MicCalibrationWizard({
       setProfile(getMicCalibration());
       setStep(1);
       setMicError(null);
+      void loadAudioDevices();
+
+      const handleDeviceChange = () => {
+        void loadAudioDevices();
+      };
+      navigator.mediaDevices?.addEventListener?.("devicechange", handleDeviceChange);
+      return () => {
+        navigator.mediaDevices?.removeEventListener?.("devicechange", handleDeviceChange);
+      };
     } else {
       stopAudioStream();
     }
-  }, [isOpen, stopAudioStream]);
+  }, [isOpen, stopAudioStream, loadAudioDevices]);
 
   useWebAudioAutoPause({
     isActive: isListening,
@@ -108,17 +139,21 @@ export function MicCalibrationWizard({
   }, [stopAudioStream]);
 
   // Start microphone stream
-  const startAudioStream = async () => {
+  const startAudioStream = async (deviceIdToUse?: string) => {
     setMicError(null);
     try {
       stopAudioStream();
 
+      const activeId = deviceIdToUse || selectedDeviceIdRef.current;
+      const audioConstraints: MediaTrackConstraints = {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        ...(activeId ? { deviceId: { exact: activeId } } : {}),
+      };
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
+        audio: audioConstraints,
       });
 
       streamRef.current = stream;
@@ -373,6 +408,41 @@ export function MicCalibrationWizard({
                 </span>
               </div>
 
+              {devices.length > 0 && (
+                <div className="p-3.5 bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 rounded-2xl space-y-1.5">
+                  <label
+                    htmlFor="mic-device-select"
+                    className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5"
+                  >
+                    <Mic className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Input Microphone Device</span>
+                  </label>
+                  <select
+                    id="mic-device-select"
+                    aria-label="Select audio input device"
+                    value={selectedDeviceId}
+                    onChange={(e) => {
+                      const newDeviceId = e.target.value;
+                      setSelectedDeviceId(newDeviceId);
+                      const dev = devices.find((d) => d.deviceId === newDeviceId);
+                      if (dev?.label) {
+                        setProfile((prev) => ({ ...prev, deviceName: dev.label }));
+                      }
+                      if (isListening) {
+                        void startAudioStream(newDeviceId);
+                      }
+                    }}
+                    className="w-full text-xs rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {devices.map((device, idx) => (
+                      <option key={device.deviceId || idx} value={device.deviceId}>
+                        {device.label || `Microphone ${idx + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
                   {
@@ -457,7 +527,7 @@ export function MicCalibrationWizard({
                 </div>
                 <button
                   type="button"
-                  onClick={isListening ? stopAudioStream : startAudioStream}
+                  onClick={isListening ? stopAudioStream : () => void startAudioStream()}
                   className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
                     isListening
                       ? "bg-rose-500 hover:bg-rose-600 text-white"
@@ -477,6 +547,41 @@ export function MicCalibrationWizard({
                   )}
                 </button>
               </div>
+
+              {devices.length > 0 && (
+                <div className="p-3 bg-zinc-50 dark:bg-zinc-850 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <label
+                    htmlFor="mic-device-select-step2"
+                    className="font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5 shrink-0"
+                  >
+                    <Mic className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Microphone:</span>
+                  </label>
+                  <select
+                    id="mic-device-select-step2"
+                    aria-label="Select audio input device live"
+                    value={selectedDeviceId}
+                    onChange={(e) => {
+                      const newDeviceId = e.target.value;
+                      setSelectedDeviceId(newDeviceId);
+                      const dev = devices.find((d) => d.deviceId === newDeviceId);
+                      if (dev?.label) {
+                        setProfile((prev) => ({ ...prev, deviceName: dev.label }));
+                      }
+                      if (isListening) {
+                        void startAudioStream(newDeviceId);
+                      }
+                    }}
+                    className="w-full sm:w-auto flex-1 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {devices.map((device, idx) => (
+                      <option key={device.deviceId || idx} value={device.deviceId}>
+                        {device.label || `Microphone ${idx + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {micError && (
                 <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-500 flex items-center gap-2">
