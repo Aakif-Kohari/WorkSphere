@@ -12,10 +12,8 @@ import { rateLimit, getRateLimitInfo } from "@/lib/rateLimit";
 import { ensureUserExists } from "@/lib/auth";
 import { emitWebhookEvent } from "@/lib/webhooks/deliver";
 import { sanitizeSearchQuery, splitSearchList } from "@/lib/searchSanitizer";
+import { getFuzzyThreshold, isFuzzyMatch } from "@/lib/search/fuzzySearch";
 import {
-  getFuzzyThreshold,
-  isFuzzyMatch,
-} from "@/lib/search/fuzzySearch";
   indexVenueSearchEmbedding,
   searchVenuesWithRrf,
 } from "@/lib/search/hybridVenueSearch";
@@ -28,7 +26,10 @@ import {
 // scripted abuse. See #717.
 const VENUE_SEARCH_RATE_LIMIT = 60;
 
-function suggestVenueQuery(query: string, venueNames: string[]): string | undefined {
+function suggestVenueQuery(
+  query: string,
+  venueNames: string[],
+): string | undefined {
   const trimmedQuery = query.trim();
   const threshold = getFuzzyThreshold(trimmedQuery.length);
   if (!trimmedQuery || threshold === 0) return undefined;
@@ -38,7 +39,11 @@ function suggestVenueQuery(query: string, venueNames: string[]): string | undefi
 
   for (const name of venueNames) {
     const match = isFuzzyMatch(trimmedQuery, name, threshold);
-    if (match.matched && match.distance > 0 && match.distance < closestDistance) {
+    if (
+      match.matched &&
+      match.distance > 0 &&
+      match.distance < closestDistance
+    ) {
       suggestion = name;
       closestDistance = match.distance;
     }
@@ -292,9 +297,7 @@ export async function GET(req: NextRequest) {
         },
       });
       const suggestedQuery =
-        venues.length === 0 &&
-        queryParam &&
-        typeof queryParam === "string"
+        venues.length === 0 && queryParam && typeof queryParam === "string"
           ? suggestVenueQuery(
               queryParam,
               (
@@ -599,7 +602,6 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    let suggestedQuery: string | undefined;
     // ── Fuzzy typo-tolerant search fallback (#3958) ─────────────────────────
     // If strict substring search returned 0 results and a text query was provided,
     // fetch candidate venues and apply Levenshtein / Damerau-Levenshtein distance.
