@@ -90,12 +90,14 @@ describe("CollectionUpvoteButton optimistic update and error rollback (#3510)", 
       />,
     );
 
-    const button = screen.getByRole("button", { name: /upvote collection/i });
+    const button = screen.getByRole("button", { name: /remove upvote/i });
     expect(button).toHaveAttribute("aria-pressed", "true");
+    expect(button).toHaveAttribute("aria-label", "Remove upvote (0 upvotes)");
 
     fireEvent.click(button);
 
     expect(button).toHaveAttribute("aria-pressed", "false");
+    expect(button).toHaveAttribute("aria-label", "Upvote collection (0 upvotes)");
     expect(screen.getByText("0")).toBeInTheDocument();
   });
 });
