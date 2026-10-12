@@ -115,7 +115,7 @@ export default function SpatialAcousticGradientViewer({
       // Draw interpolated cells
       for (let r = 0; r < gridHeight; r++) {
         for (let c = 0; c < gridWidth; c++) {
-          const db = grid[r][c];
+          const db = clampDecibels(grid[r][c]);
           const [red, green, blue, alpha] = decibelsToRgba(db);
           ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${alpha})`;
           ctx.fillRect(c * cellW, r * cellH, cellW + 1, cellH + 1);
@@ -156,17 +156,17 @@ export default function SpatialAcousticGradientViewer({
       // Draw isometric quad polygons from back to front
       for (let r = 0; r < gridHeight - 1; r++) {
         for (let c = 0; c < gridWidth - 1; c++) {
-          const db = grid[r][c];
-          const dbRight = grid[r][c + 1];
-          const dbBottom = grid[r + 1][c];
-          const dbDiag = grid[r + 1][c + 1];
+          const db = clampDecibels(grid[r][c]);
+          const dbRight = clampDecibels(grid[r][c + 1]);
+          const dbBottom = clampDecibels(grid[r + 1][c]);
+          const dbDiag = clampDecibels(grid[r + 1][c + 1]);
 
           const ptA = projectIso(c, r, db, width, height);
           const ptB = projectIso(c + 1, r, dbRight, width, height);
           const ptC = projectIso(c + 1, r + 1, dbDiag, width, height);
           const ptD = projectIso(c, r + 1, dbBottom, width, height);
 
-          const avgDb = (db + dbRight + dbBottom + dbDiag) / 4;
+          const avgDb = clampDecibels((db + dbRight + dbBottom + dbDiag) / 4);
           const [red, green, blue] = decibelsToRgba(avgDb);
 
           // Top Face
@@ -192,7 +192,7 @@ export default function SpatialAcousticGradientViewer({
       for (let r = 0; r < gridHeight; r += 5) {
         ctx.beginPath();
         for (let c = 0; c < gridWidth; c++) {
-          const pt = projectIso(c, r, grid[r][c], width, height);
+          const pt = projectIso(c, r, clampDecibels(grid[r][c]), width, height);
           if (c === 0) ctx.moveTo(pt.x, pt.y);
           else ctx.lineTo(pt.x, pt.y);
         }
@@ -221,7 +221,8 @@ export default function SpatialAcousticGradientViewer({
 
     const c = Math.round((xPct / 100) * (fieldMap.gridWidth - 1));
     const r = Math.round((yPct / 100) * (fieldMap.gridHeight - 1));
-    const db = fieldMap.grid[r]?.[c] ?? 40;
+    const rawDb = fieldMap.grid[r]?.[c] ?? 40;
+    const db = clampDecibels(rawDb);
 
     const pt = projectIso(c, r, db, 500, 360);
     const leftPct = (pt.x / 500) * 100;

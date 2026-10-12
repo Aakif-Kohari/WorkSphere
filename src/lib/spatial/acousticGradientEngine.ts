@@ -69,6 +69,21 @@ export interface AcousticFieldMap {
   desks: DeskSoundRating[];
 }
 
+export const MIN_ACOUSTIC_DB = 20;
+export const MAX_ACOUSTIC_DB = 110;
+export const DEFAULT_AMBIENT_DB = 40;
+
+/**
+ * Clamps decibel values within the safe, physically realistic SPL range [20, 110] dB.
+ * Falls back to ambient baseline (40 dB) if value is NaN or non-finite.
+ */
+export function clampDecibels(db: number): number {
+  if (typeof db !== "number" || !Number.isFinite(db)) {
+    return DEFAULT_AMBIENT_DB;
+  }
+  return Math.min(MAX_ACOUSTIC_DB, Math.max(MIN_ACOUSTIC_DB, Number(db.toFixed(1))));
+}
+
 /**
  * Calculates sound pressure level (SPL) at distance r using inverse square decay with air absorption.
  * Clamps input source and output SPL between 20 dB and 110 dB.
