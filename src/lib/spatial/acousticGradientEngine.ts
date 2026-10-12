@@ -14,9 +14,10 @@ export const MAX_ACOUSTIC_DB = 110; // Sensible acoustic ceiling (110 dB)
 export function clampDecibels(
   db: number,
   floor = MIN_ACOUSTIC_DB,
-  ceiling = MAX_ACOUSTIC_DB
+  ceiling = MAX_ACOUSTIC_DB,
 ): number {
-  if (Number.isNaN(db)) return floor;
+  if (typeof db !== "number" || !Number.isFinite(db) || Number.isNaN(db))
+    return floor;
   return Math.min(ceiling, Math.max(floor, db));
 }
 
@@ -27,7 +28,7 @@ export function clampDecibels(
 export function normalizeAcousticDecibels(
   db: number,
   floor = MIN_ACOUSTIC_DB,
-  ceiling = MAX_ACOUSTIC_DB
+  ceiling = MAX_ACOUSTIC_DB,
 ): number {
   const clamped = clampDecibels(db, floor, ceiling);
   return Number(((clamped - floor) / (ceiling - floor)).toFixed(4));
@@ -36,7 +37,12 @@ export function normalizeAcousticDecibels(
 export interface SoundEmitter {
   id: string;
   name: string;
-  type: "ESPRESSO_BAR" | "ENTRANCE_DOOR" | "COLLABORATIVE_TABLE" | "PHONE_BOOTH" | "HVAC_UNIT";
+  type:
+    | "ESPRESSO_BAR"
+    | "ENTRANCE_DOOR"
+    | "COLLABORATIVE_TABLE"
+    | "PHONE_BOOTH"
+    | "HVAC_UNIT";
   x: number; // 0 to 100 percentage of floorplan width
   y: number; // 0 to 100 percentage of floorplan height
   baseDecibels: number;
@@ -47,7 +53,8 @@ export interface AcousticGridPoint {
   x: number;
   y: number;
   decibels: number;
-  zone: "SILENT_FOCUS" | "BALANCED_AMBIENT" | "COLLABORATIVE_BUZZ" | "HIGH_NOISE";
+  zone:
+    "SILENT_FOCUS" | "BALANCED_AMBIENT" | "COLLABORATIVE_BUZZ" | "HIGH_NOISE";
 }
 
 export interface DeskSoundRating {
@@ -69,21 +76,6 @@ export interface AcousticFieldMap {
   desks: DeskSoundRating[];
 }
 
-export const MIN_ACOUSTIC_DB = 20;
-export const MAX_ACOUSTIC_DB = 110;
-export const DEFAULT_AMBIENT_DB = 40;
-
-/**
- * Clamps decibel values within the safe, physically realistic SPL range [20, 110] dB.
- * Falls back to ambient baseline (40 dB) if value is NaN or non-finite.
- */
-export function clampDecibels(db: number): number {
-  if (typeof db !== "number" || !Number.isFinite(db)) {
-    return DEFAULT_AMBIENT_DB;
-  }
-  return Math.min(MAX_ACOUSTIC_DB, Math.max(MIN_ACOUSTIC_DB, Number(db.toFixed(1))));
-}
-
 /**
  * Calculates sound pressure level (SPL) at distance r using inverse square decay with air absorption.
  * Clamps input source and output SPL between 20 dB and 110 dB.
@@ -91,7 +83,7 @@ export function clampDecibels(db: number): number {
 export function calculatePointSPL(
   sourceDb: number,
   distanceUnits: number,
-  absorptionFactor = 0.08
+  absorptionFactor = 0.08,
 ): number {
   const clampedSourceDb = clampDecibels(sourceDb);
   const r = Math.max(1.0, distanceUnits);
@@ -108,7 +100,7 @@ export function generateAcousticField(
   emitters: SoundEmitter[],
   desksInput: Array<{ id: string; seatNumber: string; x: number; y: number }>,
   gridWidth = 40,
-  gridHeight = 25
+  gridHeight = 25,
 ): AcousticFieldMap {
   const activeEmitters = emitters
     .filter((e) => e.isActive)
@@ -136,7 +128,7 @@ export function generateAcousticField(
       }
 
       const combinedDecibels = clampDecibels(
-        Number((10 * Math.log10(totalLinearEnergy)).toFixed(1))
+        Number((10 * Math.log10(totalLinearEnergy)).toFixed(1)),
       );
       row.push(combinedDecibels);
     }
@@ -160,13 +152,13 @@ export function generateAcousticField(
     }
 
     const predictedDecibels = clampDecibels(
-      Number((10 * Math.log10(totalLinearEnergy)).toFixed(1))
+      Number((10 * Math.log10(totalLinearEnergy)).toFixed(1)),
     );
 
     // Call suitability: 100 at <= 38dB, drops to 0 at >= 65dB
     const callSuitabilityScore = Math.max(
       5,
-      Math.min(100, Math.round(100 - (predictedDecibels - 36) * 3.3))
+      Math.min(100, Math.round(100 - (predictedDecibels - 36) * 3.3)),
     );
 
     return {
@@ -210,4 +202,3 @@ export function decibelsToRgba(db: number): [number, number, number, number] {
     return [239, 68, 68, 0.85];
   }
 }
-
