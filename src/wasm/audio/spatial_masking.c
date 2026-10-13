@@ -419,3 +419,193 @@ int process_spatial_masking_multichannel(SpatialMaskingState *state,
 
   return 0;
 }
+
+// ─── ACOUSTIC REVERBERATION TIME (RT60) ESTIMATION ────────────────────────────
+
+#define ACOUSTIC_INVALID 0
+#define ACOUSTIC_DRY 1
+#define ACOUSTIC_BALANCED 2
+#define ACOUSTIC_REVERBERANT 3
+#define ACOUSTIC_ECHO_CHAMBER 4
+
+/**
+ * Classifies the acoustic environment into categorical zones based on RT60 (seconds).
+ * - DRY: < 0.4s (ideal for podcast, call, focused work)
+ * - BALANCED: 0.4s - 0.7s (comfortable modern coworking space)
+ * - REVERBERANT: 0.7s - 1.2s (live room, lively café)
+ * - ECHO_CHAMBER: > 1.2s (untreated high ceiling, concrete atrium)
+ */
+int classify_acoustic_environment(float rt60) {
+  if (isnan(rt60) || isinf(rt60) || rt60 <= 0.0f) {
+    return ACOUSTIC_INVALID;
+  }
+  if (rt60 < 0.4f) {
+    return ACOUSTIC_DRY;
+  }
+  if (rt60 <= 0.7f) {
+    return ACOUSTIC_BALANCED;
+  }
+  if (rt60 <= 1.2f) {
+    return ACOUSTIC_REVERBERANT;
+  }
+  return ACOUSTIC_ECHO_CHAMBER;
+}
+
+/**
+ * Estimates RT60 Reverberation Decay Time using Schroeder's Backward Energy
+ * Integration (Reverse Schroeder Integration).
+ *
+ * Given room impulse response or decay audio samples h[i]:
+ * 1. Schroeder backward energy: E[t] = sum_{k=t}^{N-1} (h[k])^2
+ * 2. Normalization: EDC[t] = E[t] / E[0]
+ * 3. Decibel curve: EDC_dB[t] = 10 * log10(max(EDC[t], 1e-12))
+ * 4. Linear regression on linear decay region between -5 dB and -25 dB (T20)
+ *    or -5 dB to -35 dB (T30) to compute decay slope m (dB/s).
+ * 5. Extrapolated RT60 = -60.0f / m.
+ */
+float estimate_rt60_decay(const float *impulse_response, int num_samples,
+                         int sample_rate, float *out_edc, int edc_length) {
+  if (!impulse_response || num_samples < 64) {
+    return 0.0f;
+  }
+
+  int safe_rate = (sample_rate >= MIN_SAMPLE_RATE && sample_rate <= MAX_SAMPLE_RATE)
+                      ? sample_rate
+                      : DEFAULT_SAMPLE_RATE;
+
+  // 1. Calculate total energy and check for signal validity
+  double total_energy = 0.0;
+  float peak_amp = 0.0f;
+  for (int i = 0; i < num_samples; i++) {
+    float s = impulse_response[i];
+    if (isnan(s) || isinf(s)) continue;
+    float abs_s = fabsf(s);
+    if (abs_s > peak_amp) {
+      peak_amp = abs_s;
+    }
+    total_energy += (double)s * (double)s;
+  }
+
+  if (total_energy < 1e-12 || peak_amp < 1e-6f) {
+    return 0.0f;
+  }
+
+  // 2. Schroeder backward energy integration
+  double *backward_energy = (double *)malloc(num_samples * sizeof(double));
+  if (!backward_energy) {
+    return 0.0f;
+  }
+
+  double running_sum = 0.0;
+  for (int i = num_samples - 1; i >= 0; i--) {
+    float s = impulse_response[i];
+    if (!isnan(s) && !isinf(s)) {
+      running_sum += (double)s * (double)s;
+    }
+    backward_energy[i] = running_sum;
+  }
+
+  double e0 = backward_energy[0];
+  if (e0 < 1e-12) {
+    free(backward_energy);
+    return 0.0f;
+  }
+
+  // 3. Find evaluation points: -5 dB (start), -25 dB (T20), -35 dB (T30)
+  const double target_start_ratio = 0.31622776601683794;      // -5 dB
+  const double target_end_ratio_t30 = 0.00031622776601683794; // -35 dB
+  const double target_end_ratio_t20 = 0.0031622776601683794;  // -25 dB
+
+  int start_idx = -1;
+  int end_idx = -1;
+
+  for (int i = 0; i < num_samples; i++) {
+    double ratio = backward_energy[i] / e0;
+    if (start_idx == -1 && ratio <= target_start_ratio) {
+      start_idx = i;
+    }
+    if (end_idx == -1 && ratio <= target_end_ratio_t30) {
+      end_idx = i;
+      break;
+    }
+  }
+
+  if (end_idx == -1) {
+    for (int i = (start_idx >= 0 ? start_idx : 0); i < num_samples; i++) {
+      double ratio = backward_energy[i] / e0;
+      if (ratio <= target_end_ratio_t20) {
+        end_idx = i;
+        break;
+      }
+    }
+  }
+
+  if (end_idx == -1 && start_idx != -1 && start_idx < (int)(num_samples * 0.85)) {
+    end_idx = (int)(num_samples * 0.85);
+  }
+
+  float rt60 = 0.0f;
+
+  if (start_idx != -1 && end_idx > start_idx + 4) {
+    int n = end_idx - start_idx + 1;
+    double sum_x = 0.0;
+    double sum_y = 0.0;
+    double sum_xx = 0.0;
+    double sum_xy = 0.0;
+
+    for (int i = start_idx; i <= end_idx; i++) {
+      double x = (double)i / (double)safe_rate;
+      double ratio = backward_energy[i] / e0;
+      if (ratio < 1e-12) ratio = 1e-12;
+      double y = 10.0 * log10(ratio);
+
+      sum_x += x;
+      sum_y += y;
+      sum_xx += x * x;
+      sum_xy += x * y;
+    }
+
+    double denominator = (double)n * sum_xx - sum_x * sum_x;
+    if (fabs(denominator) > 1e-12) {
+      double slope = ((double)n * sum_xy - sum_x * sum_y) / denominator;
+      if (slope < -0.1) {
+        rt60 = (float)(-60.0 / slope);
+      }
+    }
+  }
+
+  if (rt60 <= 0.0f && start_idx != -1 && end_idx > start_idx) {
+    double t_start = (double)start_idx / (double)safe_rate;
+    double t_end = (double)end_idx / (double)safe_rate;
+    double db_start = 10.0 * log10(fmax(backward_energy[start_idx] / e0, 1e-12));
+    double db_end = 10.0 * log10(fmax(backward_energy[end_idx] / e0, 1e-12));
+    double delta_db = db_end - db_start;
+    double delta_t = t_end - t_start;
+
+    if (delta_db < -1.0 && delta_t > 0.001) {
+      double slope = delta_db / delta_t;
+      rt60 = (float)(-60.0 / slope);
+    }
+  }
+
+  if (out_edc && edc_length > 0) {
+    for (int k = 0; k < edc_length; k++) {
+      int idx = (int)((double)k * (double)(num_samples - 1) / (double)(edc_length - 1));
+      if (idx >= num_samples) idx = num_samples - 1;
+      double ratio = backward_energy[idx] / e0;
+      if (ratio < 1e-12) ratio = 1e-12;
+      out_edc[k] = (float)(10.0 * log10(ratio));
+    }
+  }
+
+  free(backward_energy);
+
+  if (isnan(rt60) || isinf(rt60) || rt60 < 0.01f) {
+    return 0.0f;
+  }
+  if (rt60 > 15.0f) {
+    return 15.0f;
+  }
+
+  return rt60;
+}

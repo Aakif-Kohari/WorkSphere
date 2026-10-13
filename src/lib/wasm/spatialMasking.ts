@@ -70,6 +70,14 @@ export interface SpatialMaskingWasmExports {
     maskIntensity: number,
     seed: number,
   ) => void;
+  estimate_rt60_decay: (
+    impulseResponsePtr: number,
+    numSamples: number,
+    sampleRate: number,
+    outEdcPtr: number,
+    edcLength: number,
+  ) => number;
+  classify_acoustic_environment: (rt60: number) => number;
   wasm_malloc: (size: number) => number;
   wasm_free: (ptr: number) => void;
   HEAPF32: Float32Array;
@@ -456,6 +464,176 @@ export function createSpatialMaskingHarness(
     return 0;
   };
 
+  const classify_acoustic_environment = (rt60: number): number => {
+    if (Number.isNaN(rt60) || !Number.isFinite(rt60) || rt60 <= 0.0) {
+      return 0; // ACOUSTIC_INVALID
+    }
+    if (rt60 < 0.4) {
+      return 1; // ACOUSTIC_DRY
+    }
+    if (rt60 <= 0.7) {
+      return 2; // ACOUSTIC_BALANCED
+    }
+    if (rt60 <= 1.2) {
+      return 3; // ACOUSTIC_REVERBERANT
+    }
+    return 4; // ACOUSTIC_ECHO_CHAMBER
+  };
+
+  const estimate_rt60_decay = (
+    impulseResponsePtr: number,
+    numSamples: number,
+    sampleRate: number,
+    outEdcPtr: number,
+    edcLength: number,
+  ): number => {
+    if (
+      impulseResponsePtr <= 0 ||
+      impulseResponsePtr % 4 !== 0 ||
+      numSamples < 64
+    ) {
+      return 0.0;
+    }
+
+    const safeRate =
+      sampleRate >= MIN_SAMPLE_RATE && sampleRate <= MAX_SAMPLE_RATE
+        ? sampleRate
+        : DEFAULT_SAMPLE_RATE;
+
+    const inIdx = impulseResponsePtr / 4;
+
+    let totalEnergy = 0.0;
+    let peakAmp = 0.0;
+
+    for (let i = 0; i < numSamples; i++) {
+      const s = floatView[inIdx + i];
+      if (Number.isNaN(s) || !Number.isFinite(s)) continue;
+      const absVal = Math.abs(s);
+      if (absVal > peakAmp) peakAmp = absVal;
+      totalEnergy += s * s;
+    }
+
+    if (totalEnergy < 1e-12 || peakAmp < 1e-6) {
+      return 0.0;
+    }
+
+    // Schroeder backward energy integration
+    const backwardEnergy = new Float64Array(numSamples);
+    let runningSum = 0.0;
+    for (let i = numSamples - 1; i >= 0; i--) {
+      const s = floatView[inIdx + i];
+      if (!Number.isNaN(s) && Number.isFinite(s)) {
+        runningSum += s * s;
+      }
+      backwardEnergy[i] = runningSum;
+    }
+
+    const e0 = backwardEnergy[0];
+    if (e0 < 1e-12) return 0.0;
+
+    const targetStartRatio = 0.31622776601683794;      // -5 dB
+    const targetEndRatioT30 = 0.00031622776601683794; // -35 dB
+    const targetEndRatioT20 = 0.0031622776601683794;  // -25 dB
+
+    let startIdx = -1;
+    let endIdx = -1;
+
+    for (let i = 0; i < numSamples; i++) {
+      const ratio = backwardEnergy[i] / e0;
+      if (startIdx === -1 && ratio <= targetStartRatio) {
+        startIdx = i;
+      }
+      if (endIdx === -1 && ratio <= targetEndRatioT30) {
+        endIdx = i;
+        break;
+      }
+    }
+
+    if (endIdx === -1) {
+      for (let i = Math.max(0, startIdx); i < numSamples; i++) {
+        const ratio = backwardEnergy[i] / e0;
+        if (ratio <= targetEndRatioT20) {
+          endIdx = i;
+          break;
+        }
+      }
+    }
+
+    if (
+      endIdx === -1 &&
+      startIdx !== -1 &&
+      startIdx < Math.floor(numSamples * 0.85)
+    ) {
+      endIdx = Math.floor(numSamples * 0.85);
+    }
+
+    let rt60 = 0.0;
+
+    if (startIdx !== -1 && endIdx > startIdx + 4) {
+      const n = endIdx - startIdx + 1;
+      let sumX = 0.0;
+      let sumY = 0.0;
+      let sumXX = 0.0;
+      let sumXY = 0.0;
+
+      for (let i = startIdx; i <= endIdx; i++) {
+        const x = i / safeRate;
+        let ratio = backwardEnergy[i] / e0;
+        if (ratio < 1e-12) ratio = 1e-12;
+        const y = 10.0 * Math.log10(ratio);
+
+        sumX += x;
+        sumY += y;
+        sumXX += x * x;
+        sumXY += x * y;
+      }
+
+      const denominator = n * sumXX - sumX * sumX;
+      if (Math.abs(denominator) > 1e-12) {
+        const slope = (n * sumXY - sumX * sumY) / denominator;
+        if (slope < -0.1) {
+          rt60 = -60.0 / slope;
+        }
+      }
+    }
+
+    if (rt60 <= 0.0 && startIdx !== -1 && endIdx > startIdx) {
+      const tStart = startIdx / safeRate;
+      const tEnd = endIdx / safeRate;
+      const dbStart =
+        10.0 * Math.log10(Math.max(backwardEnergy[startIdx] / e0, 1e-12));
+      const dbEnd =
+        10.0 * Math.log10(Math.max(backwardEnergy[endIdx] / e0, 1e-12));
+      const deltaDb = dbEnd - dbStart;
+      const deltaT = tEnd - tStart;
+
+      if (deltaDb < -1.0 && deltaT > 0.001) {
+        const slope = deltaDb / deltaT;
+        rt60 = -60.0 / slope;
+      }
+    }
+
+    if (outEdcPtr > 0 && edcLength > 0 && outEdcPtr % 4 === 0) {
+      const outIdx = outEdcPtr / 4;
+      for (let k = 0; k < edcLength; k++) {
+        let idx = Math.floor((k * (numSamples - 1)) / (edcLength - 1));
+        if (idx >= numSamples) idx = numSamples - 1;
+        let ratio = backwardEnergy[idx] / e0;
+        if (ratio < 1e-12) ratio = 1e-12;
+        floatView[outIdx + k] = 10.0 * Math.log10(ratio);
+      }
+    }
+
+    if (Number.isNaN(rt60) || !Number.isFinite(rt60) || rt60 < 0.01) {
+      return 0.0;
+    }
+    if (rt60 > 15.0) {
+      return 15.0;
+    }
+
+    return rt60;
+  };
+
   return {
     init_hann_window,
     apply_hann_window,
@@ -469,6 +647,8 @@ export function createSpatialMaskingHarness(
     generate_phase_inversion,
     generate_speech_mask,
     apply_privacy_masking,
+    estimate_rt60_decay,
+    classify_acoustic_environment,
     wasm_malloc,
     wasm_free,
     get HEAPF32() {
@@ -543,3 +723,118 @@ export function processSpatialMasking(
   wasm.spatial_masking_free(statePtr);
   return outputChannels;
 }
+
+// ─── ACOUSTIC REVERBERATION (RT60) HIGH-LEVEL API ────────────────────────────
+
+export type AcousticClarityCategory =
+  | "dry"
+  | "balanced"
+  | "reverberant"
+  | "echo_chamber"
+  | "unknown";
+
+export interface RT60EstimationResult {
+  /** Estimated RT60 reverberation time in seconds */
+  rt60Seconds: number;
+  /** Early Decay Time (EDT) extrapolated from 0 to -10 dB in seconds */
+  earlyDecayTime: number;
+  /** Acoustic category classification based on RT60 duration */
+  category: AcousticClarityCategory;
+  /** Normalized energy decay curve in decibels (EDC dB) subsampled for telemetry rendering */
+  energyDecayCurveDb: Float32Array;
+}
+
+/**
+ * Categorizes room acoustic decay into human-friendly clarity tiers.
+ * - dry: < 0.4s (ideal for podcast, call, focused work)
+ * - balanced: 0.4s - 0.7s (comfortable modern coworking space)
+ * - reverberant: 0.7s - 1.2s (live room, lively café)
+ * - echo_chamber: > 1.2s (untreated high ceiling, concrete atrium)
+ */
+export function classifyAcousticEnvironment(
+  rt60Seconds: number,
+): AcousticClarityCategory {
+  if (
+    Number.isNaN(rt60Seconds) ||
+    !Number.isFinite(rt60Seconds) ||
+    rt60Seconds <= 0.0
+  ) {
+    return "unknown";
+  }
+  if (rt60Seconds < 0.4) {
+    return "dry";
+  }
+  if (rt60Seconds <= 0.7) {
+    return "balanced";
+  }
+  if (rt60Seconds <= 1.2) {
+    return "reverberant";
+  }
+  return "echo_chamber";
+}
+
+/**
+ * Estimates RT60 Reverberation Decay Time using Schroeder Reverse Energy Integration.
+ *
+ * @param impulseResponse Audio impulse response or decaying room audio frame
+ * @param sampleRate Audio sample rate in Hz (default: 44100)
+ * @param subsampleCurvePoints Number of points to subsample for visualization EDC curve
+ */
+export function estimateRT60(
+  impulseResponse: Float32Array,
+  sampleRate: number = DEFAULT_SAMPLE_RATE,
+  subsampleCurvePoints: number = 64,
+): RT60EstimationResult {
+  if (!impulseResponse || impulseResponse.length < 64) {
+    return {
+      rt60Seconds: 0,
+      earlyDecayTime: 0,
+      category: "unknown",
+      energyDecayCurveDb: new Float32Array(0),
+    };
+  }
+
+  const wasm = createSpatialMaskingHarness();
+  const numSamples = impulseResponse.length;
+  const inPtr = wasm.wasm_malloc(numSamples * 4);
+  const edcPoints = Math.max(16, Math.min(subsampleCurvePoints, 512));
+  const outEdcPtr = wasm.wasm_malloc(edcPoints * 4);
+
+  wasm.HEAPF32.set(impulseResponse, inPtr / 4);
+
+  const rt60 = wasm.estimate_rt60_decay(
+    inPtr,
+    numSamples,
+    sampleRate,
+    outEdcPtr,
+    edcPoints,
+  );
+
+  const edcCurve = new Float32Array(edcPoints);
+  edcCurve.set(wasm.HEAPF32.subarray(outEdcPtr / 4, outEdcPtr / 4 + edcPoints));
+
+  let edt = 0.0;
+  let idx10dB = -1;
+  for (let i = 0; i < edcPoints; i++) {
+    if (edcCurve[i] <= -10.0) {
+      idx10dB = i;
+      break;
+    }
+  }
+  if (idx10dB > 0) {
+    const time10dB = (idx10dB / (edcPoints - 1)) * (numSamples / sampleRate);
+    edt = time10dB * 6.0;
+  } else if (rt60 > 0) {
+    edt = rt60;
+  }
+
+  const category = classifyAcousticEnvironment(rt60);
+
+  return {
+    rt60Seconds: Math.round(rt60 * 1000) / 1000,
+    earlyDecayTime: Math.round(edt * 1000) / 1000,
+    category,
+    energyDecayCurveDb: edcCurve,
+  };
+}
+
