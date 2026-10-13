@@ -20,6 +20,12 @@ import {
 import { generateQRCodeSVG, downloadSVG } from "@/lib/qr/svgQr";
 import { useToast } from "@/components/ui/Toast";
 import type { WorkHopBundle } from "@/lib/bundles/workHopEngine";
+import {
+  generateZkMembershipPass,
+  verifyZkMembershipPass,
+  type ZkPassProofPayload,
+  type ZkVerificationResult,
+} from "@/lib/zkp/membershipVerifier";
 
 interface WorkHopPassCardProps {
   initialBundle?: WorkHopBundle;
@@ -110,6 +116,12 @@ export default function WorkHopPassCard({
   const [copiedPassCode, setCopiedPassCode] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Zero-Knowledge Proof (ZKP) Anonymous Membership Pass State
+  const [zkpEnabled, setZkpEnabled] = useState<boolean>(false);
+  const [zkProof, setZkProof] = useState<ZkPassProofPayload | null>(null);
+  const [, setZkResult] = useState<ZkVerificationResult | null>(null);
+  const [isGeneratingZkp, setIsGeneratingZkp] = useState<boolean>(false);
+
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [tilt, setTilt] = useState<TiltState>({
     rotateX: 0,
@@ -193,27 +205,63 @@ export default function WorkHopPassCard({
     }, 3000);
   };
 
-  // Generate SVG QR Code on mount or token change
+  // Generate SVG QR Code on mount, token change, or ZKP privacy toggle
   useEffect(() => {
-    try {
-      const qrPayload = JSON.stringify({
-        type: "WORKHOP_DAY_PASS",
-        bundleId: bundle.bundleId,
-        date: bundle.date,
-        token: bundle.qrToken,
-      });
-      const svg = generateQRCodeSVG(qrPayload, {
-        size: 200,
-        padding: 2,
-        fgColor: "#0f172a",
-        bgColor: "#ffffff",
-        title: `WorkHop Pass ${bundle.bundleId}`,
-      });
-      setQrSvg(svg);
-    } catch (e) {
-      console.error("QR Generation error:", e);
+    let isCancelled = false;
+
+    async function updateQR() {
+      try {
+        let qrPayload: string;
+        if (zkpEnabled) {
+          setIsGeneratingZkp(true);
+          const proof = await generateZkMembershipPass(bundle);
+          if (isCancelled) return;
+          setZkProof(proof);
+          const verifyRes = verifyZkMembershipPass(proof);
+          setZkResult(verifyRes);
+
+          qrPayload = JSON.stringify({
+            type: "WORKHOP_ZKP_ANONYMOUS_PASS",
+            bundleId: bundle.bundleId,
+            date: bundle.date,
+            tier: bundle.tier,
+            commitment: proof.commitment,
+            nullifierHash: proof.nullifierHash,
+            simulatedProofHash: proof.proof.simulatedProofHash,
+            zkVerified: verifyRes.valid,
+          });
+          setIsGeneratingZkp(false);
+        } else {
+          qrPayload = JSON.stringify({
+            type: "WORKHOP_DAY_PASS",
+            bundleId: bundle.bundleId,
+            date: bundle.date,
+            token: bundle.qrToken,
+          });
+        }
+
+        const svg = generateQRCodeSVG(qrPayload, {
+          size: 200,
+          padding: 2,
+          fgColor: zkpEnabled ? "#047857" : "#0f172a",
+          bgColor: "#ffffff",
+          title: zkpEnabled
+            ? `WorkHop ZKP Anonymous Pass ${bundle.bundleId}`
+            : `WorkHop Pass ${bundle.bundleId}`,
+        });
+        setQrSvg(svg);
+      } catch (e) {
+        console.error("QR Generation error:", e);
+        setIsGeneratingZkp(false);
+      }
     }
-  }, [bundle]);
+
+    updateQR();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [bundle, zkpEnabled]);
 
   const handleDownloadQR = () => {
     if (qrSvg) {
@@ -221,12 +269,21 @@ export default function WorkHopPassCard({
     }
   };
 
-  // Simulate scanning at venue door
+  // Simulate scanning at venue door with ZKP proof verification
   const handleSimulateCheckIn = async (legIndex: number) => {
     setVerifying(true);
     setVerifyMessage(null);
     try {
       await new Promise((resolve) => setTimeout(resolve, 600));
+
+      let verifySuccessMsg = `Checked into Leg #${legIndex} successfully! Door unlocked.`;
+      if (zkpEnabled && zkProof) {
+        const zkpVerify = verifyZkMembershipPass(zkProof);
+        if (zkpVerify.valid) {
+          verifySuccessMsg = `Checked into Leg #${legIndex} with Zero-Knowledge verification (${zkpVerify.verificationLatencyMs}ms). Identity masked!`;
+        }
+      }
+
       setBundle((prev) => ({
         ...prev,
         legs: prev.legs.map((leg) =>
@@ -242,9 +299,7 @@ export default function WorkHopPassCard({
             : leg,
         ),
       }));
-      setVerifyMessage(
-        `Checked into Leg #${legIndex} successfully! Door unlocked.`,
-      );
+      setVerifyMessage(verifySuccessMsg);
       setTimeout(() => setVerifyMessage(null), 4000);
     } finally {
       setVerifying(false);
@@ -331,6 +386,26 @@ export default function WorkHopPassCard({
               <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-xs font-semibold whitespace-nowrap">
                 {bundle.discountPercentage}% Bundle Savings
               </span>
+
+              {/* Zero-Knowledge Proof Privacy Mode Toggle */}
+              <button
+                type="button"
+                data-testid="zkp-mode-toggle"
+                onClick={() => setZkpEnabled((prev) => !prev)}
+                className={`px-3 py-1 rounded-md border text-xs font-mono font-bold tracking-wider uppercase flex items-center gap-1.5 transition-all ${
+                  zkpEnabled
+                    ? "bg-emerald-500/25 border-emerald-400 text-emerald-300 shadow-sm shadow-emerald-500/30"
+                    : "bg-slate-800/80 border-slate-700 text-slate-400 hover:text-emerald-400 hover:border-emerald-500/40"
+                }`}
+                title={zkpEnabled ? "Disable ZKP Anonymous Pass" : "Enable ZKP Anonymous Pass"}
+              >
+                <ShieldCheck
+                  className={`w-3.5 h-3.5 ${zkpEnabled ? "text-emerald-400" : "text-slate-400"}`}
+                />
+                <span>
+                  {zkpEnabled ? "ZKP PRIVACY SHIELD ON" : "ENABLE ZKP PASS"}
+                </span>
+              </button>
             </div>
 
             <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
@@ -382,6 +457,20 @@ export default function WorkHopPassCard({
                 <QrCode className="w-12 h-12 text-slate-400 animate-pulse" />
               </div>
             )}
+
+            {/* ZKP Verified Privacy Shield Pill in QR Box */}
+            {zkpEnabled && (
+              <div
+                data-testid="zkp-verified-badge"
+                className="w-full flex items-center justify-center gap-1 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-300 text-[10px] font-mono font-bold text-emerald-800"
+              >
+                <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+                <span>
+                  {isGeneratingZkp ? "PROVING..." : "ZKP ANONYMOUS VERIFIED"}
+                </span>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={handleCopyPassCode}
@@ -436,13 +525,15 @@ export default function WorkHopPassCard({
             </div>
             <div className="text-[10px] font-mono text-emerald-400/90 tracking-wider">
               <span className="block font-bold">SEC-2814 // FLIGHT BADGE</span>
-              <span className="text-slate-400">TELEMETRY: VERIFIED</span>
+              <span className="text-slate-400">
+                TELEMETRY: {zkpEnabled ? "ZKP-VERIFIED (ANON)" : "VERIFIED"}
+              </span>
             </div>
           </div>
 
           <div className="text-[10px] font-mono text-right text-slate-400 flex flex-wrap gap-2 sm:gap-4">
             <span>FREQ: 1420.405 MHz</span>
-            <span>AUTH: SHA-256</span>
+            <span>{zkpEnabled ? "AUTH: ZKP-GROTH16" : "AUTH: SHA-256"}</span>
             <span className="text-emerald-400 font-semibold">
               COORDS: 37.77°N 122.41°W
             </span>
