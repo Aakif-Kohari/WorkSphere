@@ -102,7 +102,14 @@ export function PasswordStrengthMeter({
       </div>
 
       {/* Strength label and first feedback hint */}
-      <div className="flex items-center justify-between text-xs">
+      <div
+        className="flex items-center justify-between text-xs"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span className="sr-only">
+          Password strength: {config.label} ({score} out of 4)
+        </span>
         <span
           data-testid="password-strength-label"
           className={`font-semibold ${
@@ -114,6 +121,7 @@ export function PasswordStrengthMeter({
                   ? "text-blue-600 dark:text-blue-400"
                   : "text-green-600 dark:text-green-400"
           }`}
+          aria-hidden="true"
         >
           {config.label}
         </span>
