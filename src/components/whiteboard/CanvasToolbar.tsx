@@ -58,6 +58,11 @@ const TOOLS: { id: ToolType; label: string; icon: string }[] = [
     label: "Sticky Note",
     icon: "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z",
   },
+  {
+    id: "construct",
+    label: "Construct",
+    icon: "M12 2l8 4.5v7c0 5-3.5 9-8 10.5-4.5-1.5-8-5.5-8-10.5v-7L12 2z",
+  },
 ];
 
 export function CanvasToolbar({
