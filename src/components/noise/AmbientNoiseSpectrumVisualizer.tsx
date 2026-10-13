@@ -7,13 +7,14 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
-import { Volume2, Mic, Square, Radio, Sliders, Sparkles } from "lucide-react";
+import { Volume2, Mic, Square, Radio, Sliders, Sparkles, Zap } from "lucide-react";
 import {
   analyzeFrequencyBands,
   getFrequencyProfile,
   type FrequencyBandSpectrum,
 } from "@/lib/noise/spectrumAnalyzer";
 import { normalizeFrequencyGain } from "@/lib/noise/calibration";
+import { useBatteryLowPowerThrottle } from "@/hooks/useBatteryLowPowerThrottle";
 
 export interface AmbientNoiseSpectrumVisualizerProps {
   venueId?: string;
@@ -172,6 +173,15 @@ export function AmbientNoiseSpectrumVisualizer({
   initialViewMode = "waterfall",
   initialColormap = "turbo",
 }: AmbientNoiseSpectrumVisualizerProps) {
+  const {
+    isLowPower,
+    mode: powerMode,
+    webglPolicy,
+    shouldRenderWebGLFrame,
+    setManualOverride,
+    manualOverride,
+  } = useBatteryLowPowerThrottle();
+
   const [isLiveMic, setIsLiveMic] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"waterfall" | "bars" | "both">(
@@ -450,48 +460,50 @@ export function AmbientNoiseSpectrumVisualizer({
       const bufferLength = analyser.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
 
-      const renderLiveFrame = () => {
+      const renderLiveFrame = (now: number) => {
         if (!analyserRef.current) return;
-        analyserRef.current.getByteFrequencyData(dataArray);
+        if (shouldRenderWebGLFrame(now)) {
+          analyserRef.current.getByteFrequencyData(dataArray);
 
-        // Push 60fps FFT byte data to WebGL dynamic texture backing
-        pushWaterfallRow(dataArray);
+          // Push FFT byte data to WebGL dynamic texture backing
+          pushWaterfallRow(dataArray);
 
-        // Group into 24 standard 1/3 octave bands
-        const step = Math.max(1, Math.floor(bufferLength / 24));
-        const newBars: number[] = [];
-        let totalEnergy = 0;
+          // Group into 24 standard 1/3 octave bands
+          const step = Math.max(1, Math.floor(bufferLength / 24));
+          const newBars: number[] = [];
+          let totalEnergy = 0;
 
-        for (let i = 0; i < 24; i++) {
-          const startIdx = i * step;
-          let sum = 0;
-          for (let j = 0; j < step && startIdx + j < bufferLength; j++) {
-            sum += dataArray[startIdx + j];
+          for (let i = 0; i < 24; i++) {
+            const startIdx = i * step;
+            let sum = 0;
+            for (let j = 0; j < step && startIdx + j < bufferLength; j++) {
+              sum += dataArray[startIdx + j];
+            }
+            const avgByte = sum / step;
+            const normalizedPct = normalizeFrequencyGain(
+              Math.round((avgByte / 255) * 100),
+            );
+            newBars.push(normalizedPct);
+            totalEnergy += avgByte;
           }
-          const avgByte = sum / step;
-          const normalizedPct = normalizeFrequencyGain(
-            Math.round((avgByte / 255) * 100),
+
+          const avgByteAll = totalEnergy / 24;
+          const liveDbEst = Math.round(30 + (avgByteAll / 255) * 65);
+          setCurrentDb(liveDbEst);
+
+          setBars(newBars);
+          setPeaks((prev) =>
+            prev.map((p, idx) => Math.max(p * 0.95, newBars[idx] || 0)),
           );
-          newBars.push(normalizedPct);
-          totalEnergy += avgByte;
+
+          // Frequency band spectrum breakdown
+          const spec = analyzeFrequencyBands(
+            dataArray,
+            audioCtx.sampleRate,
+            analyser.fftSize,
+          );
+          setFrequencySpectrum(spec);
         }
-
-        const avgByteAll = totalEnergy / 24;
-        const liveDbEst = Math.round(30 + (avgByteAll / 255) * 65);
-        setCurrentDb(liveDbEst);
-
-        setBars(newBars);
-        setPeaks((prev) =>
-          prev.map((p, idx) => Math.max(p * 0.95, newBars[idx] || 0)),
-        );
-
-        // Frequency band spectrum breakdown
-        const spec = analyzeFrequencyBands(
-          dataArray,
-          audioCtx.sampleRate,
-          analyser.fftSize,
-        );
-        setFrequencySpectrum(spec);
 
         animFrameRef.current = requestAnimationFrame(renderLiveFrame);
       };
@@ -502,7 +514,7 @@ export function AmbientNoiseSpectrumVisualizer({
       setMicError("Microphone access unavailable. Using telemetry simulation.");
       setIsLiveMic(false);
     }
-  }, [pushWaterfallRow]);
+  }, [pushWaterfallRow, shouldRenderWebGLFrame]);
 
   // Continuous simulated ambient acoustic telemetry & waterfall loop when microphone is inactive
   useEffect(() => {
@@ -512,11 +524,9 @@ export function AmbientNoiseSpectrumVisualizer({
     const isQuiet = baseDb < 50;
     const isLoud = baseDb > 70;
 
-    // 60fps WebGL waterfall simulated ticker
-    let lastSimTick = performance.now();
+    // WebGL waterfall simulated ticker regulated by power throttle policy
     const renderSimulatedWaterfallFrame = (now: number) => {
-      if (now - lastSimTick >= 16.6) {
-        lastSimTick = now;
+      if (shouldRenderWebGLFrame(now)) {
         const simBytes = synthesizeSimulatedFftBins(baseDb);
         pushWaterfallRow(simBytes);
       }
@@ -708,6 +718,38 @@ export function AmbientNoiseSpectrumVisualizer({
               Split
             </button>
           </div>
+
+          {/* Battery-Aware Low Power Mode indicator / toggle */}
+          <button
+            type="button"
+            data-testid="low-power-mode-toggle-btn"
+            onClick={() => {
+              setManualOverride(
+                manualOverride === "low_power"
+                  ? null
+                  : manualOverride === "critical"
+                  ? null
+                  : "low_power",
+              );
+            }}
+            title={
+              isLowPower
+                ? `Battery Low-Power Mode Active (${webglPolicy.targetFps} FPS WebGL, 100ms Worklet). Click to toggle.`
+                : "Standard Power Mode (60 FPS WebGL). Click to force Low-Power Mode."
+            }
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-mono font-semibold border transition-all ${
+              isLowPower
+                ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs"
+                : "bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-300 border-zinc-700"
+            }`}
+          >
+            <Zap
+              className={`w-3 h-3 ${
+                isLowPower ? "text-amber-400 fill-amber-400/30" : "text-zinc-500"
+              }`}
+            />
+            <span>{isLowPower ? `ECO ${webglPolicy.targetFps}FPS` : "60FPS"}</span>
+          </button>
 
           {/* Colormap Toggle (only when waterfall is visible) */}
           {(viewMode === "waterfall" || viewMode === "both") && (
