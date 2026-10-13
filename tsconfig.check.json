@@ -4,6 +4,6 @@
     "types": []
   },
   "include": [
-    "src/components/chat/ChatHeader.tsx"
+    "src/components/ui/TacticalTargetReticle.tsx"
   ]
 }
