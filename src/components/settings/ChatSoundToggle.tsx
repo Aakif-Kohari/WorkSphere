@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Volume2, VolumeX, Play, Radio, Crosshair } from "lucide-react";
+import { Volume2, VolumeX, Play, Radio, Crosshair, Zap } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import {
   isChatSoundEnabled,
@@ -15,13 +15,103 @@ import {
   type AudioProfile,
 } from "@/lib/chatSound";
 
+export const SONIC_BOOM_STORAGE_KEY = "worksphere_audio_sonic_boom";
+export const SONIC_BOOM_CHANGE_EVENT = "worksphere_audio_sonic_boom_change";
+
+/**
+ * Retrieves the stored Supersonic Sonic Boom setting from localStorage.
+ */
+export function isSonicBoomEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(SONIC_BOOM_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Persists the Supersonic Sonic Boom setting to localStorage and dispatches change event.
+ */
+export function setSonicBoomEnabled(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SONIC_BOOM_STORAGE_KEY, String(enabled));
+    window.dispatchEvent(
+      new CustomEvent<boolean>(SONIC_BOOM_CHANGE_EVENT, { detail: enabled })
+    );
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+/**
+ * Procedurally synthesizes a supersonic sonic boom audio FX using Web Audio API:
+ * authentic dual shockwave sub-bass thump on booking confirmations and exports.
+ */
+export function playSonicBoomSound(): void {
+  if (typeof window === "undefined" || !isSonicBoomEnabled()) return;
+  try {
+    const AudioCtxClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtxClass) return;
+    const ctx = new AudioCtxClass();
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
+    const now = ctx.currentTime;
+
+    // Primary shockwave sub-bass drop (130Hz -> 28Hz)
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = "sine";
+    osc1.frequency.setValueAtTime(130, now);
+    osc1.frequency.exponentialRampToValueAtTime(28, now + 0.35);
+
+    gain1.gain.setValueAtTime(0.001, now);
+    gain1.gain.linearRampToValueAtTime(0.7, now + 0.02);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.55);
+
+    // Secondary N-wave shockwave thump (80ms delay)
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = "triangle";
+    const t2 = now + 0.08;
+    osc2.frequency.setValueAtTime(95, t2);
+    osc2.frequency.exponentialRampToValueAtTime(20, t2 + 0.4);
+
+    gain2.gain.setValueAtTime(0.001, t2);
+    gain2.gain.linearRampToValueAtTime(0.5, t2 + 0.02);
+    gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.6);
+
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(t2);
+    osc2.stop(t2 + 0.65);
+  } catch {
+    // Ignore audio context errors
+  }
+}
+
 export interface ChatSoundToggleProps {
   onSoundChange?: (enabled: boolean) => void;
+  onSonicBoomChange?: (enabled: boolean) => void;
   className?: string;
 }
 
-export function ChatSoundToggle({ onSoundChange, className = "" }: ChatSoundToggleProps = {}) {
+export function ChatSoundToggle({
+  onSoundChange,
+  onSonicBoomChange,
+  className = "",
+}: ChatSoundToggleProps = {}) {
   const [enabled, setEnabled] = useState<boolean>(true);
+  const [sonicBoomEnabled, setSonicBoomEnabledState] = useState<boolean>(false);
   const [profile, setProfile] = useState<AudioProfile>("Standard Bell");
   const [isPlayingPreview, setIsPlayingPreview] = useState<boolean>(false);
   const [mounted, setMounted] = useState<boolean>(false);
@@ -29,8 +119,11 @@ export function ChatSoundToggle({ onSoundChange, className = "" }: ChatSoundTogg
   useEffect(() => {
     const initialProfile = getAudioProfile();
     const initialEnabled = isChatSoundEnabled();
+    const initialSonicBoom = isSonicBoomEnabled();
+
     setProfile(initialProfile);
     setEnabled(initialEnabled);
+    setSonicBoomEnabledState(initialSonicBoom);
     setMounted(true);
 
     const handleSoundChange = (e: Event) => {
@@ -44,6 +137,14 @@ export function ChatSoundToggle({ onSoundChange, className = "" }: ChatSoundTogg
           const p = getAudioProfile();
           setProfile(p === "Mute" ? "Standard Bell" : p);
         }
+      }
+    };
+
+    const handleSonicBoomChange = (e: Event) => {
+      const customEvent = e as CustomEvent<boolean>;
+      if (typeof customEvent.detail === "boolean") {
+        setSonicBoomEnabledState(customEvent.detail);
+        onSonicBoomChange?.(customEvent.detail);
       }
     };
 
@@ -69,17 +170,25 @@ export function ChatSoundToggle({ onSoundChange, className = "" }: ChatSoundTogg
         setProfile(p);
         onSoundChange?.(val);
       }
+      if (e.key === null || e.key === SONIC_BOOM_STORAGE_KEY) {
+        const boomVal = isSonicBoomEnabled();
+        setSonicBoomEnabledState(boomVal);
+        onSonicBoomChange?.(boomVal);
+      }
     };
 
     window.addEventListener(CHAT_SOUND_CHANGE_EVENT, handleSoundChange);
     window.addEventListener(AUDIO_PROFILE_CHANGE_EVENT, handleProfileChange);
+    window.addEventListener(SONIC_BOOM_CHANGE_EVENT, handleSonicBoomChange);
     window.addEventListener("storage", handleStorageChange);
+
     return () => {
       window.removeEventListener(CHAT_SOUND_CHANGE_EVENT, handleSoundChange);
       window.removeEventListener(AUDIO_PROFILE_CHANGE_EVENT, handleProfileChange);
+      window.removeEventListener(SONIC_BOOM_CHANGE_EVENT, handleSonicBoomChange);
       window.removeEventListener("storage", handleStorageChange);
     };
-  }, [onSoundChange]);
+  }, [onSoundChange, onSonicBoomChange]);
 
   const handleToggle = (checked: boolean) => {
     setEnabled(checked);
@@ -93,6 +202,12 @@ export function ChatSoundToggle({ onSoundChange, className = "" }: ChatSoundTogg
     }
     setChatSoundEnabled(checked);
     onSoundChange?.(checked);
+  };
+
+  const handleSonicBoomToggle = (checked: boolean) => {
+    setSonicBoomEnabledState(checked);
+    setSonicBoomEnabled(checked);
+    onSonicBoomChange?.(checked);
   };
 
   const handleSelectProfile = (newProfile: AudioProfile) => {
@@ -235,6 +350,47 @@ export function ChatSoundToggle({ onSoundChange, className = "" }: ChatSoundTogg
             <span>{isPlayingPreview ? "Playing..." : "Preview"}</span>
           </button>
         </div>
+      </div>
+
+      {/* Secondary Toggle: Supersonic Sonic Boom Audio FX (#6298) */}
+      <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between space-x-4">
+        <div className="flex items-center gap-3">
+          <div
+            className={`p-2 rounded-lg transition-colors ${
+              sonicBoomEnabled
+                ? "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400"
+            }`}
+          >
+            <Zap className="w-5 h-5" aria-hidden="true" />
+          </div>
+          <div className="space-y-1">
+            <Label
+              htmlFor="sonic-boom-toggle-switch"
+              className="text-base font-semibold leading-none flex items-center gap-2 text-zinc-900 dark:text-zinc-100 cursor-pointer"
+            >
+              Supersonic Sonic Boom Audio FX
+            </Label>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Plays an authentic Web Audio synthesized sonic boom thump upon confirming bookings or completing exports.
+            </p>
+          </div>
+        </div>
+
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input
+            id="sonic-boom-toggle-switch"
+            type="checkbox"
+            role="switch"
+            aria-checked={sonicBoomEnabled}
+            aria-label="Supersonic Sonic Boom Audio FX"
+            data-testid="sonic-boom-toggle-switch"
+            className="sr-only peer"
+            checked={sonicBoomEnabled}
+            onChange={(e) => handleSonicBoomToggle(e.target.checked)}
+          />
+          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 dark:peer-focus:ring-amber-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-amber-500"></div>
+        </label>
       </div>
 
       {/* Fighter Jet Cockpit Telemetry HUD Badge */}
