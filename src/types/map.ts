@@ -58,10 +58,17 @@ export interface MapMarker {
 export interface MapRoute {
   id: string;
   name?: string;
-  path: Array<{ lat: number; lng: number }>;
+  path: Array<{ lat: number; lng: number; elevationMeters?: number }>;
   distance?: number;
   duration?: number;
   isHighlighted?: boolean;
+  elevationGainMeters?: number;
+  elevationLossMeters?: number;
+  elevationProfile?: Array<{
+    distanceKm: number;
+    elevationMeters: number;
+    gradePercent?: number;
+  }>;
 }
 
 export interface MapView {
