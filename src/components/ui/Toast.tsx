@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export type ToastType = "success" | "error" | "warning" | "info";
+export type ToastVariant = "default" | "hud";
 
 export interface ToastOptions {
   id?: string;
@@ -25,6 +26,8 @@ export interface ToastOptions {
   countdown?: number;
   duration?: number;
   action?: { label: string; onClick: () => void };
+  variant?: ToastVariant;
+  timestamp?: string;
 }
 
 export interface Toast {
@@ -32,6 +35,8 @@ export interface Toast {
   key?: string;
   message: string;
   type: ToastType;
+  variant?: ToastVariant;
+  timestamp?: string;
   action?: {
     label: string;
     onClick: () => void;
@@ -79,6 +84,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       let effectiveCountdown = countdown;
       let effectiveDuration: number | undefined;
       let toastKey: string | undefined = idOrKey;
+      let variant: ToastVariant = "default";
+      let timestamp: string | undefined;
 
       if (actionOrOptions) {
         if ("onClick" in actionOrOptions && "label" in actionOrOptions) {
@@ -88,12 +95,22 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           if (opts.action) action = opts.action;
           if (opts.countdown !== undefined) effectiveCountdown = opts.countdown;
           if (opts.duration !== undefined) effectiveDuration = opts.duration;
+          if (opts.variant) variant = opts.variant;
+          if (opts.timestamp) timestamp = opts.timestamp;
           if (opts.id) toastKey = opts.id;
           else if (opts.key) toastKey = opts.key;
         }
       }
 
       const now = Date.now();
+      const effectiveTimestamp =
+        timestamp ||
+        new Date().toLocaleTimeString(undefined, {
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
 
       // If a toastKey or id is provided, deduplicate and update existing toast in-place
       if (toastKey) {
@@ -107,6 +124,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               ...updated[existingIndex],
               message,
               type,
+              variant: variant !== "default" ? variant : updated[existingIndex].variant,
+              timestamp: effectiveTimestamp,
               action: action ?? updated[existingIndex].action,
               countdown:
                 effectiveCountdown !== undefined
@@ -128,6 +147,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               key: toastKey,
               message,
               type,
+              variant,
+              timestamp: effectiveTimestamp,
               action,
               countdown: effectiveCountdown,
               duration: effectiveDuration,
@@ -190,6 +211,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             id,
             message,
             type,
+            variant,
+            timestamp: effectiveTimestamp,
             action,
             countdown: effectiveCountdown,
             duration: effectiveDuration,
@@ -393,16 +416,21 @@ function ToastItem({
       : toast.message;
 
   const assertive = isAssertive(toast);
+  const isHud = toast.variant === "hud";
 
   return (
     <div
       role={assertive ? "alert" : "status"}
       aria-live={assertive ? "assertive" : "polite"}
       aria-atomic="true"
+      data-testid={isHud ? "tactical-hud-toast" : "toast-item"}
+      data-variant={toast.variant || "default"}
       className={cn(
-        "pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-md min-w-[280px] max-w-[380px]",
-        "bg-white/90 dark:bg-zinc-900/90 border-zinc-200 dark:border-zinc-800",
+        "pointer-events-auto flex items-center gap-3 px-4 py-3 shadow-lg backdrop-blur-md min-w-[280px] max-w-[400px]",
         "animate-in slide-in-from-right-full fade-in duration-300",
+        isHud
+          ? "relative rounded-md border border-emerald-500/40 bg-zinc-950/95 text-emerald-300 shadow-[0_0_20px_rgba(16,185,129,0.25)] font-mono"
+          : "rounded-xl border bg-white/90 dark:bg-zinc-900/90 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300",
       )}
       onMouseEnter={() => setIsPointerOver(true)}
       onMouseLeave={() => setIsPointerOver(false)}
@@ -414,9 +442,63 @@ function ToastItem({
         }
       }}
     >
-      <Icon className={cn("w-4 h-4 shrink-0", iconColor)} aria-hidden="true" />
-      <div className="flex-1 flex flex-col items-start text-sm text-zinc-700 dark:text-zinc-300">
-        <span className="font-medium">{displayMessage}</span>
+      {/* Tactical corner brackets for HUD appearance (⌜ ⌝ ⌞ ⌟) */}
+      {isHud && (
+        <>
+          <span
+            className="absolute top-0.5 left-1 font-mono text-emerald-400 text-xs select-none pointer-events-none"
+            aria-hidden="true"
+          >
+            ⌜
+          </span>
+          <span
+            className="absolute top-0.5 right-1 font-mono text-emerald-400 text-xs select-none pointer-events-none"
+            aria-hidden="true"
+          >
+            ⌝
+          </span>
+          <span
+            className="absolute bottom-0.5 left-1 font-mono text-emerald-400 text-xs select-none pointer-events-none"
+            aria-hidden="true"
+          >
+            ⌞
+          </span>
+          <span
+            className="absolute bottom-0.5 right-1 font-mono text-emerald-400 text-xs select-none pointer-events-none"
+            aria-hidden="true"
+          >
+            ⌟
+          </span>
+        </>
+      )}
+
+      {/* Status indicator: Emerald pulsating energy dot for HUD, Lucide icon for standard */}
+      {isHud ? (
+        <span
+          className="relative flex h-2.5 w-2.5 shrink-0"
+          aria-hidden="true"
+          data-testid="hud-emerald-status-dot"
+        >
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_8px_#10b981]" />
+        </span>
+      ) : (
+        <Icon className={cn("w-4 h-4 shrink-0", iconColor)} aria-hidden="true" />
+      )}
+
+      <div className={cn("flex-1 flex flex-col items-start text-sm", isHud ? "text-emerald-300" : "text-zinc-700 dark:text-zinc-300")}>
+        <div className="flex items-center flex-wrap gap-1 font-medium">
+          {isHud && toast.timestamp && (
+            <span
+              className="text-[11px] font-mono text-emerald-400 font-bold tracking-wider select-none"
+              aria-hidden="true"
+              data-testid="hud-telemetry-timestamp"
+            >
+              [{toast.timestamp}]
+            </span>
+          )}
+          <span>{displayMessage}</span>
+        </div>
         {toast.action && (
           <button
             type="button"
@@ -424,7 +506,12 @@ function ToastItem({
               toast.action!.onClick();
               onRemove(toast.id);
             }}
-            className="mt-1.5 px-3 py-1 bg-[var(--primary-accent)] hover:opacity-90 active:scale-95 text-white rounded-md text-[11px] font-bold uppercase tracking-wider transition-all"
+            className={cn(
+              "mt-1.5 px-3 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all",
+              isHud
+                ? "bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-zinc-950 border border-emerald-400/40"
+                : "bg-[var(--primary-accent)] hover:opacity-90 active:scale-95 text-white",
+            )}
           >
             {toast.action.label}
           </button>
@@ -433,11 +520,103 @@ function ToastItem({
       <button
         type="button"
         onClick={() => onRemove(toast.id)}
-        className="shrink-0 p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        className={cn(
+          "shrink-0 p-1 rounded-lg transition-colors",
+          isHud
+            ? "text-emerald-400/70 hover:text-emerald-200 hover:bg-emerald-950/60"
+            : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800",
+        )}
         aria-label="Dismiss notification"
       >
         <X className="w-3.5 h-3.5" />
       </button>
+    </div>
+  );
+}
+
+export interface TacticalHUDToastProps {
+  message: string;
+  timestamp?: string;
+  type?: ToastType;
+  action?: { label: string; onClick: () => void };
+  onDismiss?: () => void;
+  className?: string;
+}
+
+/**
+ * TacticalHUDToast: Dedicated collimated fighter jet HUD advisory notification component
+ * with tactical corner brackets (⌜ ⌝ ⌞ ⌟), glowing emerald power dot, and telemetry timestamp.
+ */
+export function TacticalHUDToast({
+  message,
+  timestamp,
+  type = "info",
+  action,
+  onDismiss,
+  className = "",
+}: TacticalHUDToastProps) {
+  const currentTimestamp =
+    timestamp ||
+    new Date().toLocaleTimeString(undefined, {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      data-testid="tactical-hud-toast"
+      data-variant="hud"
+      className={cn(
+        "relative pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-md border shadow-[0_0_20px_rgba(16,185,129,0.25)] backdrop-blur-md min-w-[280px] max-w-[420px]",
+        "bg-zinc-950/95 border-emerald-500/40 text-emerald-300 font-mono",
+        className,
+      )}
+    >
+      {/* Corner brackets */}
+      <span className="absolute top-0.5 left-1 font-mono text-emerald-400 text-xs select-none pointer-events-none" aria-hidden="true">⌜</span>
+      <span className="absolute top-0.5 right-1 font-mono text-emerald-400 text-xs select-none pointer-events-none" aria-hidden="true">⌝</span>
+      <span className="absolute bottom-0.5 left-1 font-mono text-emerald-400 text-xs select-none pointer-events-none" aria-hidden="true">⌞</span>
+      <span className="absolute bottom-0.5 right-1 font-mono text-emerald-400 text-xs select-none pointer-events-none" aria-hidden="true">⌟</span>
+
+      {/* Emerald status dot */}
+      <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden="true" data-testid="hud-emerald-status-dot">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_8px_#10b981]" />
+      </span>
+
+      <div className="flex-1 flex flex-col items-start text-sm text-emerald-300">
+        <div className="flex items-center flex-wrap gap-1 font-medium">
+          <span className="text-[11px] font-mono text-emerald-400 font-bold tracking-wider select-none" aria-hidden="true" data-testid="hud-telemetry-timestamp">
+            [{currentTimestamp}]
+          </span>
+          <span>{message}</span>
+        </div>
+        {action && (
+          <button
+            type="button"
+            onClick={action.onClick}
+            className="mt-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-zinc-950 rounded text-[11px] font-bold uppercase tracking-wider transition-all border border-emerald-400/40"
+          >
+            {action.label}
+          </button>
+        )}
+      </div>
+
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 p-1 rounded text-emerald-400/70 hover:text-emerald-200 hover:bg-emerald-950/60 transition-colors"
+          aria-label="Dismiss notification"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
     </div>
   );
 }
