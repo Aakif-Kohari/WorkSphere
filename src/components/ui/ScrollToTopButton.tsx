@@ -204,7 +204,7 @@ export function ScrollToTopButton({
       className={[
         // Layout & shape
         "fixed bottom-6 right-6 z-50",
-        "h-12 w-12 rounded-full",
+        "h-12 w-12 min-h-[44px] min-w-[44px] rounded-full",
         // Flex centering
         "flex items-center justify-center",
         // Colours
