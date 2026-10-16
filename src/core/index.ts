@@ -15,3 +15,5 @@ export * from './db/PrismaClient';
 export * from './cache/RedisManager';
 export * from './analytics/TelemetryTracker';
 export * from './nutrition/AllergenMatcher';
+export * from './iot/LuggageLockerProtocol';
+export * from './trust/P2PLuggageEscrow';
